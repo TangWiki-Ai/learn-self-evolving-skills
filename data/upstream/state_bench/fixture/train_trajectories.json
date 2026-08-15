@@ -1,0 +1,14 @@
+{
+  "2-return_defective_electronics": {
+    "conversation": [
+      {
+        "role": "user",
+        "content": "My laptop from order ORD-6006 has a defective screen — it flickers constantly. I'd like to return it."
+      },
+      {
+        "role": "assistant",
+        "content": "I’ve started the return for your laptop. You’ll receive a full refund of $1,299 to your original payment method, with no restocking fee, and a return label has been issued for the shipment back. If you want, I can also help with a replacement option instead."
+      }
+    ]
+  }
+}

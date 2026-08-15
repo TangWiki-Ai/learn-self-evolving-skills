@@ -1,0 +1,13 @@
+{
+  "info": {"git_commit": "ade39493be54aad326a4c65295f77fe09780329b", "num_trials": 4},
+  "simulations": [
+    {"id": "113a635f-9635-4f9d-ba79-dc73228c1354", "task_id": "27", "trial": 0, "reward_info": {"reward": 0.0}},
+    {"id": "1a80f19d-7a3a-4b57-a245-0742b8b6b86a", "task_id": "53", "trial": 0, "reward_info": {"reward": 1.0}},
+    {"id": "cdb5caeb-570c-4ec6-bf53-16260c4a0cd4", "task_id": "27", "trial": 1, "reward_info": {"reward": 0.0}},
+    {"id": "1350c4e5-5d76-4b40-b7d9-4b96d5e6e155", "task_id": "53", "trial": 1, "reward_info": {"reward": 0.0}},
+    {"id": "f34e5daf-ef91-4199-a5c0-26c2774a2cc5", "task_id": "27", "trial": 2, "reward_info": {"reward": 0.0}},
+    {"id": "a7c74358-395f-43fd-8dd2-2d8841ac18a4", "task_id": "53", "trial": 2, "reward_info": {"reward": 1.0}},
+    {"id": "25babc82-8fe9-44e2-9ce3-dd65e40403ce", "task_id": "27", "trial": 3, "reward_info": {"reward": 0.0}},
+    {"id": "0f546fcc-84df-4006-9475-168fdc6d5ac8", "task_id": "53", "trial": 3, "reward_info": {"reward": 1.0}}
+  ]
+}

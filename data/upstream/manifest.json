@@ -1,0 +1,309 @@
+{
+  "schema_version": "v1alpha1",
+  "record_type": "upstream_manifest",
+  "transformation_version": "ses-testset-candidates-v1",
+  "transformation": {
+    "entrypoint": "scripts/prepare_data.py",
+    "stages": [
+      "acquire",
+      "exact_slice",
+      "scrub_deduplicate",
+      "cluster_compare_labels",
+      "aggregate_tau2_by_task",
+      "stratify_candidates"
+    ],
+    "outputs": [
+      "scrubbed-abcd.jsonl",
+      "cluster-assignments.jsonl",
+      "label-metrics.json",
+      "tau2-difficulty.jsonl",
+      "candidate-list.jsonl",
+      "funnel-counts.json",
+      "artifact-manifest.json"
+    ],
+    "creates_executable_cases": false,
+    "writes_test_splits": false
+  },
+  "sources": [
+    {
+      "name": "state_bench",
+      "kind": "benchmark",
+      "repository": "https://github.com/microsoft/STATE-Bench",
+      "commit": "5644b1838d96bc4483da29642d058ecaa6f80f7f",
+      "license": {
+        "spdx": "MIT",
+        "upstream_path": "LICENSE",
+        "path": "state_bench/LICENSE",
+        "bytes": 1081,
+        "sha256": "2e969379b1a7eaeeefe741c576aa64e29099b9629b645e0e938bf2c88e7b5f0b"
+      },
+      "assets": [
+        {
+          "name": "state_bench_source_archive",
+          "role": "state_bench_archive",
+          "url": "https://codeload.github.com/microsoft/STATE-Bench/tar.gz/5644b1838d96bc4483da29642d058ecaa6f80f7f",
+          "destination": "downloads/state_bench/source.tar.gz",
+          "bytes": 1251382,
+          "sha256": "746646f24ab0ebd713ae28f0e96c1cc81cdbe9598171a2f7ed37953ce7a0b96a",
+          "compression": "gzip_tar"
+        }
+      ],
+      "fixture_files": [
+        {
+          "role": "state_tasks",
+          "path": "state_bench/fixture/tasks.json",
+          "bytes": 663,
+          "sha256": "b026511c1a7de8c44d0124d46c7d2287ac98fa348e95861fd6a15b21094319ea"
+        },
+        {
+          "role": "state_trajectories",
+          "path": "state_bench/fixture/train_trajectories.json",
+          "bytes": 569,
+          "sha256": "92f424ed1d2ae4325515a17fe5095dc2fa0c1c0720badf63e6cab197d6551cb4"
+        }
+      ],
+      "fixture_projection": {
+        "source_records": 3,
+        "selected_records": 2,
+        "matching_trajectories": 1,
+        "trajectory_projection": "first user/assistant role/content pair unchanged",
+        "fields": ["task_id", "task_type", "opening_message", "conversation"]
+      },
+      "slice": {
+        "source_shape": "individual_json_files",
+        "task_path_glob": "state_bench/domains/customer_support/tasks/*.json",
+        "trajectory_path_glob": "datasets/train_task_trajectories/customer_support/*.json",
+        "filter": {
+          "json_path": "task_type",
+          "operator": "eq",
+          "value": "return_item"
+        },
+        "join": {
+          "task_key": "task_id",
+          "trajectory_key": "filename_stem"
+        },
+        "expected_counts": {
+          "source_tasks": 150,
+          "selected_tasks": 33,
+          "source_train_trajectories": 100,
+          "selected_train_trajectories": 21
+        },
+        "selected_collection": {
+          "files": 54,
+          "bytes": 427196,
+          "sha256_algorithm": "sha256(sorted(path_utf8 + nul + exact_bytes))",
+          "sha256": "39e77bf11544bcc3fe12a7c7d0ac9609cc6b5c84e0419ca57cafa4d47fed818a"
+        }
+      }
+    },
+    {
+      "name": "abcd",
+      "kind": "role_playing_benchmark",
+      "repository": "https://github.com/asappresearch/abcd",
+      "commit": "6b8700ce67c6b37b062dd7a60abc76d7ef832a97",
+      "license": {
+        "spdx": "MIT",
+        "upstream_path": "LICENSE",
+        "path": "abcd/LICENSE",
+        "bytes": 1071,
+        "sha256": "3ab7e179a7f13027b7bc64293541f0e9beacca3701cade67fb8fce78c2d9317b"
+      },
+      "assets": [
+        {
+          "name": "abcd_v1_1",
+          "role": "abcd_conversations",
+          "url": "https://raw.githubusercontent.com/asappresearch/abcd/6b8700ce67c6b37b062dd7a60abc76d7ef832a97/data/abcd_v1.1.json.gz",
+          "destination": "downloads/abcd/abcd_v1.1.json.gz",
+          "bytes": 36985084,
+          "sha256": "2bdf53ac359543dcdc38d55bc6513e78df120363f8f44870716e909f4606de15",
+          "compression": "gzip",
+          "uncompressed_bytes": 121548569,
+          "uncompressed_sha256": "005d425e890b30a1cdaf0d29d83b08bb7abf038d90fc4924a12e82228e587789"
+        }
+      ],
+      "fixture_files": [
+        {
+          "role": "abcd_conversations",
+          "path": "abcd/fixture/conversations.json",
+          "bytes": 2695,
+          "sha256": "d185663b95d2f0a125bde6541be980feb9ea23d666976fe244b4b4830eba54d4"
+        }
+      ],
+      "fixture_projection": {
+        "upstream_sample_path": "data/abcd_sample.json",
+        "upstream_sample_bytes": 38934,
+        "upstream_sample_sha256": "151e0c487493ab376bb5115538f3bfd6d2f460c94f9daa5cdf04e55bccdf4808",
+        "records": 3,
+        "selected_records": 2,
+        "source_partition": "train",
+        "turn_policy": "selected unchanged original/delexed positions; preserve upstream turn_count"
+      },
+      "slice": {
+        "source_shape": "partition_mapping",
+        "partitions": ["train", "dev", "test"],
+        "filter": {
+          "json_path": "scenario.flow",
+          "operator": "eq",
+          "value": "product_defect"
+        },
+        "expected_counts": {
+          "source_conversations": 10042,
+          "selected_conversations": 1070,
+          "selected_by_partition": {
+            "train": 863,
+            "dev": 102,
+            "test": 105
+          },
+          "subflows": {
+            "return_size": 191,
+            "return_color": 180,
+            "refund_status": 179,
+            "refund_update": 177,
+            "refund_initiate": 176,
+            "return_stain": 167
+          }
+        },
+        "canonical_slice": {
+          "algorithm": "json.dumps([{split,record}], ensure_ascii=false, sort_keys=true, separators=comma_colon)",
+          "bytes": 13664673,
+          "sha256": "3bb04ad5a22a1e8783d1bbe480d9201871a2cad1caa63e06628fa6a992698f49"
+        },
+        "stable_source_id": "abcd:{commit}:{partition}:{convo_id}",
+        "alignment": "original/delexed array position plus exact speaker",
+        "preserve_fields": ["convo_id", "original", "delexed", "scenario.flow", "scenario.subflow"]
+      }
+    },
+    {
+      "name": "tau2",
+      "kind": "benchmark",
+      "repository": "https://github.com/sierra-research/tau2-bench",
+      "commit": "c3398666e6559e3a063da3fc04b5acf7f941464e",
+      "license": {
+        "spdx": "MIT",
+        "upstream_path": "LICENSE",
+        "path": "tau2/LICENSE",
+        "bytes": 1072,
+        "sha256": "e67c5aa0074dfcaefd3c3a1aedb94cb539234aecd15d5a972574e3200e6252fe"
+      },
+      "assets": [
+        {
+          "name": "tau2_retail_tasks",
+          "role": "tau2_tasks",
+          "url": "https://raw.githubusercontent.com/sierra-research/tau2-bench/c3398666e6559e3a063da3fc04b5acf7f941464e/data/tau2/domains/retail/tasks.json",
+          "destination": "downloads/tau2/tasks.json",
+          "bytes": 345982,
+          "sha256": "8e03ebce7901bd6218e7a7dc3105faa9324091a68058f7fe61c65262868812e8"
+        },
+        {
+          "name": "tau2_result_claude",
+          "role": "tau2_result",
+          "url": "https://raw.githubusercontent.com/sierra-research/tau2-bench/c3398666e6559e3a063da3fc04b5acf7f941464e/data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json",
+          "destination": "downloads/tau2/results/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json",
+          "bytes": 24908843,
+          "sha256": "ed41dbd18c080154156484e3a0122c095e324a11367a640d88e15956daed7b9d",
+          "generation_commit": "c30d59aaa71c65f9b9eb6a8f8636b48945028fcf"
+        },
+        {
+          "name": "tau2_result_gpt_4_1",
+          "role": "tau2_result",
+          "url": "https://raw.githubusercontent.com/sierra-research/tau2-bench/c3398666e6559e3a063da3fc04b5acf7f941464e/data/tau2/results/final/gpt-4.1-2025-04-14_retail_default_gpt-4.1-2025-04-14_4trials.json",
+          "destination": "downloads/tau2/results/gpt-4.1-2025-04-14_retail_default_gpt-4.1-2025-04-14_4trials.json",
+          "bytes": 22044059,
+          "sha256": "5fc5b96ada0fe46a463eaed98d1bfed9947fe073bac052290162dae18d71394e",
+          "generation_commit": "c30d59aaa71c65f9b9eb6a8f8636b48945028fcf"
+        },
+        {
+          "name": "tau2_result_gpt_4_1_mini",
+          "role": "tau2_result",
+          "url": "https://raw.githubusercontent.com/sierra-research/tau2-bench/c3398666e6559e3a063da3fc04b5acf7f941464e/data/tau2/results/final/gpt-4.1-mini-2025-04-14_retail_base_gpt-4.1-2025-04-14_4trials.json",
+          "destination": "downloads/tau2/results/gpt-4.1-mini-2025-04-14_retail_base_gpt-4.1-2025-04-14_4trials.json",
+          "bytes": 23697012,
+          "sha256": "6d6badb43b716adca31591b0b40e15fd493b49adddaa8e2c47035bb557549257",
+          "generation_commit": "ade39493be54aad326a4c65295f77fe09780329b"
+        },
+        {
+          "name": "tau2_result_o4_mini",
+          "role": "tau2_result",
+          "url": "https://raw.githubusercontent.com/sierra-research/tau2-bench/c3398666e6559e3a063da3fc04b5acf7f941464e/data/tau2/results/final/o4-mini-2025-04-16_retail_default_gpt-4.1-2025-04-14_4trials.json",
+          "destination": "downloads/tau2/results/o4-mini-2025-04-16_retail_default_gpt-4.1-2025-04-14_4trials.json",
+          "bytes": 22066527,
+          "sha256": "7135f38bbbbd46d6babe830574c8623bb276d8fd6da316580b905cf513853f98",
+          "generation_commit": "c30d59aaa71c65f9b9eb6a8f8636b48945028fcf"
+        }
+      ],
+      "fixture_files": [
+        {
+          "role": "tau2_tasks",
+          "path": "tau2/fixture/tasks.json",
+          "bytes": 771,
+          "sha256": "05b475980a8b6a457330c2a48eec9dce9be7193dd3b256c6dafe7d6f96843ded"
+        },
+        {
+          "role": "tau2_result",
+          "path": "tau2/fixture/claude.json",
+          "asset_id": "tau2_result_claude",
+          "bytes": 1017,
+          "sha256": "62739a9a19067e1711533b1eb291d32791ce4aff9c4d2d206cf398f66bd2dae2"
+        },
+        {
+          "role": "tau2_result",
+          "path": "tau2/fixture/gpt-4.1.json",
+          "asset_id": "tau2_result_gpt_4_1",
+          "bytes": 1017,
+          "sha256": "a9dd72a7f7947f81360b3494d4f5a0f14e4c95f1712eff95404dec3679b87fbd"
+        },
+        {
+          "role": "tau2_result",
+          "path": "tau2/fixture/gpt-4.1-mini.json",
+          "asset_id": "tau2_result_gpt_4_1_mini",
+          "bytes": 1017,
+          "sha256": "709d51496f425994788a433816c0545b61ef2ec4cae212ca9778544991cc3bab"
+        },
+        {
+          "role": "tau2_result",
+          "path": "tau2/fixture/o4-mini.json",
+          "asset_id": "tau2_result_o4_mini",
+          "bytes": 1017,
+          "sha256": "d6a7236b52b0a92328d9915bf00b09c5a34dded55f02904b6a4d4897b04a00de"
+        }
+      ],
+      "fixture_projection": {
+        "tasks": 2,
+        "task_ids": ["27", "53"],
+        "result_files": 4,
+        "runs_per_task": 16,
+        "successes_by_task": {"27": 5, "53": 15},
+        "difficulty_by_task": {"27": "medium", "53": "easy"},
+        "fields": ["id", "task_id", "trial", "reward_info.reward", "info.git_commit"]
+      },
+      "slice": {
+        "domain": "retail",
+        "usage": ["deduplication_signal", "difficulty_signal"],
+        "prohibited_usage": ["shop_execution"],
+        "task_id_path": "id",
+        "reward_json_path": "reward_info.reward",
+        "group_by": "task_id",
+        "run_key": ["result_asset_id", "task_id", "trial"],
+        "expected_counts": {
+          "tasks": 114,
+          "result_files": 4,
+          "trials_per_result_file": 4,
+          "runs_per_task": 16,
+          "trajectories": 1824
+        },
+        "difficulty": {
+          "pass_condition": "reward == 1",
+          "hard_max": "0.25",
+          "easy_min": "0.75",
+          "aggregation_order": ["group_16_runs_by_task", "count_successes", "bucket"]
+        },
+        "generation_commits": {
+          "tau2_result_claude": "c30d59aaa71c65f9b9eb6a8f8636b48945028fcf",
+          "tau2_result_gpt_4_1": "c30d59aaa71c65f9b9eb6a8f8636b48945028fcf",
+          "tau2_result_gpt_4_1_mini": "ade39493be54aad326a4c65295f77fe09780329b",
+          "tau2_result_o4_mini": "c30d59aaa71c65f9b9eb6a8f8636b48945028fcf"
+        }
+      }
+    }
+  ]
+}

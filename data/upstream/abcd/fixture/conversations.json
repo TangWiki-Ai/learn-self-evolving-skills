@@ -1,0 +1,62 @@
+[
+  {
+    "convo_id": 3592,
+    "source_split": "train",
+    "scenario": {
+      "flow": "product_defect",
+      "subflow": "return_size"
+    },
+    "original": [
+      ["customer", "Hi! I need to return an item, can you help me with that?"],
+      ["agent", "thanks, may I ask the reason for the return?"],
+      ["customer", "I got the wrong size."],
+      ["agent", "ok, may I have your username, email address and order ID please?"]
+    ],
+    "delexed": [
+      {"speaker": "customer", "text": "hi! i need to return an item, can you help me with that?", "turn_count": 3},
+      {"speaker": "agent", "text": "thanks, may i ask the reason for the return?", "turn_count": 6},
+      {"speaker": "customer", "text": "i got the wrong size.", "turn_count": 8},
+      {"speaker": "agent", "text": "ok, may i have your username, email address and order id please?", "turn_count": 9}
+    ]
+  },
+  {
+    "convo_id": 9489,
+    "source_split": "train",
+    "scenario": {
+      "flow": "product_defect",
+      "subflow": "refund_status"
+    },
+    "original": [
+      ["agent", "good afternoon, how can I help you?"],
+      ["customer", "just wanted to check on the status of a refund"],
+      ["agent", "It is currently in progress and the payment method with which it is being processed is online towards your credit card."],
+      ["customer", "how much long till it is refunded"]
+    ],
+    "delexed": [
+      {"speaker": "agent", "text": "good afternoon, how can i help you?", "turn_count": 1},
+      {"speaker": "customer", "text": "just wanted to check on the status of a refund", "turn_count": 2},
+      {"speaker": "agent", "text": "it is currently in progress and the payment method with which it is being processed is online towards your credit card.", "turn_count": 16},
+      {"speaker": "customer", "text": "how much long till it is refunded", "turn_count": 17}
+    ]
+  },
+  {
+    "convo_id": 3695,
+    "source_split": "train",
+    "scenario": {
+      "flow": "storewide_query",
+      "subflow": "timing_4"
+    },
+    "original": [
+      ["customer", "HEY HO!"],
+      ["agent", "good afternoon, how can I help you?"],
+      ["customer", "I've got a promo code and I want to know when they expire."],
+      ["customer", "I'd like to use it to buy some hats for my cat."]
+    ],
+    "delexed": [
+      {"speaker": "customer", "text": "hey ho!", "turn_count": 1},
+      {"speaker": "agent", "text": "good afternoon, how can i help you?", "turn_count": 2},
+      {"speaker": "customer", "text": "i've got a promo code and i want to know when they expire.", "turn_count": 3},
+      {"speaker": "customer", "text": "i'd like to use it to buy some hats for my cat.", "turn_count": 4}
+    ]
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "task_id": "1-hard_false_defect_phone_battery_settings",
+    "task_type": "return_item",
+    "opening_message": "The TechPhone from ORD-7512 is defective. The battery drains way faster than I expected, so I want this treated as a defect return."
+  },
+  {
+    "task_id": "2-return_defective_electronics",
+    "task_type": "return_item",
+    "opening_message": "My laptop from order ORD-6006 has a defective screen — it flickers constantly. I'd like to return it."
+  },
+  {
+    "task_id": "11-cancel_before_shipment",
+    "task_type": "cancel_order",
+    "opening_message": "I'd like to cancel my order ORD-6015. I found a better deal elsewhere."
+  }
+]

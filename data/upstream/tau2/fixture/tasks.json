@@ -1,0 +1,18 @@
+[
+  {
+    "id": "27",
+    "user_scenario": {
+      "instructions": {
+        "reason_for_call": "From a recent order, you want to return the hose, backpack, and exchange the hiking boots to the exact same item but a waterproof variant. Make sure you mention the two requests at the same time, and if the agent says they can only do one, you prefer to do the exchange."
+      }
+    }
+  },
+  {
+    "id": "53",
+    "user_scenario": {
+      "instructions": {
+        "reason_for_call": "The bicycle you received was damaged during delivery, and you want to get a refund. You're quite frustrated because the bike was very expensive and you'd like to receive the refund as soon as possible. You want the refund to be credited to your original credit card."
+      }
+    }
+  }
+]
