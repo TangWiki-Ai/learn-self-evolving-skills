@@ -14,6 +14,11 @@ dependencies = [
   "pydantic>=2.12,<3",
 ]
 
+[project.optional-dependencies]
+testset = [
+  "scikit-learn>=1.7,<2",
+]
+
 [project.scripts]
 ses = "ses.cli.app:main"
 
@@ -37,6 +42,10 @@ strict = true
 warn_unused_configs = true
 plugins = ["pydantic.mypy"]
 mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/scripts"
+
+[[tool.mypy.overrides]]
+module = ["sklearn.*"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

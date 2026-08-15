@@ -601,10 +601,10 @@ class SklearnCosineStratifyAdapter:
         if len(conversations) < 2:
             return ()
         try:
-            from sklearn.feature_extraction.text import (  # type: ignore[import-untyped]
+            from sklearn.feature_extraction.text import (
                 TfidfVectorizer,
             )
-            from sklearn.metrics.pairwise import (  # type: ignore[import-untyped]
+            from sklearn.metrics.pairwise import (
                 cosine_similarity,
             )
         except ImportError as exc:
@@ -642,10 +642,10 @@ class SklearnCosineStratifyAdapter:
         if not conversations or not tau_tasks:
             return ()
         try:
-            from sklearn.feature_extraction.text import (  # type: ignore[import-untyped]
+            from sklearn.feature_extraction.text import (
                 TfidfVectorizer,
             )
-            from sklearn.metrics.pairwise import (  # type: ignore[import-untyped]
+            from sklearn.metrics.pairwise import (
                 cosine_similarity,
             )
         except ImportError as exc:

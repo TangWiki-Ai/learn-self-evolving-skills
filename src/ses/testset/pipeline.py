@@ -13,6 +13,22 @@ from hashlib import sha256
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal, cast
 
+from ses.contracts import SchemaVersion, VersionedRecord, artifact_json_bytes
+from ses.testset.artifacts import (
+    AbcdFunnelArtifact,
+    ArtifactEntryArtifact,
+    ArtifactManifestArtifact,
+    CandidateArtifact,
+    ClusterAssignmentArtifact,
+    ClusterLabelComparisonSetArtifact,
+    ClusterSummaryArtifact,
+    MiningConfigArtifact,
+    MiningFunnelArtifact,
+    ScrubbedConversationArtifact,
+    StateFunnelArtifact,
+    TauDifficultyArtifact,
+    TauFunnelArtifact,
+)
 from ses.testset.cluster import (
     ClusterAdapter,
     ClusterAssignment,
@@ -110,7 +126,7 @@ class TauFunnel:
 
 @dataclass(frozen=True)
 class MiningFunnel:
-    profile: str
+    profile: Literal["fixture", "full"]
     state: StateFunnel
     abcd: AbcdFunnel
     tau: TauFunnel
@@ -118,7 +134,7 @@ class MiningFunnel:
 
 @dataclass(frozen=True)
 class MiningBundle:
-    profile: str
+    profile: Literal["fixture", "full"]
     transformation_version: str
     seed: int
     config: MiningConfig
@@ -136,49 +152,9 @@ class MiningBundle:
     funnel: MiningFunnel
 
 
-@dataclass(frozen=True)
-class ArtifactEntry:
-    path: str
-    records: int
-    bytes: int
-    sha256: str
-
-
-@dataclass(frozen=True)
-class ArtifactManifest:
-    schema_version: str
-    record_type: str
-    transformation_version: str
-    profile: str
-    seed: int
-    mining_config: MiningConfig
-    cluster_adapter_id: str
-    stratify_adapter_id: str
-    upstream_manifest_sha256: str
-    input_sha256: Mapping[str, str]
-    parsed_input_digest_algorithm: str
-    parsed_input_sha256: Mapping[str, str]
-    source_commits: Mapping[str, str]
-    artifacts: tuple[ArtifactEntry, ...]
-
-
 PARSED_INPUT_DIGEST_ALGORITHM = (
     "sha256(canonical-json-v1:ascii-escaped,sort-keys,separators=comma-colon,newline)"
 )
-
-
-def _canonical_json(value: object) -> bytes:
-    try:
-        encoded = json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
-    except (TypeError, ValueError) as exc:
-        raise SourceCountDriftError("mining input is not strict JSON") from exc
-    return (encoded + "\n").encode("utf-8")
 
 
 def _canonical_input_json(value: object) -> bytes:
@@ -437,18 +413,12 @@ def mine_candidates(
     )
 
 
-def _canonical_jsonl(values: Sequence[object]) -> bytes:
-    return b"".join(_canonical_json(value) for value in values)
+def _artifact_payload(record: VersionedRecord) -> bytes:
+    return artifact_json_bytes(record) + b"\n"
 
 
-def _persistent_record(
-    record_type: str, fields: Mapping[str, object]
-) -> dict[str, object]:
-    return {
-        "schema_version": "v1alpha1",
-        "record_type": record_type,
-        **fields,
-    }
+def _artifact_jsonl(records: Sequence[VersionedRecord]) -> bytes:
+    return b"".join(_artifact_payload(record) for record in records)
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
@@ -474,7 +444,7 @@ def _atomic_write(path: Path, payload: bytes) -> None:
 
 def _validate_staged_bundle(
     staging_dir: Path,
-    artifact_manifest: ArtifactManifest,
+    artifact_manifest: ArtifactManifestArtifact,
     manifest_payload: bytes,
 ) -> None:
     """Read back a complete staged bundle before making it visible."""
@@ -501,8 +471,17 @@ def _validate_staged_bundle(
         if sha256(payload).hexdigest() != entry.sha256:
             raise OSError(f"staged artifact checksum mismatch: {entry.path}")
 
-    if (staging_dir / "artifact-manifest.json").read_bytes() != manifest_payload:
+    staged_manifest_payload = (staging_dir / "artifact-manifest.json").read_bytes()
+    if staged_manifest_payload != manifest_payload:
         raise OSError("staged artifact manifest changed after serialization")
+    try:
+        staged_manifest = ArtifactManifestArtifact.model_validate_json(
+            staged_manifest_payload
+        )
+    except ValueError as exc:
+        raise OSError("staged artifact manifest failed schema validation") from exc
+    if staged_manifest != artifact_manifest:
+        raise OSError("staged artifact manifest differs from producer model")
 
 
 def _replace_path(source: Path, destination: Path) -> None:
@@ -666,7 +645,7 @@ def _collect_inactive_bundle_versions(
 def _publish_staged_bundle(
     staging_dir: Path,
     output_dir: Path,
-    artifact_manifest: ArtifactManifest,
+    artifact_manifest: ArtifactManifestArtifact,
     manifest_payload: bytes,
 ) -> None:
     """Install an immutable version and atomically switch its stable pointer."""
@@ -752,75 +731,96 @@ def _publish_staged_bundle(
 
 def write_mining_bundle_atomic(
     bundle: MiningBundle, output_dir: Path
-) -> ArtifactManifest:
+) -> ArtifactManifestArtifact:
     """Stage, validate, and publish a deterministic artifact directory."""
 
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     # A physical directory cannot be replaced by a symlink without a missing-path
     # window using portable filesystem primitives. Reject it before staging bytes.
     _published_target(output_dir, _version_store(output_dir))
+    scrubbed_records = tuple(
+        ScrubbedConversationArtifact.from_domain(record)
+        for record in bundle.scrub.records
+    )
+    cluster_assignments = tuple(
+        ClusterAssignmentArtifact.from_domain(assignment)
+        for assignment in bundle.cluster_assignments
+    )
+    cluster_summaries = tuple(
+        ClusterSummaryArtifact.from_domain(summary)
+        for summary in bundle.cluster_summaries
+    )
+    label_metrics = ClusterLabelComparisonSetArtifact.from_domain(bundle.label_metrics)
+    tau_difficulty = tuple(
+        TauDifficultyArtifact.from_domain(summary) for summary in bundle.tau_difficulty
+    )
+    candidates = tuple(
+        CandidateArtifact.from_domain(candidate) for candidate in bundle.candidates
+    )
+    funnel = MiningFunnelArtifact(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type="candidate_mining_funnel",
+        profile=bundle.funnel.profile,
+        state=StateFunnelArtifact(
+            source_tasks=bundle.funnel.state.source_tasks,
+            return_item_tasks=bundle.funnel.state.return_item_tasks,
+            source_trajectories=bundle.funnel.state.source_trajectories,
+            return_item_trajectories=bundle.funnel.state.return_item_trajectories,
+        ),
+        abcd=AbcdFunnelArtifact(
+            source_conversations=bundle.funnel.abcd.source_conversations,
+            exact_product_defect=bundle.funnel.abcd.exact_product_defect,
+            dropped_empty=bundle.funnel.abcd.dropped_empty,
+            dropped_misaligned=bundle.funnel.abcd.dropped_misaligned,
+            dropped_invalid=bundle.funnel.abcd.dropped_invalid,
+            dropped_encoding=bundle.funnel.abcd.dropped_encoding,
+            dropped_duplicates=bundle.funnel.abcd.dropped_duplicates,
+            scrubbed_unique=bundle.funnel.abcd.scrubbed_unique,
+            clustered=bundle.funnel.abcd.clustered,
+            semantic_duplicates_removed=(
+                bundle.funnel.abcd.semantic_duplicates_removed
+            ),
+            candidate_pool=bundle.funnel.abcd.candidate_pool,
+            candidate_cap_removed=bundle.funnel.abcd.candidate_cap_removed,
+            candidates=bundle.funnel.abcd.candidates,
+        ),
+        tau=TauFunnelArtifact(
+            source_tasks=bundle.funnel.tau.source_tasks,
+            result_files=bundle.funnel.tau.result_files,
+            trajectory_runs=bundle.funnel.tau.trajectory_runs,
+            task_aggregates=bundle.funnel.tau.task_aggregates,
+            hard_tasks=bundle.funnel.tau.hard_tasks,
+            medium_tasks=bundle.funnel.tau.medium_tasks,
+            easy_tasks=bundle.funnel.tau.easy_tasks,
+        ),
+    )
     payloads: dict[str, tuple[bytes, int]] = {
         "scrubbed-abcd.jsonl": (
-            _canonical_jsonl(
-                [
-                    _persistent_record("scrubbed_abcd_conversation", asdict(record))
-                    for record in bundle.scrub.records
-                ]
-            ),
-            len(bundle.scrub.records),
+            _artifact_jsonl(scrubbed_records),
+            len(scrubbed_records),
         ),
         "cluster-assignments.jsonl": (
-            _canonical_jsonl(
-                [
-                    _persistent_record("cluster_assignment", asdict(assignment))
-                    for assignment in bundle.cluster_assignments
-                ]
-            ),
-            len(bundle.cluster_assignments),
+            _artifact_jsonl(cluster_assignments),
+            len(cluster_assignments),
         ),
         "cluster-summaries.jsonl": (
-            _canonical_jsonl(
-                [
-                    _persistent_record("cluster_summary", asdict(summary))
-                    for summary in bundle.cluster_summaries
-                ]
-            ),
-            len(bundle.cluster_summaries),
+            _artifact_jsonl(cluster_summaries),
+            len(cluster_summaries),
         ),
         "label-metrics.json": (
-            _canonical_json(
-                _persistent_record(
-                    "cluster_label_comparison_set",
-                    {
-                        comparison.label_name: asdict(comparison)
-                        for comparison in bundle.label_metrics
-                    },
-                )
-            ),
-            len(bundle.label_metrics),
+            _artifact_payload(label_metrics),
+            1,
         ),
         "tau2-difficulty.jsonl": (
-            _canonical_jsonl(
-                [
-                    _persistent_record("tau2_task_difficulty", asdict(summary))
-                    for summary in bundle.tau_difficulty
-                ]
-            ),
-            len(bundle.tau_difficulty),
+            _artifact_jsonl(tau_difficulty),
+            len(tau_difficulty),
         ),
         "candidate-list.jsonl": (
-            _canonical_jsonl(
-                [
-                    _persistent_record("testset_candidate", asdict(candidate))
-                    for candidate in bundle.candidates
-                ]
-            ),
-            len(bundle.candidates),
+            _artifact_jsonl(candidates),
+            len(candidates),
         ),
         "funnel-counts.json": (
-            _canonical_json(
-                _persistent_record("candidate_mining_funnel", asdict(bundle.funnel))
-            ),
+            _artifact_payload(funnel),
             1,
         ),
     }
@@ -831,25 +831,28 @@ def write_mining_bundle_atomic(
         )
     )
     try:
-        entries: list[ArtifactEntry] = []
+        entries: list[ArtifactEntryArtifact] = []
         for filename in sorted(payloads):
             payload, record_count = payloads[filename]
             _atomic_write(staging_dir / filename, payload)
             entries.append(
-                ArtifactEntry(
+                ArtifactEntryArtifact(
                     path=filename,
                     records=record_count,
                     bytes=len(payload),
                     sha256=sha256(payload).hexdigest(),
                 )
             )
-        artifact_manifest = ArtifactManifest(
-            schema_version="v1alpha1",
+        artifact_manifest = ArtifactManifestArtifact(
+            schema_version=SchemaVersion.V1ALPHA1,
             record_type="candidate_artifact_manifest",
             transformation_version=bundle.transformation_version,
             profile=bundle.profile,
             seed=bundle.seed,
-            mining_config=bundle.config,
+            mining_config=MiningConfigArtifact(
+                candidate_count=bundle.config.candidate_count,
+                seed=bundle.config.seed,
+            ),
             cluster_adapter_id=bundle.cluster_adapter_id,
             stratify_adapter_id=bundle.stratify_adapter_id,
             upstream_manifest_sha256=bundle.upstream_manifest_sha256,
@@ -863,7 +866,7 @@ def write_mining_bundle_atomic(
             },
             artifacts=tuple(entries),
         )
-        manifest_payload = _canonical_json(asdict(artifact_manifest))
+        manifest_payload = _artifact_payload(artifact_manifest)
         _atomic_write(staging_dir / "artifact-manifest.json", manifest_payload)
         _validate_staged_bundle(staging_dir, artifact_manifest, manifest_payload)
         _fsync_directory(staging_dir)

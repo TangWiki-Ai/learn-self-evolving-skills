@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from ses.contracts import artifact_json_bytes
 from ses.testset import pipeline as pipeline_module
+from ses.testset.artifacts import ArtifactManifestArtifact
 from ses.testset.cluster import ClusterAssignment, ClusterItem
 from ses.testset.pipeline import (
     MiningConfig,
@@ -284,9 +286,16 @@ def test_fixture_pipeline_outputs_only_auditable_candidates(tmp_path: Path) -> N
     assert sum(row["member_count"] for row in cluster_summaries) == 2
     assert all(row["representative_samples"] for row in cluster_summaries)
     assert all(row["record_type"] == "cluster_summary" for row in cluster_summaries)
+    cluster_assignments = [
+        json.loads(line)
+        for line in (output_dir / "cluster-assignments.jsonl").read_text().splitlines()
+    ]
+    assert all(row["confidence"] == 1.0 for row in cluster_assignments)
     label_metrics = json.loads((output_dir / "label-metrics.json").read_text())
     funnel_counts = json.loads((output_dir / "funnel-counts.json").read_text())
     assert label_metrics["record_type"] == "cluster_label_comparison_set"
+    assert label_metrics["flow"]["label_name"] == "flow"
+    assert label_metrics["subflow"]["label_name"] == "subflow"
     assert funnel_counts["record_type"] == "candidate_mining_funnel"
     assert artifact_manifest.upstream_manifest_sha256 == (
         source_inputs.upstream_manifest_sha256
@@ -301,7 +310,20 @@ def test_fixture_pipeline_outputs_only_auditable_candidates(tmp_path: Path) -> N
         "tau2_result_documents",
         "tau2_tasks",
     }
-    assert artifact_manifest.mining_config == MiningConfig(candidate_count=2, seed=11)
+    assert artifact_manifest.mining_config.candidate_count == 2
+    assert artifact_manifest.mining_config.seed == 11
+    manifest_payload = (output_dir / "artifact-manifest.json").read_bytes()
+    round_tripped_manifest = ArtifactManifestArtifact.model_validate_json(
+        manifest_payload
+    )
+    assert round_tripped_manifest == artifact_manifest
+    assert manifest_payload == artifact_json_bytes(round_tripped_manifest) + b"\n"
+    for entry in artifact_manifest.artifacts:
+        counted_payload = (output_dir / entry.path).read_text()
+        actual_records = (
+            len(counted_payload.splitlines()) if entry.path.endswith(".jsonl") else 1
+        )
+        assert entry.records == actual_records
     for artifact in artifact_manifest.artifacts:
         payload = (output_dir / artifact.path).read_bytes()
         assert len(payload) == artifact.bytes
@@ -398,7 +420,7 @@ def test_bundle_checksum_failure_leaves_published_bundle_byte_stable(
         corrupt_staged_candidate,
     )
 
-    with pytest.raises(OSError, match="checksum mismatch: candidate-list.jsonl"):
+    with pytest.raises(OSError, match=r"checksum mismatch: candidate-list\.jsonl"):
         write_mining_bundle_atomic(bundle, output_dir)
 
     assert snapshot_files(output_dir) == before

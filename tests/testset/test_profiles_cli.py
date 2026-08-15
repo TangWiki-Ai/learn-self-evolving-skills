@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from hashlib import sha256
 from pathlib import Path
@@ -112,7 +113,13 @@ def test_fixture_cli_runs_real_local_adapters_without_network(
         raise AssertionError("fixture mining must remain offline")
 
     monkeypatch.setattr(UrlFetcher, "open", fail_if_called)
-    output_dir = tmp_path / "fixture-bundle"
+    data_root = tmp_path / "upstream"
+    shutil.copytree(
+        UPSTREAM_ROOT,
+        data_root,
+        ignore=shutil.ignore_patterns("downloads", "generated", "__pycache__"),
+    )
+    output_dir = data_root / "generated" / "fixture"
 
     result = prepare_data.main(
         [
@@ -121,11 +128,9 @@ def test_fixture_cli_runs_real_local_adapters_without_network(
             "--clusters",
             "2",
             "--manifest",
-            str(UPSTREAM_ROOT / "manifest.json"),
+            str(data_root / "manifest.json"),
             "--data-root",
-            str(UPSTREAM_ROOT),
-            "--output",
-            str(output_dir),
+            str(data_root),
         ]
     )
 
@@ -134,6 +139,7 @@ def test_fixture_cli_runs_real_local_adapters_without_network(
     assert summary["status"] == "ok"
     assert summary["profile"] == "fixture"
     assert summary["output"] == str(output_dir)
+    assert output_dir.is_symlink()
     assert (output_dir / "artifact-manifest.json").is_file()
     assert (output_dir / "cluster-summaries.jsonl").is_file()
     assert (output_dir / "candidate-list.jsonl").is_file()

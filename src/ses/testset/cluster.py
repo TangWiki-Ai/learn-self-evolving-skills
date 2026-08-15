@@ -271,7 +271,7 @@ def compare_cluster_labels(
     cluster_counts = Counter(cluster for _, cluster in labeled)
     total = len(labeled)
     try:
-        from sklearn.metrics import (  # type: ignore[import-untyped]
+        from sklearn.metrics import (
             adjusted_rand_score,
             homogeneity_completeness_v_measure,
             normalized_mutual_info_score,
@@ -351,8 +351,8 @@ class SklearnTfidfClusterAdapter:
 
     def cluster(self, items: tuple[ClusterItem, ...]) -> tuple[ClusterAssignment, ...]:
         try:
-            from sklearn.cluster import KMeans  # type: ignore[import-untyped]
-            from sklearn.feature_extraction.text import (  # type: ignore[import-untyped]
+            from sklearn.cluster import KMeans
+            from sklearn.feature_extraction.text import (
                 TfidfVectorizer,
             )
         except ImportError as exc:

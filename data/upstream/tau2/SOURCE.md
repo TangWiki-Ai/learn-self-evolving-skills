@@ -5,7 +5,7 @@
 - License: MIT; see `LICENSE` in this directory.
 - Role: read-only benchmark deduplication and difficulty signals.
 
-The pinned retail task snapshot has 114 tasks. Four pinned 4-trial result files contain 456 runs each, for 1,824 trajectories total. The pipeline keys each run by result asset, task ID, and trial; requires trials 0–3 from every asset; aggregates 16 runs per task; and only then calculates pass rate and a difficulty bucket. It never treats the 1,824 trajectories as independent questions or executable shop cases.
+The pinned retail task snapshot has 114 tasks. Four pinned 4-trial result files contain 456 runs each, for 1,824 trajectories total. The pipeline keys each run by result asset, task ID, and trial; requires trials 0–3 from every asset; aggregates 16 runs per task; and only then calculates pass rate and a difficulty bucket. It never treats the 1,824 trajectories as independent benchmark questions; they contribute only deduplication and difficulty signals.
 
 Three result files record generation commit `c30d59aaa71c65f9b9eb6a8f8636b48945028fcf`; the gpt-4.1-mini result records `ade39493be54aad326a4c65295f77fe09780329b`. Their embedded task payload differs from the pinned current task snapshot even though the 114 task IDs match. The pipeline therefore joins only by stable task ID and preserves both commit layers.
 

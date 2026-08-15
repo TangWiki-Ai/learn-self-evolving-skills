@@ -191,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         CandidateCapacityError,
         ClusterDependencyError,
         ManifestDriftError,
+        OSError,
         SourceCountDriftError,
         SourceShapeError,
         ValueError,
