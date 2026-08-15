@@ -35,6 +35,7 @@ python3 scripts/phase0_check.py --live
 - [Phase 0 前置检查](docs/phase0-validation.md)
 - [开发任务与依赖图](docs/tickets/README.md) / [GitHub Issues](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues)
 - [系统与模块规格](docs/specs/README.md) / [Spec tracking issue](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues/13)
+- [多 Agent 并行实施](docs/development/parallel-implementation.md) / [启动提示词](docs/development/agent-prompts.md)
 
 ## 安全
 

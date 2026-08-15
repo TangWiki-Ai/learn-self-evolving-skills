@@ -57,7 +57,7 @@
 | 10 | Automation、Reporting | Auto-Evolve、final、Portfolio | 进化曲线与 final 12 题报告 |
 
 - 第一课允许生成结果波动，课程提供参考 Skill 兜底并在报告中标记。兜底不能替代第七课的 v0 生成任务。
-- 第五课中的“真日志”教学话术必须修正为 benchmark 轨迹或真人角色扮演语料，避免把数据描述成生产日志。
+- 第五课统一使用 benchmark 轨迹或真人角色扮演语料，避免把数据描述成生产日志。
 - 第六课只允许合格新题进入 develop。selection 和 final 在课程开始时锁定，后续课程不展示逐题反馈。
 - 第十课必须在预算内完成至少两轮完整候选流程，并复现至少一次接受和一次拒绝或回滚。
 - 每次 baseline、v0、candidate 和 final 都产生 fresh trace。参考 run 只供阅读，不能代替学习者结课运行。

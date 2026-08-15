@@ -55,6 +55,7 @@
 - 首版只实现 Claude Code headless + 硅基流动。Engine 合约只暴露运行请求、流式事件、用量和结束状态；Provider 特有配置停留在适配器内部。
 - 主 Agent 与 Creator 使用 DeepSeek 系模型；Simulator 与 Judge 使用 Qwen 系低成本模型。实际模型标识由锁文件固定，不写死在业务逻辑中。
 - 系统把运行、Trace、Skill 版本、补丁和 gate 决策视为不可变记录。新实验产生新标识，不覆盖历史结果。
+- 跨模块记录采用 producer-owned contract。消费者导入 canonical schema，不复制相似模型；持久化记录遵守 `v1alpha1` 版本、规范 JSON、相对 artifact reference 和稳定 hash 规则。
 - 所有 modifying agent 与 creator 都不能读取 selection/final 的题面之外信息、gold、参考轨迹或 Judge 私有材料。
 - 报告只展示允许给当前角色看的证据。公开作品集不能包含凭据、隐藏答案或可反推 final 的私有数据。
 - 预算护栏覆盖 case 数、轮数、token 和费用。中断保留完整的已完成记录和标记清楚的部分记录。
@@ -69,6 +70,7 @@
 - 真实 Provider 测试使用显式 smoke 标记，默认跳过，并且永远不在无人工授权的 CI 中运行。
 - 政策 oracle、StateDiff、规则优先级、切分互斥、补丁应用和 gate 决策使用表驱动单元测试覆盖边界组合。
 - 每个跨模块 Pydantic 记录都要做生产者到消费者的契约测试，包括向后兼容的读取行为。
+- Contract 测试同时验证未知字段、版本、金额、时间、路径和脱敏不变量；接口变更先更新跨模块契约 spec。
 - 防泄漏测试从 Agent 工作区和公开报告视角检查文件、字段和提示上下文，而不只检查配置值。
 - 课程测试验证 starter 会失败于本课缺失能力，solution 会通过，并验证上一课 solution 与下一课 starter 一致。
 - 报告测试同时验证语义数据和渲染结果，避免只做脆弱的整页字符串快照。

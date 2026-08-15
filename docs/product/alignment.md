@@ -30,6 +30,7 @@
 
 - 首版只实现 Claude Code headless + 硅基流动。
 - 主 Agent 和 Creator 使用 DeepSeek 系模型；Simulator 和 Judge 使用 Qwen 系模型。
+- 首版所有模型角色复用同一个 Claude Code Engine 和硅基流动 Anthropic-compatible endpoint，由模型锁选择 DeepSeek 或 Qwen；不并行实现 Python OpenAI 客户端。
 - 系统保留薄 Engine 边界，但不提前建设通用多 Provider 框架。
 - 架构文档必须说明未来如何增加 Provider；只有实测主路径失败时才启用路由兜底。
 - 凭据只从环境变量注入，不写入仓库、日志、报告或测试数据。

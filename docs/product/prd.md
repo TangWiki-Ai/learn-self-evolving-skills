@@ -23,7 +23,7 @@
 ```text
 P1 看见     裸跑客服 bot ⟷ 装上你生成的 Skill（肉眼对比）→ 拆解 SKILL.md
 P2 怎么评   终态判分 → 规则判分 → LLM Judge 校准 → Agent-as-a-Judge → 模拟器与报告
-P3 考题哪来 真日志挖题（ABCD/tau2）→ 变体生成 → 考卷先考自己 → 入库
+P3 考题哪来 benchmark 语料挖题（ABCD/tau2）→ 变体生成 → 考卷先考自己 → 入库
 P4 生成     9 条轨迹 → Skill v0 → 触发评测 → 首次定量对照
 P5 进化     失败卡片 → 结构化补丁 → 留出集门控 → 回滚
 P6 串联     自动进化循环 → final 12 题 → portfolio
@@ -65,7 +65,7 @@ P6 串联     自动进化循环 → final 12 题 → portfolio
 
 学生简历句：
 
-> 我亲手实现了一个带评测门控的 Skill 自进化系统（Python + Claude Code headless）：从真实客服轨迹生成退货 Skill，构建含真日志挖掘的测试集管线，经评测驱动的多轮自动进化与门控回滚，在全留出测试集上验证提升。
+> 我亲手实现了一个带评测门控的 Skill 自进化系统（Python + Claude Code headless）：从 benchmark 与角色扮演客服轨迹生成退货 Skill，构建可追溯的测试集管线，经评测驱动的多轮自动进化与门控回滚，在全留出测试集上验证提升。
 
 作品集导出物：`ses portfolio` 生成 Skill 各版本、版本谱系（含拒绝记录）、final 报告、进化曲线（L3 HTML 报告）、架构图和一页系统说明。
 
@@ -93,10 +93,10 @@ P6 串联     自动进化循环 → final 12 题 → portfolio
 
 | 课 | 标题 | 学生动手 | 对照数字 | 知识点与拓展阅读 |
 | --- | --- | --- | --- | --- |
-| 5 | 从真日志到题目候选（S1-S3） | 清洗 ABCD 退货退款子集 1,070 段（去重/脱敏，**delexed 版可对答案**）；意图聚类（**flow/subflow 标注可自评**）；tau2 轨迹去重 + 按通过率难度分层采样 | 1,070 段 → N 个意图簇 → 分层采样清单 | 六阶段流水线（Scrub→Cluster→Stratify→Verify→Calibrate→Split）；语义去重难于字面去重；长尾高风险意图别当噪声丢；按难度分层而非全难题。拓展：Arena-Hard/BenchBuilder、WildBench |
+| 5 | 从 benchmark 语料到题目候选（S1-S3） | 清洗 ABCD 退货退款子集 1,070 段（去重/脱敏，**delexed 版可对答案**）；意图聚类（**flow/subflow 标注可自评**）；tau2 轨迹去重 + 按通过率难度分层采样 | 1,070 段 → N 个意图簇 → 分层采样清单 | 六阶段流水线（Scrub→Cluster→Stratify→Verify→Calibrate→Split）；语义去重难于字面去重；长尾高风险意图别当噪声丢；按难度分层而非全难题。拓展：Arena-Hard/BenchBuilder、WildBench |
 | 6 | 从候选到黄金题（S4-S6） | `testset/variant_gen.py`（**变体生成器**：变异会员等级/窗口/促销组合，policy 引擎自动算 gold）；**考卷先考自己**三步（环境重放对账 → judge 试判故意对/错答卷 → 人工抽读）；合格题入 develop（**6 → 15+**） | 新题合格率 + 扩容后 develop 重跑 baseline | gold 由确定性脚本生成保证可验证；judge 校准先于考试；切分纪律（selection/final 锁死不动）。拓展：Benchmark Everything（自动造题路线，与日志提炼互补）、STATE-Bench 构造 |
 
-教学叙事：真日志给「考什么」（意图分布、真实表达、边界情况），受控环境给「怎么判」（可执行、可重放、答案保证对）——工业界从日志到测试集的真实分工。
+教学叙事：benchmark 与角色扮演语料给「考什么」（意图分布、自然表达、边界情况），受控环境给「怎么判」（可执行、可重放、答案保证对）——课程借此讲清从历史轨迹到测试集的工程分工。
 
 ### P4 生成（课 7）
 
@@ -186,8 +186,8 @@ HTML 报告三层（单文件自包含：内嵌 JSON+图表，双击可开、可
 - **Agent-as-a-Judge 落地形态**（课 3）：确定性脚本先产证据文件（StateDiff、工具时间线、金额对账）→ judge agent（headless + 只读工具）读证据出 grading.json（逐断言 PASS/FAIL + evidence）。
 - **模型接入**：国内 Anthropic 兼容端点，默认**硅基流动**单 Key：
   - 主 Agent / Creator：DeepSeek 系（Anthropic 兼容端点接 Claude Code）；
-  - User Simulator / LLM Judge / Agent Judge：Qwen 系便宜档（OpenAI 兼容端点，Python 直调或 headless）；
-  - 兜底：`claude-code-router`；必须用标准按量 Key，订阅制 Coding Plan Key 不允许批量评测。
+  - User Simulator / LLM Judge / Agent Judge：Qwen 系便宜档，同样通过 Claude Code headless 和硅基流动 Anthropic-compatible endpoint；
+  - 路由兜底只作为主路径实测失败后的显式决策，不在首版并行实现。批量评测只使用标准按量 Key。
 - **语言与依赖**：Python 3.11+，Pydantic v2，pytest；不引入重型 Agent 框架。
 - **仓库结构**：
 
@@ -202,7 +202,7 @@ learn-self-evolving-skills/
 │   ├── ch02-state-and-rules/
 │   ├── ch03-llm-and-agent-judge/
 │   ├── ch04-simulator-and-runner/
-│   ├── ch05-mine-real-logs/
+│   ├── ch05-mine-benchmark-data/
 │   ├── ch06-golden-cases/
 │   ├── ch07-create-v0/
 │   ├── ch08-failure-to-patch/
@@ -216,15 +216,15 @@ learn-self-evolving-skills/
 │   └── skill-packs/resolve-product-returns/
 ├── skills/resolve-product-returns/   # v0、候选、accepted（学生运行时生成）
 ├── src/ses/
-│   ├── cli.py  config.py  credentials.py  dataset.py
-│   ├── trace.py  evaluator.py  runner.py  report.py
-│   ├── judges/{state,rule,llm,agent}.py
-│   ├── testset/{clean,sample,variant_gen,calibrate}.py
-│   ├── skill_creator.py  trigger_eval.py
-│   ├── evolution.py  gate.py  registry.py  auto_evolve.py
-│   ├── engines/claude_code.py
-│   ├── shop/{state,policy,tools,mcp_server}.py
-│   ├── runtime.py  simulator.py
+│   ├── cli/                         # 参数解析与呈现
+│   ├── contracts/                   # 跨模块版本化记录
+│   ├── foundation/  engines/        # 配置、隔离与 Engine adapters
+│   ├── shop/                        # state、policy、tools、MCP
+│   ├── evaluation/                  # Trace、expect、evidence、Judges
+│   ├── evaluator/  runner/          # 单 case 与批量编排
+│   ├── reporting/                   # L1/L2/L3
+│   ├── testset/  skills/            # 测试集流水线与 Skill 生命周期
+│   ├── evolution/  automation/      # patch、gate、registry、auto-evolve
 ├── tests/
 ├── scripts/prepare_data.py
 └── runs/                          # 不提交 Git
@@ -317,7 +317,7 @@ ses portfolio <run-id>
 ## 12. 运营默认值
 
 - 正文中文主线，README 含英文摘要；
-- License：代码 MIT，数据继承上游 MIT 并保留原始 LICENSE、commit、ID 与 SHA256；
+- License：课程代码 Apache-2.0，数据继承上游 MIT 并保留原始 LICENSE、commit、ID 与 SHA256；
 - 首发标准：10 课全部含 starter/solution/tests，§11 清单十二项全部完成；
 - CLI 名 `ses`（可在首发前调整）。
 
@@ -349,7 +349,7 @@ ses portfolio <run-id>
 | 预算护栏 | 无（仅 timeout/max_turns） | 四重上限 + ≤¥50 承诺 |
 | 判分依据 | 文本断言为主 | State Judge + StateDiff 终态判定 |
 | 用户模拟 | 脚本化 `input.turns` | intent 驱动模拟器（防泄漏） |
-| 测试集管线 | 不提供 | 真日志挖掘 + 变体生成 + 考卷自查 + 四组切分 |
+| 测试集管线 | 不提供 | benchmark 语料挖掘 + 变体生成 + 考卷自查 + 四组切分 |
 | 课程纪律 | — | 每课对照数字、final 一次性、portfolio 才算数 |
 
 ### 13.3 首版有意不做

@@ -16,6 +16,7 @@
 | [07 进化与版本治理](07-evolution-governance.md) | 失败卡片、结构化补丁、selection gate、注册表和回滚 |
 | [08 自动进化与作品集](08-automation-portfolio.md) | 有界自动循环、final 纪律、L3 报告和 portfolio |
 | [09 课程交付](09-course-delivery.md) | 10 课编排、starter/solution/tests、指标、预算和发布验收 |
+| [10 跨模块契约](10-cross-module-contracts.md) | 记录归属、序列化不变量、版本与 contract 变更协议 |
 
 ## 模块关系
 
@@ -34,6 +35,10 @@ Foundation Runtime -----> Shop Environment -----> Evaluation & Judges
 
 Course Delivery consumes every module and packages the learner journey.
 ```
+
+Cross-module Contracts 约束所有模块交换的持久记录，但不承载业务实现。
+
+并行开发不要按“一人一份完整 spec”直接开工。具体波次、文件所有权和 handoff 见[多 Agent 并行实施](../development/parallel-implementation.md)。
 
 ## 测试边界
 
