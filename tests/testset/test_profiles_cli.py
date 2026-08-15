@@ -102,6 +102,43 @@ def test_verify_only_never_constructs_a_network_request(
     assert output["network_used"] is False
 
 
+def test_fixture_cli_runs_real_local_adapters_without_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail_if_called(self: UrlFetcher, url: str, timeout: float) -> object:
+        del self, url, timeout
+        raise AssertionError("fixture mining must remain offline")
+
+    monkeypatch.setattr(UrlFetcher, "open", fail_if_called)
+    output_dir = tmp_path / "fixture-bundle"
+
+    result = prepare_data.main(
+        [
+            "--profile",
+            "fixture",
+            "--clusters",
+            "2",
+            "--manifest",
+            str(UPSTREAM_ROOT / "manifest.json"),
+            "--data-root",
+            str(UPSTREAM_ROOT),
+            "--output",
+            str(output_dir),
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["status"] == "ok"
+    assert summary["profile"] == "fixture"
+    assert summary["output"] == str(output_dir)
+    assert (output_dir / "artifact-manifest.json").is_file()
+    assert (output_dir / "cluster-summaries.jsonl").is_file()
+    assert (output_dir / "candidate-list.jsonl").is_file()
+
+
 def test_full_download_requires_explicit_network_before_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

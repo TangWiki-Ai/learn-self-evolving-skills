@@ -133,6 +133,7 @@ _EXPECTED_TRANSFORMATION: dict[str, object] = {
     "outputs": [
         "scrubbed-abcd.jsonl",
         "cluster-assignments.jsonl",
+        "cluster-summaries.jsonl",
         "label-metrics.json",
         "tau2-difficulty.jsonl",
         "candidate-list.jsonl",

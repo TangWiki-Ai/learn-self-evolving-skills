@@ -25,4 +25,4 @@ uv run python scripts/prepare_data.py \
 
 The downloader retries transient failures, checks byte counts and SHA256 digests, and atomically installs each completed asset. The processing path uses local TF-IDF adapters. It does not call an embedding service or a paid model.
 
-The output contains scrubbed ABCD role-playing benchmark records, cluster assignments, label comparisons, task-level tau2 difficulty buckets, a non-executable candidate list, funnel counts, and an artifact manifest. It does not create cases, gold data, or dataset splits.
+The output contains scrubbed ABCD role-playing benchmark records, per-record cluster assignments and confidence, deterministic cluster representative samples, label comparisons, task-level tau2 difficulty buckets, a non-executable candidate list, funnel counts, and an artifact manifest. It does not create cases, gold data, or dataset splits.

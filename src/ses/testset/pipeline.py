@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from hashlib import sha256
@@ -15,9 +17,11 @@ from ses.testset.cluster import (
     ClusterAdapter,
     ClusterAssignment,
     ClusterItem,
+    ClusterSummary,
     LabelComparison,
     assign_clusters,
     compare_cluster_labels,
+    summarize_clusters,
 )
 from ses.testset.difficulty import TauDifficulty, aggregate_tau_difficulty
 from ses.testset.manifest import TRANSFORMATION_VERSION
@@ -125,6 +129,7 @@ class MiningBundle:
     parsed_input_sha256: Mapping[str, str]
     scrub: ScrubResult
     cluster_assignments: tuple[ClusterAssignment, ...]
+    cluster_summaries: tuple[ClusterSummary, ...]
     label_metrics: tuple[LabelComparison, ...]
     tau_difficulty: tuple[TauDifficulty, ...]
     candidates: tuple[CandidateRecord, ...]
@@ -349,6 +354,7 @@ def mine_candidates(
         for record in scrub.records
     )
     assignments = assign_clusters(cluster_items, cluster_adapter)
+    cluster_summaries = summarize_clusters(cluster_items, assignments)
     labels = (
         compare_cluster_labels(
             assignments,
@@ -423,6 +429,7 @@ def mine_candidates(
         parsed_input_sha256=parsed_input_sha256,
         scrub=scrub,
         cluster_assignments=assignments,
+        cluster_summaries=cluster_summaries,
         label_metrics=labels,
         tau_difficulty=tau_difficulty,
         candidates=candidates,
@@ -465,12 +472,293 @@ def _atomic_write(path: Path, payload: bytes) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
+def _validate_staged_bundle(
+    staging_dir: Path,
+    artifact_manifest: ArtifactManifest,
+    manifest_payload: bytes,
+) -> None:
+    """Read back a complete staged bundle before making it visible."""
+
+    expected_names = {
+        *(entry.path for entry in artifact_manifest.artifacts),
+        "artifact-manifest.json",
+    }
+    actual_names: set[str] = set()
+    for path in staging_dir.iterdir():
+        if path.is_symlink() or not path.is_file():
+            raise OSError(f"staged artifact is not a regular file: {path.name}")
+        actual_names.add(path.name)
+    if actual_names != expected_names:
+        raise OSError(
+            "staged artifact file set differs from manifest: "
+            f"{sorted(actual_names)} != {sorted(expected_names)}"
+        )
+
+    for entry in artifact_manifest.artifacts:
+        payload = (staging_dir / entry.path).read_bytes()
+        if len(payload) != entry.bytes:
+            raise OSError(f"staged artifact byte count mismatch: {entry.path}")
+        if sha256(payload).hexdigest() != entry.sha256:
+            raise OSError(f"staged artifact checksum mismatch: {entry.path}")
+
+    if (staging_dir / "artifact-manifest.json").read_bytes() != manifest_payload:
+        raise OSError("staged artifact manifest changed after serialization")
+
+
+def _replace_path(source: Path, destination: Path) -> None:
+    os.replace(source, destination)
+
+
+_BUNDLE_VERSION_PREFIX = "bundle-"
+_BUNDLE_VERSION_DIGEST_LENGTH = 64
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Persist directory entry changes on filesystems that implement fsync."""
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(directory, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _version_store(output_dir: Path) -> Path:
+    return output_dir.parent / f".{output_dir.name}.versions"
+
+
+def _is_managed_version_name(name: str) -> bool:
+    digest = name.removeprefix(_BUNDLE_VERSION_PREFIX)
+    return (
+        name.startswith(_BUNDLE_VERSION_PREFIX)
+        and len(digest) == _BUNDLE_VERSION_DIGEST_LENGTH
+        and all(character in "0123456789abcdef" for character in digest)
+    )
+
+
+def _published_target(output_dir: Path, versions_dir: Path) -> str | None:
+    """Return a validated relative target for a managed bundle pointer."""
+
+    if not os.path.lexists(output_dir):
+        return None
+    if not output_dir.is_symlink():
+        raise OSError(
+            "artifact bundle destination must be a managed symlink; "
+            f"cannot atomically replace legacy directory: {output_dir}"
+        )
+    target = os.readlink(output_dir)
+    target_path = Path(target)
+    if (
+        target_path.is_absolute()
+        or len(target_path.parts) != 2
+        or target_path.parts[0] != versions_dir.name
+        or not _is_managed_version_name(target_path.parts[1])
+    ):
+        raise OSError(f"artifact bundle pointer is not managed: {output_dir}")
+    version_dir = output_dir.parent / target_path
+    if version_dir.is_symlink() or not version_dir.is_dir():
+        raise OSError(f"artifact bundle pointer target is invalid: {target}")
+    return target
+
+
+def _create_bundle_pointer(
+    output_dir: Path, target: str, *, prefix: str
+) -> tuple[Path, Path]:
+    pointer_dir = Path(
+        tempfile.mkdtemp(dir=output_dir.parent, prefix=f".{output_dir.name}.{prefix}-")
+    )
+    try:
+        pointer_path = pointer_dir / "bundle-pointer"
+        os.symlink(target, pointer_path)
+        _fsync_directory(pointer_dir)
+        return pointer_dir, pointer_path
+    except BaseException:
+        shutil.rmtree(pointer_dir, ignore_errors=True)
+        raise
+
+
+def _restore_bundle_pointer(
+    output_dir: Path,
+    *,
+    failed_target: str,
+    previous_target: str | None,
+) -> None:
+    """Undo a switch that became visible before its durability check failed."""
+
+    if not output_dir.is_symlink() or os.readlink(output_dir) != failed_target:
+        return
+    if previous_target is None:
+        output_dir.unlink()
+        _fsync_directory(output_dir.parent)
+        return
+
+    rollback_dir: Path | None = None
+    try:
+        rollback_dir, rollback_pointer = _create_bundle_pointer(
+            output_dir,
+            previous_target,
+            prefix="rollback",
+        )
+        _replace_path(rollback_pointer, output_dir)
+        _fsync_directory(output_dir.parent)
+    finally:
+        if rollback_dir is not None:
+            shutil.rmtree(rollback_dir, ignore_errors=True)
+
+
+def _switch_bundle_pointer(
+    output_dir: Path,
+    *,
+    target: str,
+    previous_target: str | None,
+) -> None:
+    """Atomically switch one stable path between immutable bundle versions."""
+
+    pointer_dir: Path | None = None
+    try:
+        pointer_dir, pointer_path = _create_bundle_pointer(
+            output_dir,
+            target,
+            prefix="pointer",
+        )
+        try:
+            _replace_path(pointer_path, output_dir)
+            _fsync_directory(output_dir.parent)
+        except BaseException:
+            try:
+                _restore_bundle_pointer(
+                    output_dir,
+                    failed_target=target,
+                    previous_target=previous_target,
+                )
+            except BaseException as rollback_error:
+                raise RuntimeError(
+                    f"failed to restore previous artifact bundle at {output_dir}"
+                ) from rollback_error
+            raise
+    finally:
+        if pointer_dir is not None:
+            shutil.rmtree(pointer_dir, ignore_errors=True)
+
+
+def _collect_inactive_bundle_versions(
+    versions_dir: Path, *, retain_targets: set[str]
+) -> None:
+    """Keep current and previous generations; ignore all unmanaged entries."""
+
+    retain_names = {Path(target).name for target in retain_targets}
+    removed = False
+    for candidate in sorted(versions_dir.iterdir()):
+        if (
+            candidate.name in retain_names
+            or not _is_managed_version_name(candidate.name)
+            or candidate.is_symlink()
+            or not candidate.is_dir()
+        ):
+            continue
+        shutil.rmtree(candidate)
+        removed = True
+    if removed:
+        _fsync_directory(versions_dir)
+
+
+def _publish_staged_bundle(
+    staging_dir: Path,
+    output_dir: Path,
+    artifact_manifest: ArtifactManifest,
+    manifest_payload: bytes,
+) -> None:
+    """Install an immutable version and atomically switch its stable pointer."""
+
+    if not output_dir.name:
+        raise OSError("artifact bundle destination must have a directory name")
+    versions_dir = _version_store(output_dir)
+    previous_target = _published_target(output_dir, versions_dir)
+    versions_dir_created = False
+    if os.path.lexists(versions_dir):
+        if versions_dir.is_symlink() or not versions_dir.is_dir():
+            raise OSError(f"artifact bundle version store is invalid: {versions_dir}")
+    else:
+        versions_dir.mkdir()
+        versions_dir_created = True
+        try:
+            _fsync_directory(output_dir.parent)
+        except BaseException:
+            versions_dir.rmdir()
+            raise
+
+    version_name = f"{_BUNDLE_VERSION_PREFIX}{sha256(manifest_payload).hexdigest()}"
+    version_dir = versions_dir / version_name
+    target = f"{versions_dir.name}/{version_name}"
+    version_preexisted = os.path.lexists(version_dir)
+    published = False
+    try:
+        if version_preexisted:
+            if version_dir.is_symlink() or not version_dir.is_dir():
+                raise OSError(f"artifact bundle version is invalid: {version_dir}")
+            _validate_staged_bundle(
+                version_dir,
+                artifact_manifest,
+                manifest_payload,
+            )
+            shutil.rmtree(staging_dir)
+        else:
+            _replace_path(staging_dir, version_dir)
+            _fsync_directory(versions_dir)
+            # The staging entry was removed from this directory by the rename.
+            _fsync_directory(output_dir.parent)
+
+        _switch_bundle_pointer(
+            output_dir,
+            target=target,
+            previous_target=previous_target,
+        )
+        published = True
+    finally:
+        if (
+            not published
+            and not version_preexisted
+            and (not output_dir.is_symlink() or os.readlink(output_dir) != target)
+            and version_dir.is_dir()
+            and not version_dir.is_symlink()
+        ):
+            shutil.rmtree(version_dir)
+            _fsync_directory(versions_dir)
+        if (
+            not published
+            and versions_dir_created
+            and versions_dir.is_dir()
+            and not any(versions_dir.iterdir())
+        ):
+            versions_dir.rmdir()
+            _fsync_directory(output_dir.parent)
+
+    retain_targets = {target}
+    if previous_target is not None:
+        retain_targets.add(previous_target)
+    try:
+        _collect_inactive_bundle_versions(
+            versions_dir,
+            retain_targets=retain_targets,
+        )
+    except OSError as exc:
+        warnings.warn(
+            f"could not reclaim inactive artifact bundle version: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+
 def write_mining_bundle_atomic(
     bundle: MiningBundle, output_dir: Path
 ) -> ArtifactManifest:
-    """Write deterministic artifacts and publish their manifest last."""
+    """Stage, validate, and publish a deterministic artifact directory."""
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    # A physical directory cannot be replaced by a symlink without a missing-path
+    # window using portable filesystem primitives. Reject it before staging bytes.
+    _published_target(output_dir, _version_store(output_dir))
     payloads: dict[str, tuple[bytes, int]] = {
         "scrubbed-abcd.jsonl": (
             _canonical_jsonl(
@@ -489,6 +777,15 @@ def write_mining_bundle_atomic(
                 ]
             ),
             len(bundle.cluster_assignments),
+        ),
+        "cluster-summaries.jsonl": (
+            _canonical_jsonl(
+                [
+                    _persistent_record("cluster_summary", asdict(summary))
+                    for summary in bundle.cluster_summaries
+                ]
+            ),
+            len(bundle.cluster_summaries),
         ),
         "label-metrics.json": (
             _canonical_json(
@@ -527,40 +824,56 @@ def write_mining_bundle_atomic(
             1,
         ),
     }
-    entries: list[ArtifactEntry] = []
-    for filename in sorted(payloads):
-        payload, record_count = payloads[filename]
-        _atomic_write(output_dir / filename, payload)
-        entries.append(
-            ArtifactEntry(
-                path=filename,
-                records=record_count,
-                bytes=len(payload),
-                sha256=sha256(payload).hexdigest(),
-            )
+    staging_dir = Path(
+        tempfile.mkdtemp(
+            dir=output_dir.parent,
+            prefix=f".{output_dir.name}.staging-",
         )
-    artifact_manifest = ArtifactManifest(
-        schema_version="v1alpha1",
-        record_type="candidate_artifact_manifest",
-        transformation_version=bundle.transformation_version,
-        profile=bundle.profile,
-        seed=bundle.seed,
-        mining_config=bundle.config,
-        cluster_adapter_id=bundle.cluster_adapter_id,
-        stratify_adapter_id=bundle.stratify_adapter_id,
-        upstream_manifest_sha256=bundle.upstream_manifest_sha256,
-        input_sha256=bundle.input_sha256,
-        parsed_input_digest_algorithm=PARSED_INPUT_DIGEST_ALGORITHM,
-        parsed_input_sha256=bundle.parsed_input_sha256,
-        source_commits={
-            "state_bench": STATE_BENCH_COMMIT,
-            "abcd": ABCD_COMMIT,
-            "tau2": TAU2_COMMIT,
-        },
-        artifacts=tuple(entries),
     )
-    _atomic_write(
-        output_dir / "artifact-manifest.json",
-        _canonical_json(asdict(artifact_manifest)),
-    )
-    return artifact_manifest
+    try:
+        entries: list[ArtifactEntry] = []
+        for filename in sorted(payloads):
+            payload, record_count = payloads[filename]
+            _atomic_write(staging_dir / filename, payload)
+            entries.append(
+                ArtifactEntry(
+                    path=filename,
+                    records=record_count,
+                    bytes=len(payload),
+                    sha256=sha256(payload).hexdigest(),
+                )
+            )
+        artifact_manifest = ArtifactManifest(
+            schema_version="v1alpha1",
+            record_type="candidate_artifact_manifest",
+            transformation_version=bundle.transformation_version,
+            profile=bundle.profile,
+            seed=bundle.seed,
+            mining_config=bundle.config,
+            cluster_adapter_id=bundle.cluster_adapter_id,
+            stratify_adapter_id=bundle.stratify_adapter_id,
+            upstream_manifest_sha256=bundle.upstream_manifest_sha256,
+            input_sha256=bundle.input_sha256,
+            parsed_input_digest_algorithm=PARSED_INPUT_DIGEST_ALGORITHM,
+            parsed_input_sha256=bundle.parsed_input_sha256,
+            source_commits={
+                "state_bench": STATE_BENCH_COMMIT,
+                "abcd": ABCD_COMMIT,
+                "tau2": TAU2_COMMIT,
+            },
+            artifacts=tuple(entries),
+        )
+        manifest_payload = _canonical_json(asdict(artifact_manifest))
+        _atomic_write(staging_dir / "artifact-manifest.json", manifest_payload)
+        _validate_staged_bundle(staging_dir, artifact_manifest, manifest_payload)
+        _fsync_directory(staging_dir)
+        _publish_staged_bundle(
+            staging_dir,
+            output_dir,
+            artifact_manifest,
+            manifest_payload,
+        )
+        return artifact_manifest
+    finally:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)

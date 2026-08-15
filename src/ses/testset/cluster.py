@@ -1,4 +1,4 @@
-"""Injectable local clustering and dependency-free external label metrics."""
+"""Injectable local clustering, representatives, and external-label metrics."""
 
 from __future__ import annotations
 
@@ -40,6 +40,28 @@ class ClusterAssignment:
     item_id: str
     cluster_id: str
     confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class ClusterRepresentativeSample:
+    """A self-contained, auditable example selected from one cluster."""
+
+    rank: int
+    item_id: str
+    text: str
+    source_kind: str
+    confidence: float | None
+    selection_reason: str
+
+
+@dataclass(frozen=True)
+class ClusterSummary:
+    """Deterministic cluster-level audit information."""
+
+    cluster_id: str
+    member_count: int
+    representative_selection_method: str
+    representative_samples: tuple[ClusterRepresentativeSample, ...]
 
 
 class ClusterAdapter(Protocol):
@@ -129,15 +151,100 @@ def assign_clusters(
     )
 
 
+REPRESENTATIVE_SELECTION_METHOD = (
+    "assignment_confidence_desc_nulls_last_then_item_id_asc"
+)
+
+
+def summarize_clusters(
+    items: Sequence[ClusterItem],
+    assignments: Sequence[ClusterAssignment],
+    *,
+    representatives_per_cluster: int = 3,
+) -> tuple[ClusterSummary, ...]:
+    """Select stable representative samples without depending on input order.
+
+    Assignment confidence is the adapter's explicit signal for how well an item fits
+    its cluster. Missing confidence sorts after present confidence, and ``item_id``
+    provides the deterministic final tie-break. The returned summaries and samples
+    are both canonically ordered.
+    """
+
+    if representatives_per_cluster < 1:
+        raise ValueError("representatives_per_cluster must be positive")
+
+    item_by_id: dict[str, ClusterItem] = {}
+    for item in items:
+        if not item.item_id:
+            raise ClusterContractError("cluster item ID cannot be empty")
+        if item.item_id in item_by_id:
+            raise ClusterContractError(f"duplicate cluster item: {item.item_id}")
+        item_by_id[item.item_id] = item
+    if not item_by_id:
+        raise ClusterContractError("cannot summarize an empty input")
+
+    assignment_by_id: dict[str, ClusterAssignment] = {}
+    for assignment in assignments:
+        if assignment.item_id not in item_by_id:
+            raise ClusterContractError(f"unknown assignment: {assignment.item_id}")
+        if assignment.item_id in assignment_by_id:
+            raise ClusterContractError(f"duplicate assignment: {assignment.item_id}")
+        if not assignment.cluster_id:
+            raise ClusterContractError("cluster ID cannot be empty")
+        if assignment.confidence is not None and (
+            not math.isfinite(assignment.confidence)
+            or not 0.0 <= assignment.confidence <= 1.0
+        ):
+            raise ClusterContractError("confidence must be finite and between 0 and 1")
+        assignment_by_id[assignment.item_id] = assignment
+
+    missing = sorted(set(item_by_id) - set(assignment_by_id))
+    if missing:
+        raise ClusterContractError(f"missing assignments: {', '.join(missing)}")
+
+    assignments_by_cluster: dict[str, list[ClusterAssignment]] = defaultdict(list)
+    for assignment in assignment_by_id.values():
+        assignments_by_cluster[assignment.cluster_id].append(assignment)
+
+    summaries: list[ClusterSummary] = []
+    for cluster_id, members in sorted(assignments_by_cluster.items()):
+        ranked = sorted(
+            members,
+            key=lambda assignment: (
+                assignment.confidence is None,
+                -(assignment.confidence or 0.0),
+                assignment.item_id,
+            ),
+        )
+        representative_samples = tuple(
+            ClusterRepresentativeSample(
+                rank=rank,
+                item_id=assignment.item_id,
+                text=item_by_id[assignment.item_id].text,
+                source_kind=item_by_id[assignment.item_id].source_kind,
+                confidence=assignment.confidence,
+                selection_reason=(
+                    f"rank={rank};method={REPRESENTATIVE_SELECTION_METHOD}"
+                ),
+            )
+            for rank, assignment in enumerate(
+                ranked[:representatives_per_cluster], start=1
+            )
+        )
+        summaries.append(
+            ClusterSummary(
+                cluster_id=cluster_id,
+                member_count=len(members),
+                representative_selection_method=REPRESENTATIVE_SELECTION_METHOD,
+                representative_samples=representative_samples,
+            )
+        )
+    return tuple(summaries)
+
+
 def _rounded(value: float) -> float:
     rounded = round(value, 12)
     return 0.0 if rounded == 0.0 else rounded
-
-
-def _entropy(counts: Sequence[int], total: int) -> float:
-    return -math.fsum(
-        (count / total) * math.log(count / total) for count in counts if count
-    )
 
 
 def compare_cluster_labels(
@@ -163,45 +270,32 @@ def compare_cluster_labels(
     reference_counts = Counter(label for label, _ in labeled)
     cluster_counts = Counter(cluster for _, cluster in labeled)
     total = len(labeled)
-    total_pairs = math.comb(total, 2)
-    cell_pairs = sum(math.comb(count, 2) for count in cell_counts.values())
-    reference_pairs = sum(math.comb(count, 2) for count in reference_counts.values())
-    cluster_pairs = sum(math.comb(count, 2) for count in cluster_counts.values())
-    denominator = total_pairs * (reference_pairs + cluster_pairs) - (
-        2 * reference_pairs * cluster_pairs
-    )
-    if denominator == 0:
-        adjusted_rand = 1.0
-    else:
-        adjusted_rand = (
-            2 * (total_pairs * cell_pairs - reference_pairs * cluster_pairs)
-        ) / denominator
-
-    mutual_information = math.fsum(
-        (count / total)
-        * math.log(
-            (total * count)
-            / (reference_counts[reference_label] * cluster_counts[cluster_id])
+    try:
+        from sklearn.metrics import (  # type: ignore[import-untyped]
+            adjusted_rand_score,
+            homogeneity_completeness_v_measure,
+            normalized_mutual_info_score,
         )
-        for (reference_label, cluster_id), count in cell_counts.items()
-        if count
+    except ImportError as exc:
+        raise ClusterDependencyError(
+            "install the testset optional dependency to compare cluster labels"
+        ) from exc
+    reference_labels = [reference for reference, _ in labeled]
+    cluster_labels = [cluster for _, cluster in labeled]
+    adjusted_rand = float(adjusted_rand_score(reference_labels, cluster_labels))
+    normalized_mutual_info = float(
+        normalized_mutual_info_score(
+            reference_labels,
+            cluster_labels,
+            average_method="arithmetic",
+        )
     )
-    reference_entropy = _entropy(tuple(reference_counts.values()), total)
-    cluster_entropy = _entropy(tuple(cluster_counts.values()), total)
-    homogeneity = (
-        1.0 if reference_entropy == 0.0 else mutual_information / reference_entropy
-    )
-    completeness = (
-        1.0 if cluster_entropy == 0.0 else mutual_information / cluster_entropy
-    )
-    v_measure = (
-        0.0
-        if homogeneity + completeness == 0.0
-        else (2 * homogeneity * completeness) / (homogeneity + completeness)
-    )
-    normalization = (reference_entropy + cluster_entropy) / 2
-    normalized_mutual_info = (
-        1.0 if normalization == 0.0 else mutual_information / normalization
+    homogeneity, completeness, v_measure = (
+        float(value)
+        for value in homogeneity_completeness_v_measure(
+            reference_labels,
+            cluster_labels,
+        )
     )
     informative = len(reference_counts) > 1
     return LabelComparison(

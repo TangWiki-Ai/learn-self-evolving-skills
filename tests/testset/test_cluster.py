@@ -3,12 +3,14 @@ from __future__ import annotations
 import pytest
 
 from ses.testset.cluster import (
+    REPRESENTATIVE_SELECTION_METHOD,
     ClusterAssignment,
     ClusterContractError,
     ClusterItem,
     SklearnTfidfClusterAdapter,
     assign_clusters,
     compare_cluster_labels,
+    summarize_clusters,
 )
 
 
@@ -96,3 +98,64 @@ def test_cluster_adapter_identity_captures_reproducibility_parameters() -> None:
     assert first.adapter_id != second.adapter_id
     assert "n_clusters=6" in first.adapter_id
     assert "random_state=7" in first.adapter_id
+
+
+def test_cluster_representatives_are_auditable_and_input_order_independent() -> None:
+    items = (
+        ClusterItem("abcd:1", "wrong size", "abcd_roleplay_benchmark"),
+        ClusterItem("abcd:2", "size does not fit", "abcd_roleplay_benchmark"),
+        ClusterItem("abcd:3", "refund has not arrived", "abcd_roleplay_benchmark"),
+        ClusterItem("abcd:4", "still waiting for refund", "abcd_roleplay_benchmark"),
+        ClusterItem("abcd:5", "refund is pending", "abcd_roleplay_benchmark"),
+    )
+    assignments = (
+        ClusterAssignment("abcd:1", "cluster:size", 0.8),
+        ClusterAssignment("abcd:2", "cluster:size", 0.9),
+        ClusterAssignment("abcd:3", "cluster:refund", None),
+        ClusterAssignment("abcd:4", "cluster:refund", 0.7),
+        ClusterAssignment("abcd:5", "cluster:refund", 0.7),
+    )
+
+    forward = summarize_clusters(items, assignments, representatives_per_cluster=2)
+    reversed_input = summarize_clusters(
+        tuple(reversed(items)),
+        tuple(reversed(assignments)),
+        representatives_per_cluster=2,
+    )
+
+    assert forward == reversed_input
+    assert [summary.cluster_id for summary in forward] == [
+        "cluster:refund",
+        "cluster:size",
+    ]
+    refund, size = forward
+    assert refund.member_count == 3
+    assert refund.representative_selection_method == REPRESENTATIVE_SELECTION_METHOD
+    assert [sample.item_id for sample in refund.representative_samples] == [
+        "abcd:4",
+        "abcd:5",
+    ]
+    assert refund.representative_samples[0].text == "still waiting for refund"
+    assert refund.representative_samples[0].source_kind == "abcd_roleplay_benchmark"
+    assert refund.representative_samples[0].selection_reason == (
+        "rank=1;method=" + REPRESENTATIVE_SELECTION_METHOD
+    )
+    assert size.member_count == 2
+    assert [sample.item_id for sample in size.representative_samples] == [
+        "abcd:2",
+        "abcd:1",
+    ]
+
+
+def test_cluster_representative_summary_validates_complete_assignments() -> None:
+    items = (ClusterItem("abcd:1", "return it", "abcd_roleplay_benchmark"),)
+
+    with pytest.raises(ClusterContractError, match="missing assignments"):
+        summarize_clusters(items, ())
+
+    with pytest.raises(ValueError, match="must be positive"):
+        summarize_clusters(
+            items,
+            (ClusterAssignment("abcd:1", "cluster:return", 1.0),),
+            representatives_per_cluster=0,
+        )

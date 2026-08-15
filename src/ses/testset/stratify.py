@@ -40,24 +40,44 @@ class TauTaskText:
 
 
 @dataclass(frozen=True)
-class StratifyAnnotation:
+class AbcdPairSimilarity:
+    """A direct ABCD-to-ABCD semantic similarity measurement."""
+
     source_id: str
-    semantic_group_id: str
-    tau_task_id: str | None
-    similarity: float | None
+    duplicate_source_id: str
+    similarity: float
+
+
+@dataclass(frozen=True)
+class TauTaskMatch:
+    """An independent ABCD-to-tau2 task match used for difficulty provenance."""
+
+    source_id: str
+    tau_task_id: str
+    similarity: float
 
 
 class StratifyAdapter(Protocol):
     @property
     def adapter_id(self) -> str: ...
 
-    def annotate(
+    @property
+    def semantic_duplicate_similarity(self) -> float: ...
+
+    def compare_abcd(
+        self,
+        conversations: tuple[StratifyText, ...],
+        *,
+        seed: int,
+    ) -> tuple[AbcdPairSimilarity, ...]: ...
+
+    def match_tau(
         self,
         conversations: tuple[StratifyText, ...],
         tau_tasks: tuple[TauTaskText, ...],
         *,
         seed: int,
-    ) -> tuple[StratifyAnnotation, ...]: ...
+    ) -> tuple[TauTaskMatch, ...]: ...
 
 
 @dataclass(frozen=True)
@@ -125,67 +145,126 @@ def _validate_cluster_assignments(
     return by_id
 
 
-def _validate_annotations(
+def _validate_pair_similarities(
     records: Sequence[ScrubbedConversation],
-    annotations: Sequence[StratifyAnnotation],
-    tau_by_id: dict[str, TauDifficulty],
-) -> dict[str, StratifyAnnotation]:
+    pairs: Sequence[AbcdPairSimilarity],
+) -> tuple[AbcdPairSimilarity, ...]:
     expected = {record.source_id for record in records}
-    by_id: dict[str, StratifyAnnotation] = {}
-    for annotation in annotations:
-        if annotation.source_id not in expected:
+    expected_pairs = {
+        (left, right) for left in expected for right in expected if left < right
+    }
+    by_source_pair: dict[tuple[str, str], AbcdPairSimilarity] = {}
+    for pair in pairs:
+        if pair.source_id not in expected:
             raise StratifyContractError(
-                f"annotation references unknown source {annotation.source_id}"
+                f"ABCD pair references unknown source {pair.source_id}"
             )
-        if annotation.source_id in by_id:
+        if pair.duplicate_source_id not in expected:
             raise StratifyContractError(
-                f"duplicate annotation for {annotation.source_id}"
+                f"ABCD pair references unknown source {pair.duplicate_source_id}"
             )
-        if not annotation.semantic_group_id:
-            raise StratifyContractError("semantic group ID cannot be empty")
-        if (
-            annotation.tau_task_id is not None
-            and annotation.tau_task_id not in tau_by_id
-        ):
+        if pair.source_id == pair.duplicate_source_id:
+            raise StratifyContractError("ABCD pair cannot reference itself")
+        if not math.isfinite(pair.similarity) or not 0.0 <= pair.similarity <= 1.0:
             raise StratifyContractError(
-                f"annotation references unknown tau task {annotation.tau_task_id}"
+                "ABCD pair similarity must be finite and between 0 and 1"
             )
-        if annotation.similarity is not None and (
-            not math.isfinite(annotation.similarity)
-            or not 0.0 <= annotation.similarity <= 1.0
-        ):
+        left_id, right_id = sorted((pair.source_id, pair.duplicate_source_id))
+        canonical_ids = (left_id, right_id)
+        if canonical_ids in by_source_pair:
             raise StratifyContractError(
-                "semantic similarity must be finite and between 0 and 1"
+                "duplicate ABCD pair annotation for " + " and ".join(canonical_ids)
             )
-        if (annotation.tau_task_id is None) != (annotation.similarity is None):
-            raise StratifyContractError(
-                "tau task and semantic similarity must both be present or absent"
-            )
-        by_id[annotation.source_id] = annotation
-    missing = expected - set(by_id)
-    if missing:
-        raise StratifyContractError(
-            f"missing stratify annotations: {', '.join(sorted(missing))}"
+        by_source_pair[canonical_ids] = AbcdPairSimilarity(
+            source_id=canonical_ids[0],
+            duplicate_source_id=canonical_ids[1],
+            similarity=pair.similarity,
         )
+    missing = expected_pairs - set(by_source_pair)
+    if missing:
+        formatted = ", ".join(f"{left}<->{right}" for left, right in sorted(missing))
+        raise StratifyContractError(f"missing ABCD pair similarities: {formatted}")
+    return tuple(by_source_pair[key] for key in sorted(by_source_pair))
+
+
+def _semantic_group_by_source(
+    records: Sequence[ScrubbedConversation],
+    pairs: Sequence[AbcdPairSimilarity],
+    *,
+    duplicate_threshold: float,
+) -> dict[str, str]:
+    source_ids = sorted(record.source_id for record in records)
+    index_by_source = {source_id: index for index, source_id in enumerate(source_ids)}
+    parents = list(range(len(source_ids)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[max(left_root, right_root)] = min(left_root, right_root)
+
+    for pair in pairs:
+        if pair.similarity >= duplicate_threshold:
+            union(
+                index_by_source[pair.source_id],
+                index_by_source[pair.duplicate_source_id],
+            )
+
+    members_by_root: dict[int, list[str]] = defaultdict(list)
+    for source_id, index in index_by_source.items():
+        members_by_root[find(index)].append(source_id)
+    group_by_source: dict[str, str] = {}
+    for members in members_by_root.values():
+        canonical_members = tuple(sorted(members))
+        digest = sha256(
+            b"stratify-abcd-semantic-v1\0" + "\0".join(canonical_members).encode()
+        ).hexdigest()
+        for source_id in canonical_members:
+            group_by_source[source_id] = f"abcd-semantic:{digest}"
+    return group_by_source
+
+
+def _validate_tau_matches(
+    records: Sequence[ScrubbedConversation],
+    matches: Sequence[TauTaskMatch],
+    tau_by_id: dict[str, TauDifficulty],
+) -> dict[str, TauTaskMatch]:
+    expected = {record.source_id for record in records}
+    by_id: dict[str, TauTaskMatch] = {}
+    for match in matches:
+        if match.source_id not in expected:
+            raise StratifyContractError(
+                f"tau match references unknown source {match.source_id}"
+            )
+        if match.source_id in by_id:
+            raise StratifyContractError(f"duplicate tau match for {match.source_id}")
+        if match.tau_task_id not in tau_by_id:
+            raise StratifyContractError(
+                f"tau match references unknown tau task {match.tau_task_id}"
+            )
+        if not math.isfinite(match.similarity) or not 0.0 <= match.similarity <= 1.0:
+            raise StratifyContractError(
+                "tau task similarity must be finite and between 0 and 1"
+            )
+        by_id[match.source_id] = match
     return by_id
 
 
 def _candidate_rows(
     records: Sequence[ScrubbedConversation],
     cluster_by_id: dict[str, ClusterAssignment],
-    annotation_by_id: dict[str, StratifyAnnotation],
-    tau_by_id: dict[str, TauDifficulty],
+    semantic_group_by_source: dict[str, str],
 ) -> list[CandidateRecord]:
     label_counts = Counter(record.subflow for record in records)
     average_frequency = len(records) / len(label_counts)
     rows: list[CandidateRecord] = []
     for record in records:
-        annotation = annotation_by_id[record.source_id]
-        difficulty = (
-            tau_by_id[annotation.tau_task_id]
-            if annotation.tau_task_id is not None
-            else None
-        )
         rows.append(
             CandidateRecord(
                 candidate_id=f"candidate:{record.source_id}",
@@ -194,34 +273,59 @@ def _candidate_rows(
                 cluster_id=cluster_by_id[record.source_id].cluster_id,
                 flow=record.flow,
                 subflow=record.subflow,
-                semantic_group_id=annotation.semantic_group_id,
+                semantic_group_id=semantic_group_by_source[record.source_id],
                 label_frequency=label_counts[record.subflow],
                 long_tail=label_counts[record.subflow] < average_frequency,
                 label_conflict=record.label_conflict,
-                tau_task_id=annotation.tau_task_id,
-                tau_run_count=difficulty.run_count if difficulty else None,
-                tau_success_count=difficulty.success_count if difficulty else None,
-                tau_pass_rate=difficulty.pass_rate_decimal if difficulty else None,
-                difficulty_bucket=(
-                    difficulty.difficulty_bucket if difficulty else None
-                ),
-                similarity=annotation.similarity,
+                tau_task_id=None,
+                tau_run_count=None,
+                tau_success_count=None,
+                tau_pass_rate=None,
+                difficulty_bucket=None,
+                similarity=None,
                 retention_reasons=(),
             )
         )
 
+    return rows
+
+
+def _attach_tau_difficulty(
+    candidates: Sequence[CandidateRecord],
+    tau_match_by_source: dict[str, TauTaskMatch],
+    tau_by_id: dict[str, TauDifficulty],
+) -> list[CandidateRecord]:
+    attached: list[CandidateRecord] = []
+    for candidate in candidates:
+        tau_match = tau_match_by_source.get(candidate.source_id)
+        if tau_match is None:
+            attached.append(candidate)
+            continue
+        difficulty = tau_by_id[tau_match.tau_task_id]
+        attached.append(
+            replace(
+                candidate,
+                tau_task_id=tau_match.tau_task_id,
+                tau_run_count=difficulty.run_count,
+                tau_success_count=difficulty.success_count,
+                tau_pass_rate=difficulty.pass_rate_decimal,
+                difficulty_bucket=difficulty.difficulty_bucket,
+                similarity=tau_match.similarity,
+            )
+        )
+    return attached
+
+
+def _deduplicate_abcd_candidates(
+    rows: Sequence[CandidateRecord],
+) -> list[CandidateRecord]:
+    """Collapse ABCD semantic matches without using tau2 task annotations."""
+
     grouped: dict[tuple[str, str], list[CandidateRecord]] = defaultdict(list)
     labels_by_semantic_group: dict[str, set[str]] = defaultdict(set)
-    tau_tasks_by_semantic_group: dict[str, set[str | None]] = defaultdict(set)
     for row in rows:
         grouped[(row.semantic_group_id, row.subflow)].append(row)
         labels_by_semantic_group[row.semantic_group_id].add(row.subflow)
-        tau_tasks_by_semantic_group[row.semantic_group_id].add(row.tau_task_id)
-    for semantic_group_id, tau_task_ids in tau_tasks_by_semantic_group.items():
-        if len(tau_task_ids) > 1:
-            raise StratifyContractError(
-                f"semantic group {semantic_group_id} has conflicting tau task annotations"
-            )
     deduplicated: list[CandidateRecord] = []
     for key in sorted(grouped):
         group = sorted(grouped[key], key=lambda item: item.source_id)
@@ -378,7 +482,7 @@ def stratify_candidates(
     target_count: int | None = None,
     seed: int = 0,
 ) -> StratifyResult:
-    """Annotate with tau task references, then retain balanced label coverage."""
+    """Deduplicate ABCD records, attach tau signals, then balance candidates."""
 
     if target_count is not None and target_count < 0:
         raise CandidateCapacityError("target_count cannot be negative")
@@ -405,9 +509,48 @@ def stratify_candidates(
         TauTaskText(task_id=summary.task_id, text=summary.task_text)
         for summary in sorted(tau_difficulty, key=lambda item: item.task_id)
     )
-    annotations = tuple(adapter.annotate(conversations, tau_tasks, seed=seed))
-    annotation_by_id = _validate_annotations(records, annotations, tau_by_id)
-    candidates = _candidate_rows(records, cluster_by_id, annotation_by_id, tau_by_id)
+    duplicate_threshold = adapter.semantic_duplicate_similarity
+    if not math.isfinite(duplicate_threshold) or not 0 <= duplicate_threshold <= 1:
+        raise StratifyContractError(
+            "semantic duplicate similarity must be finite and between 0 and 1"
+        )
+    pair_similarities = _validate_pair_similarities(
+        records,
+        adapter.compare_abcd(conversations, seed=seed),
+    )
+    semantic_groups = _semantic_group_by_source(
+        records,
+        pair_similarities,
+        duplicate_threshold=duplicate_threshold,
+    )
+    rows = _candidate_rows(records, cluster_by_id, semantic_groups)
+    deduplicated_candidates = _deduplicate_abcd_candidates(rows)
+    text_by_source = {
+        conversation.source_id: conversation.text for conversation in conversations
+    }
+    candidate_source_ids = {
+        candidate.source_id for candidate in deduplicated_candidates
+    }
+    candidate_conversations = tuple(
+        StratifyText(
+            source_id=candidate.source_id,
+            text=text_by_source[candidate.source_id],
+        )
+        for candidate in sorted(
+            deduplicated_candidates, key=lambda item: item.source_id
+        )
+    )
+    tau_matches = adapter.match_tau(candidate_conversations, tau_tasks, seed=seed)
+    tau_match_by_source = _validate_tau_matches(
+        tuple(record for record in records if record.source_id in candidate_source_ids),
+        tau_matches,
+        tau_by_id,
+    )
+    candidates = _attach_tau_difficulty(
+        deduplicated_candidates,
+        tau_match_by_source,
+        tau_by_id,
+    )
     resolved_target = len(candidates) if target_count is None else target_count
     selected = _select_candidates(candidates, resolved_target, seed)
     return StratifyResult(
@@ -423,7 +566,7 @@ def stratify_candidates(
 
 
 class SklearnCosineStratifyAdapter:
-    """Local TF-IDF cosine mapping from ABCD language to tau2 task signals."""
+    """Local TF-IDF ABCD deduplication and independent tau2 task mapping."""
 
     def __init__(
         self,
@@ -431,41 +574,32 @@ class SklearnCosineStratifyAdapter:
         minimum_similarity: float = 0.05,
         semantic_duplicate_similarity: float = 0.9,
     ) -> None:
-        if not 0 <= minimum_similarity <= semantic_duplicate_similarity <= 1:
-            raise ValueError(
-                "similarity thresholds must satisfy 0 <= min <= dedup <= 1"
-            )
+        if not 0 <= minimum_similarity <= 1:
+            raise ValueError("minimum similarity must be between 0 and 1")
+        if not 0 <= semantic_duplicate_similarity <= 1:
+            raise ValueError("semantic duplicate similarity must be between 0 and 1")
         self.minimum_similarity = minimum_similarity
         self.semantic_duplicate_similarity = semantic_duplicate_similarity
 
     @property
     def adapter_id(self) -> str:
         return (
-            "sklearn-tfidf-cosine:v1"
+            "sklearn-tfidf-cosine:v2"
             f":scikit_learn={sklearn_distribution_version()}"
             f":minimum_similarity={self.minimum_similarity}"
             f":semantic_duplicate_similarity={self.semantic_duplicate_similarity}"
-            ":max_features=20000:ngram_range=1-2"
+            ":max_features=20000:ngram_range=1-2:token_pattern=unicode-word"
         )
 
-    def annotate(
+    def compare_abcd(
         self,
         conversations: tuple[StratifyText, ...],
-        tau_tasks: tuple[TauTaskText, ...],
         *,
         seed: int,
-    ) -> tuple[StratifyAnnotation, ...]:
+    ) -> tuple[AbcdPairSimilarity, ...]:
         del seed
-        if not tau_tasks:
-            return tuple(
-                StratifyAnnotation(
-                    source_id=item.source_id,
-                    semantic_group_id=f"source:{item.source_id}",
-                    tau_task_id=None,
-                    similarity=None,
-                )
-                for item in conversations
-            )
+        if len(conversations) < 2:
+            return ()
         try:
             from sklearn.feature_extraction.text import (  # type: ignore[import-untyped]
                 TfidfVectorizer,
@@ -477,39 +611,74 @@ class SklearnCosineStratifyAdapter:
             raise ClusterDependencyError(
                 "install the testset optional dependency for local stratification"
             ) from exc
-        texts = [item.text for item in conversations] + [
-            item.text for item in tau_tasks
-        ]
+        ordered_conversations = tuple(
+            sorted(conversations, key=lambda item: item.source_id)
+        )
+        conversation_matrix = TfidfVectorizer(
+            lowercase=True,
+            ngram_range=(1, 2),
+            max_features=20_000,
+            token_pattern=r"(?u)\b\w+\b",
+        ).fit_transform([item.text for item in ordered_conversations])
+        abcd_similarities = cosine_similarity(conversation_matrix)
+        return tuple(
+            AbcdPairSimilarity(
+                source_id=ordered_conversations[left].source_id,
+                duplicate_source_id=ordered_conversations[right].source_id,
+                similarity=float(abcd_similarities[left, right]),
+            )
+            for left in range(len(ordered_conversations))
+            for right in range(left + 1, len(ordered_conversations))
+        )
+
+    def match_tau(
+        self,
+        conversations: tuple[StratifyText, ...],
+        tau_tasks: tuple[TauTaskText, ...],
+        *,
+        seed: int,
+    ) -> tuple[TauTaskMatch, ...]:
+        del seed
+        if not conversations or not tau_tasks:
+            return ()
+        try:
+            from sklearn.feature_extraction.text import (  # type: ignore[import-untyped]
+                TfidfVectorizer,
+            )
+            from sklearn.metrics.pairwise import (  # type: ignore[import-untyped]
+                cosine_similarity,
+            )
+        except ImportError as exc:
+            raise ClusterDependencyError(
+                "install the testset optional dependency for local stratification"
+            ) from exc
+        ordered_conversations = tuple(
+            sorted(conversations, key=lambda item: item.source_id)
+        )
+        ordered_tau_tasks = tuple(sorted(tau_tasks, key=lambda item: item.task_id))
         matrix = TfidfVectorizer(
             lowercase=True,
             ngram_range=(1, 2),
             max_features=20_000,
-        ).fit_transform(texts)
-        similarities = cosine_similarity(
-            matrix[: len(conversations)], matrix[len(conversations) :]
+            token_pattern=r"(?u)\b\w+\b",
+        ).fit_transform(
+            [item.text for item in ordered_conversations]
+            + [item.text for item in ordered_tau_tasks]
         )
-        annotations: list[StratifyAnnotation] = []
-        for index, item in enumerate(conversations):
+        similarities = cosine_similarity(
+            matrix[: len(ordered_conversations)],
+            matrix[len(ordered_conversations) :],
+        )
+        matches: list[TauTaskMatch] = []
+        for index, item in enumerate(ordered_conversations):
             best_index = int(similarities[index].argmax())
             score = float(similarities[index, best_index])
-            if score < self.minimum_similarity:
-                task_id = None
-                similarity = None
-                semantic_group = f"source:{item.source_id}"
-            else:
-                task_id = tau_tasks[best_index].task_id
-                similarity = score
-                semantic_group = (
-                    f"tau:{task_id}"
-                    if score >= self.semantic_duplicate_similarity
-                    else f"source:{item.source_id}"
+            if score >= self.minimum_similarity:
+                matches.append(
+                    TauTaskMatch(
+                        source_id=item.source_id,
+                        tau_task_id=ordered_tau_tasks[best_index].task_id,
+                        similarity=score,
+                    )
                 )
-            annotations.append(
-                StratifyAnnotation(
-                    source_id=item.source_id,
-                    semantic_group_id=semantic_group,
-                    tau_task_id=task_id,
-                    similarity=similarity,
-                )
-            )
-        return tuple(annotations)
+        return tuple(matches)
