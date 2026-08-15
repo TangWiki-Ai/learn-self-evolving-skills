@@ -4,22 +4,22 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import ssl
 import subprocess
 import sys
 import tempfile
-from typing import Any, Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
-
 
 STATE_COMMIT = "5644b1838d96bc4483da29642d058ecaa6f80f7f"
 ABCD_COMMIT = "6b8700ce67c6b37b062dd7a60abc76d7ef832a97"
@@ -108,9 +108,7 @@ def _request(url: str, timeout: float, method: str = "GET") -> Any:
         headers={"User-Agent": "learn-self-evolving-skills-phase0/0.1"},
     )
     try:
-        return urlopen(  # noqa: S310 - fixed HTTPS URLs only
-            request, timeout=timeout, context=TLS_CONTEXT
-        )
+        return urlopen(request, timeout=timeout, context=TLS_CONTEXT)
     except HTTPError as exc:
         raise SmokeError(f"HTTP {exc.code}: {urlparse(url).netloc}") from exc
     except URLError as exc:
@@ -151,7 +149,7 @@ def _run_check(name: str, check: Callable[[], str]) -> CheckResult:
 
 
 def check_python() -> str:
-    if sys.version_info < (3, 11):
+    if sys.version_info < (3, 11):  # noqa: UP036 - this check is smoke behavior
         raise SmokeError(
             f"需要 Python 3.11+，当前是 {sys.version.split()[0]}。请升级后重试。"
         )
@@ -258,7 +256,9 @@ def check_tau2(timeout: float) -> str:
     for filename, expected_size in TAU2_RESULT_FILES.items():
         size = _head_size(base + filename, timeout)
         if size != expected_size:
-            raise SmokeError(f"tau2 轨迹大小漂移: {filename}: {size} != {expected_size}")
+            raise SmokeError(
+                f"tau2 轨迹大小漂移: {filename}: {size} != {expected_size}"
+            )
     return f"commit {TAU2_COMMIT[:8]}，114 tasks，4 个 4-trial 轨迹文件可访问"
 
 
@@ -290,9 +290,7 @@ def build_claude_env(
     return child
 
 
-def build_claude_command(
-    executable: str, model: str, mcp_config: Path
-) -> list[str]:
+def build_claude_command(executable: str, model: str, mcp_config: Path) -> list[str]:
     prompt = (
         f"Call the MCP tool {MCP_TOOL_NAME} exactly once with "
         f'{{"value":"{PING_VALUE}"}}. Then reply with the exact tool result. '
@@ -491,7 +489,9 @@ def run_checks(live: bool, timeout: float) -> list[CheckResult]:
         ("tau2-bench", lambda: check_tau2(timeout)),
     )
     with ThreadPoolExecutor(max_workers=len(data_checks)) as executor:
-        futures = [executor.submit(_run_check, name, check) for name, check in data_checks]
+        futures = [
+            executor.submit(_run_check, name, check) for name, check in data_checks
+        ]
         results.extend(future.result() for future in futures)
 
     if live:

@@ -17,10 +17,13 @@ from ses.contracts import (
     GradeStatus,
     JudgeKind,
     RecordType,
+    SchemaVersion,
     StateChange,
     StateDiff,
     Trace,
     Usage,
+    artifact_json_bytes,
+    content_sha256,
 )
 
 TRACE_SHA256 = "c7c5c1d70c5dec4416ab6158afd0b223ef40c29b1dc1f97ed9428b94d4cadb1c"
@@ -33,6 +36,8 @@ def _request(
     resume_session_id: str | None = None,
 ) -> EngineRequest:
     return EngineRequest(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.ENGINE_REQUEST,
         request_id=request_id,
         prompt="Process the return request.",
         resume_session_id=resume_session_id,
@@ -51,6 +56,8 @@ def _event(
 ) -> EngineEvent:
     return EngineEvent.model_validate(
         {
+            "schema_version": "v1alpha1",
+            "record_type": "engine_event",
             "event_id": event_id,
             "request_id": request_id,
             "sequence": sequence,
@@ -96,6 +103,8 @@ def _trace(
             ),
         )
     return Trace(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.TRACE,
         trace_id="trace-1",
         run_id="run-1",
         case_id="case-1",
@@ -123,6 +132,8 @@ def _evidence() -> EvidenceRef:
 
 def _assertion(*, assertion_id: str = "tool-order") -> AssertionResult:
     return AssertionResult(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.ASSERTION_RESULT,
         assertion_id=assertion_id,
         judge=JudgeKind.RULE,
         judge_version="rule-v1",
@@ -277,6 +288,8 @@ def test_trace_allows_missing_usage_when_request_ends_before_usage() -> None:
         ),
     )
     trace = Trace(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.TRACE,
         trace_id="trace-1",
         run_id="run-1",
         case_id="case-1",
@@ -299,6 +312,8 @@ def test_success_trace_requires_a_session_id() -> None:
 
     with pytest.raises(ValidationError, match="successful Trace"):
         Trace(
+            schema_version=SchemaVersion.V1ALPHA1,
+            record_type=RecordType.TRACE,
             trace_id="trace-1",
             run_id="run-1",
             case_id="case-1",
@@ -358,7 +373,7 @@ def test_trace_hash_excludes_nested_wall_clock_time() -> None:
         )
     )
 
-    assert first.canonical_sha256() == second.canonical_sha256()
+    assert content_sha256(first) == content_sha256(second)
 
 
 def test_evidence_reference_round_trips_to_an_artifact_json_pointer() -> None:
@@ -369,13 +384,15 @@ def test_evidence_reference_round_trips_to_an_artifact_json_pointer() -> None:
 
 def test_state_assertion_consumes_a_persisted_shop_diff_reference() -> None:
     diff = StateDiff(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.STATE_DIFF,
         diff_id="diff-1",
         before_snapshot_id="snapshot-before",
         after_snapshot_id="snapshot-after",
         changed={"/status": StateChange(before="shipped", after="returned")},
         summary="Order moved to returned.",
     )
-    diff_bytes = diff.model_dump_json().encode("utf-8")
+    diff_bytes = artifact_json_bytes(diff)
     evidence = EvidenceRef(
         artifact=ArtifactRef(
             root=ArtifactRoot.RUN,
@@ -386,6 +403,8 @@ def test_state_assertion_consumes_a_persisted_shop_diff_reference() -> None:
     )
 
     assertion = AssertionResult(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.ASSERTION_RESULT,
         assertion_id="final-status",
         judge=JudgeKind.STATE,
         judge_version="state-v1",
@@ -442,6 +461,8 @@ def test_decisive_assertions_require_evidence(status: GradeStatus) -> None:
 
 def test_not_evaluated_assertion_may_explain_missing_evidence() -> None:
     assertion = AssertionResult(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.ASSERTION_RESULT,
         assertion_id="state-unavailable",
         judge=JudgeKind.STATE,
         judge_version="state-v1",
@@ -456,6 +477,8 @@ def test_not_evaluated_assertion_may_explain_missing_evidence() -> None:
 
 def test_case_grade_round_trips_without_embedding_gold() -> None:
     grade = CaseGrade(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.CASE_GRADE,
         grade_id="grade-1",
         run_id="run-1",
         case_id="case-1",
@@ -473,6 +496,8 @@ def test_case_grade_round_trips_without_embedding_gold() -> None:
 def test_case_grade_rejects_duplicate_assertion_ids() -> None:
     with pytest.raises(ValidationError):
         CaseGrade(
+            schema_version=SchemaVersion.V1ALPHA1,
+            record_type=RecordType.CASE_GRADE,
             grade_id="grade-1",
             run_id="run-1",
             case_id="case-1",
@@ -489,6 +514,8 @@ def test_case_grade_allows_independent_judges_for_one_assertion() -> None:
     state_result = AssertionResult.model_validate(rule_data)
 
     grade = CaseGrade(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.CASE_GRADE,
         grade_id="grade-1",
         run_id="run-1",
         case_id="case-1",
@@ -517,6 +544,8 @@ def test_case_grade_rejects_obviously_inconsistent_required_results(
 
     with pytest.raises(ValidationError, match="required assertion"):
         CaseGrade(
+            schema_version=SchemaVersion.V1ALPHA1,
+            record_type=RecordType.CASE_GRADE,
             grade_id="grade-1",
             run_id="run-1",
             case_id="case-1",
@@ -530,6 +559,8 @@ def test_case_grade_rejects_obviously_inconsistent_required_results(
 def test_decisive_case_grades_require_assertions(status: GradeStatus) -> None:
     with pytest.raises(ValidationError):
         CaseGrade(
+            schema_version=SchemaVersion.V1ALPHA1,
+            record_type=RecordType.CASE_GRADE,
             grade_id="grade-1",
             run_id="run-1",
             case_id="case-1",
@@ -541,6 +572,8 @@ def test_decisive_case_grades_require_assertions(status: GradeStatus) -> None:
 
 def test_error_case_grade_may_exist_without_assertions() -> None:
     grade = CaseGrade(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.CASE_GRADE,
         grade_id="grade-1",
         run_id="run-1",
         case_id="case-1",

@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Literal, TypeAlias
 
 from pydantic import Field, JsonValue, field_validator, model_validator
 
-from ses.contracts.base import (
-    ArtifactRef,
-    ContractModel,
+from ses.contracts.artifact import ArtifactRef
+from ses.contracts.base import ContractModel, VersionedRecord
+from ses.contracts.primitives import (
     CurrencyCode,
     EventId,
     MessageId,
@@ -21,7 +22,6 @@ from ses.contracts.base import (
     StrictNonNegativeInt,
     ToolCallId,
     UtcDateTime,
-    VersionedRecord,
 )
 
 
@@ -75,7 +75,7 @@ class Usage(ContractModel):
 class EngineRequest(VersionedRecord):
     """Narrow input accepted by engine adapters."""
 
-    record_type: Literal[RecordType.ENGINE_REQUEST] = RecordType.ENGINE_REQUEST
+    record_type: Literal[RecordType.ENGINE_REQUEST]
     request_id: RequestId
     prompt: NonEmptyStr
     resume_session_id: SessionId | None = None
@@ -112,7 +112,7 @@ class ToolCallPayload(ContractModel):
     message_id: MessageId
     tool_call_id: ToolCallId
     tool_name: NonEmptyStr
-    arguments: dict[str, JsonValue] = Field(default_factory=dict)
+    arguments: Mapping[str, JsonValue] = Field(default_factory=dict)
 
 
 class ToolResultPayload(ContractModel):
@@ -170,9 +170,9 @@ EngineEventPayload: TypeAlias = Annotated[
 class EngineEvent(VersionedRecord):
     """One normalized, strictly ordered engine observation."""
 
-    canonical_exclude = frozenset({"occurred_at"})
+    content_hash_exclude = frozenset({"occurred_at"})
 
-    record_type: Literal[RecordType.ENGINE_EVENT] = RecordType.ENGINE_EVENT
+    record_type: Literal[RecordType.ENGINE_EVENT]
     event_id: EventId
     request_id: RequestId
     sequence: StrictNonNegativeInt

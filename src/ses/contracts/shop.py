@@ -8,19 +8,18 @@ from typing import Literal
 
 from pydantic import Field, JsonValue, StrictInt, field_validator, model_validator
 
-from ses.contracts.base import (
+from ses.contracts.artifact import JsonPointer
+from ses.contracts.base import ContractModel, VersionedRecord
+from ses.contracts.primitives import (
     CaseId,
-    ContractModel,
     CurrencyCode,
     DiffId,
-    JsonPointer,
     NonEmptyStr,
     RecordType,
     SnapshotId,
     UtcDateTime,
-    VersionedRecord,
-    canonical_json,
 )
+from ses.contracts.serialization import _stable_json_bytes
 
 
 def _reject_binary_floats(value: object, path: str = "$") -> object:
@@ -54,14 +53,14 @@ class Money(ContractModel):
 class ShopSnapshot(VersionedRecord):
     """A deterministic view of shop state at one point in a case."""
 
-    canonical_exclude = frozenset({"captured_at"})
+    content_hash_exclude = frozenset({"captured_at"})
 
-    record_type: Literal[RecordType.SHOP_SNAPSHOT] = RecordType.SHOP_SNAPSHOT
+    record_type: Literal[RecordType.SHOP_SNAPSHOT]
     snapshot_id: SnapshotId
     case_id: CaseId
     captured_at: UtcDateTime
     policy_version: NonEmptyStr
-    state: dict[str, JsonValue]
+    state: Mapping[str, JsonValue]
 
     @field_validator("state", mode="before")
     @classmethod
@@ -82,7 +81,7 @@ class StateChange(ContractModel):
 
     @model_validator(mode="after")
     def _require_a_real_change(self) -> StateChange:
-        if canonical_json(self.before) == canonical_json(self.after):
+        if _stable_json_bytes(self.before) == _stable_json_bytes(self.after):
             raise ValueError("state change before and after values must differ")
         return self
 
@@ -90,15 +89,15 @@ class StateChange(ContractModel):
 class StateDiff(VersionedRecord):
     """Business-meaningful changes between two shop snapshots."""
 
-    canonical_exclude = frozenset({"summary"})
+    content_hash_exclude = frozenset({"summary"})
 
-    record_type: Literal[RecordType.STATE_DIFF] = RecordType.STATE_DIFF
+    record_type: Literal[RecordType.STATE_DIFF]
     diff_id: DiffId
     before_snapshot_id: SnapshotId
     after_snapshot_id: SnapshotId
-    added: dict[JsonPointer, JsonValue] = Field(default_factory=dict)
-    removed: dict[JsonPointer, JsonValue] = Field(default_factory=dict)
-    changed: dict[JsonPointer, StateChange] = Field(default_factory=dict)
+    added: Mapping[JsonPointer, JsonValue] = Field(default_factory=dict)
+    removed: Mapping[JsonPointer, JsonValue] = Field(default_factory=dict)
+    changed: Mapping[JsonPointer, StateChange] = Field(default_factory=dict)
     summary: str = ""
 
     @field_validator("added", "removed", mode="before")
@@ -125,7 +124,7 @@ class StateDiff(VersionedRecord):
 class ToolResult(VersionedRecord):
     """The atomic outcome of one shop tool call."""
 
-    record_type: Literal[RecordType.TOOL_RESULT] = RecordType.TOOL_RESULT
+    record_type: Literal[RecordType.TOOL_RESULT]
     tool_name: NonEmptyStr
     status: ToolResultStatus
     data: JsonValue = None

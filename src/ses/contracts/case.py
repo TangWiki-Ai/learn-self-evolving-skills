@@ -7,11 +7,11 @@ from typing import Literal
 
 from pydantic import field_validator
 
-from ses.contracts.base import (
+from ses.contracts.base import VersionedRecord
+from ses.contracts.primitives import (
     CaseId,
     NonEmptyStr,
     RecordType,
-    VersionedRecord,
 )
 
 
@@ -28,7 +28,7 @@ class CaseSplit(StrEnum):
 class CaseDefinition(VersionedRecord):
     """Public inputs needed to execute one isolated benchmark case."""
 
-    record_type: Literal[RecordType.CASE_DEFINITION] = RecordType.CASE_DEFINITION
+    record_type: Literal[RecordType.CASE_DEFINITION]
     case_id: CaseId
     source_id: NonEmptyStr
     source_version: NonEmptyStr

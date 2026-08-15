@@ -8,7 +8,6 @@ import os
 import sys
 from typing import Any
 
-
 TOOL_NAME = "phase0_ping"
 
 

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -68,7 +67,9 @@ class StreamJsonTests(unittest.TestCase):
 
 
 class CredentialTests(unittest.TestCase):
-    def test_child_environment_overrides_global_provider_without_copying_alias(self) -> None:
+    def test_child_environment_overrides_global_provider_without_copying_alias(
+        self,
+    ) -> None:
         source = {
             "ANTHROPIC_AUTH_TOKEN": "old-provider-token",
             "ANTHROPIC_BASE_URL": "https://old-provider.example/",
@@ -138,9 +139,7 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         responses = [json.loads(line) for line in completed.stdout.splitlines()]
         self.assertEqual([response["id"] for response in responses], [1, 2, 3])
-        self.assertEqual(
-            responses[1]["result"]["tools"][0]["name"], "phase0_ping"
-        )
+        self.assertEqual(responses[1]["result"]["tools"][0]["name"], "phase0_ping")
         self.assertEqual(
             responses[2]["result"]["content"][0]["text"],
             phase0_check.PING_RESULT,

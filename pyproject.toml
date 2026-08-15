@@ -52,9 +52,4 @@ src = ["src", "tests"]
 select = ["E4", "E7", "E9", "F", "I", "UP", "B", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"scripts/phase0_check.py" = ["I", "UP", "RUF"]
-"scripts/phase0_mcp_server.py" = ["I"]
-"tests/test_phase0_check.py" = ["I"]
-
-[tool.ruff.format]
-exclude = ["scripts/phase0_check.py", "tests/test_phase0_check.py"]
+"scripts/phase0_check.py" = ["RUF001"]

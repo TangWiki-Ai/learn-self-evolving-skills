@@ -1,36 +1,13 @@
 """Canonical cross-module records."""
 
-from ses.contracts.base import (
+from ses.contracts.artifact import (
     ArtifactRef,
     ArtifactRoot,
-    AssertionId,
-    CaseId,
-    ContractModel,
-    CurrencyCode,
-    DiffId,
-    EventId,
-    GradeId,
-    IterationId,
     JsonPointer,
-    MessageId,
-    NonEmptyStr,
-    OpaqueId,
-    RecordType,
     RelativeArtifactPath,
-    RequestId,
-    RunId,
-    SchemaVersion,
-    SessionId,
     Sha256Digest,
-    SnapshotId,
-    StrictNonNegativeInt,
-    ToolCallId,
-    TraceId,
-    UtcDateTime,
-    VersionedRecord,
-    canonical_json,
-    canonical_sha256,
 )
+from ses.contracts.base import ContractModel, VersionedRecord
 from ses.contracts.case import CaseDefinition, CaseSplit
 from ses.contracts.engine import (
     CompletedPayload,
@@ -55,6 +32,29 @@ from ses.contracts.evaluation import (
     JudgeKind,
     Trace,
 )
+from ses.contracts.primitives import (
+    AssertionId,
+    CaseId,
+    CurrencyCode,
+    DiffId,
+    EventId,
+    GradeId,
+    IterationId,
+    MessageId,
+    NonEmptyStr,
+    OpaqueId,
+    RecordType,
+    RequestId,
+    RunId,
+    SchemaVersion,
+    SessionId,
+    SnapshotId,
+    StrictNonNegativeInt,
+    ToolCallId,
+    TraceId,
+    UtcDateTime,
+)
+from ses.contracts.serialization import artifact_json_bytes, content_sha256
 from ses.contracts.shop import (
     Money,
     ShopSnapshot,
@@ -119,6 +119,6 @@ __all__ = [
     "UsagePayload",
     "UtcDateTime",
     "VersionedRecord",
-    "canonical_json",
-    "canonical_sha256",
+    "artifact_json_bytes",
+    "content_sha256",
 ]

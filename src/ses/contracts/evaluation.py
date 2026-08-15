@@ -8,22 +8,8 @@ from typing import Literal
 
 from pydantic import model_validator
 
-from ses.contracts.base import (
-    ArtifactRef,
-    AssertionId,
-    CaseId,
-    ContractModel,
-    GradeId,
-    IterationId,
-    JsonPointer,
-    NonEmptyStr,
-    RecordType,
-    RunId,
-    SessionId,
-    Sha256Digest,
-    TraceId,
-    VersionedRecord,
-)
+from ses.contracts.artifact import ArtifactRef, JsonPointer, Sha256Digest
+from ses.contracts.base import ContractModel, VersionedRecord
 from ses.contracts.engine import (
     CompletedPayload,
     EngineEvent,
@@ -31,6 +17,17 @@ from ses.contracts.engine import (
     EngineRequest,
     Usage,
     UsagePayload,
+)
+from ses.contracts.primitives import (
+    AssertionId,
+    CaseId,
+    GradeId,
+    IterationId,
+    NonEmptyStr,
+    RecordType,
+    RunId,
+    SessionId,
+    TraceId,
 )
 
 
@@ -53,7 +50,7 @@ class JudgeKind(StrEnum):
 class Trace(VersionedRecord):
     """An immutable timeline assembled from normalized engine records."""
 
-    record_type: Literal[RecordType.TRACE] = RecordType.TRACE
+    record_type: Literal[RecordType.TRACE]
     trace_id: TraceId
     run_id: RunId
     case_id: CaseId
@@ -125,7 +122,7 @@ class EvidenceRef(ContractModel):
 class AssertionResult(VersionedRecord):
     """One evidence-backed deterministic judge decision."""
 
-    record_type: Literal[RecordType.ASSERTION_RESULT] = RecordType.ASSERTION_RESULT
+    record_type: Literal[RecordType.ASSERTION_RESULT]
     assertion_id: AssertionId
     judge: JudgeKind
     judge_version: NonEmptyStr
@@ -144,7 +141,7 @@ class AssertionResult(VersionedRecord):
 class CaseGrade(VersionedRecord):
     """The aggregate status plus independent assertion-level results."""
 
-    record_type: Literal[RecordType.CASE_GRADE] = RecordType.CASE_GRADE
+    record_type: Literal[RecordType.CASE_GRADE]
     grade_id: GradeId
     run_id: RunId
     case_id: CaseId

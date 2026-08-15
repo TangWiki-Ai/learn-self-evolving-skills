@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal, localcontext
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 from pydantic import JsonValue, ValidationError
@@ -16,8 +18,8 @@ from ses.contracts import (
     Usage,
     UtcDateTime,
     VersionedRecord,
-    canonical_json,
-    canonical_sha256,
+    artifact_json_bytes,
+    content_sha256,
 )
 
 ARTIFACT_SHA256 = "c7c5c1d70c5dec4416ab6158afd0b223ef40c29b1dc1f97ed9428b94d4cadb1c"
@@ -26,11 +28,11 @@ ARTIFACT_SHA256 = "c7c5c1d70c5dec4416ab6158afd0b223ef40c29b1dc1f97ed9428b94d4cad
 class ExampleContract(ContractModel):
     run_id: RunId
     occurred_at: UtcDateTime
-    payload: dict[str, JsonValue]
+    payload: Mapping[str, JsonValue]
 
 
 class ExampleRecord(VersionedRecord):
-    record_type: Literal["example"] = "example"
+    record_type: Literal["example"]
 
 
 def test_contracts_are_frozen_and_reject_unknown_fields() -> None:
@@ -56,7 +58,12 @@ def test_contracts_are_frozen_and_reject_unknown_fields() -> None:
 
 
 def test_versioned_records_reject_unsupported_versions() -> None:
-    assert ExampleRecord().schema_version is SchemaVersion.V1ALPHA1
+    record = ExampleRecord(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type="example",
+    )
+
+    assert record.schema_version is SchemaVersion.V1ALPHA1
 
     with pytest.raises(ValidationError, match="unsupported schema_version"):
         ExampleRecord.model_validate({"schema_version": "v2", "record_type": "example"})
@@ -94,20 +101,18 @@ def test_utc_datetime_rejects_naive_and_epoch_values(occurred_at: object) -> Non
         )
 
 
-def test_canonical_json_has_a_stable_known_digest() -> None:
-    first: JsonValue = {"b": 2, "a": 1}
-    second: JsonValue = {"a": 1, "b": 2}
-
-    assert canonical_json(first) == b'{"a":1,"b":2}'
-    assert canonical_sha256(first) == canonical_sha256(second)
-    assert (
-        canonical_sha256(first)
-        == "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+def test_artifact_json_has_stable_known_bytes_and_digest() -> None:
+    record = ExampleRecord(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type="example",
     )
-    assert canonical_sha256({"a": 1, "b": 3}) != canonical_sha256(first)
+    artifact = artifact_json_bytes(record)
+
+    assert artifact == b'{"record_type":"example","schema_version":"v1alpha1"}'
+    assert content_sha256(record) == hashlib.sha256(artifact).hexdigest()
 
 
-def test_decimal_canonical_json_is_independent_of_decimal_context() -> None:
+def test_decimal_content_hash_is_independent_of_decimal_context() -> None:
     usage = Usage(
         input_tokens=1,
         output_tokens=1,
@@ -119,13 +124,13 @@ def test_decimal_canonical_json_is_independent_of_decimal_context() -> None:
     for precision in (10, 28, 50):
         with localcontext() as context:
             context.prec = precision
-            hashes.add(usage.canonical_sha256())
+            hashes.add(content_sha256(usage))
 
     assert len(hashes) == 1
-    assert b"1.2345678901234567890123456789012345" in usage.canonical_json()
+    assert "1.2345678901234567890123456789012345" in usage.model_dump_json()
 
 
-def test_decimal_canonical_json_does_not_expand_large_exponents() -> None:
+def test_decimal_wire_does_not_expand_large_exponents() -> None:
     usage = Usage(
         input_tokens=1,
         output_tokens=1,
@@ -133,7 +138,7 @@ def test_decimal_canonical_json_does_not_expand_large_exponents() -> None:
         cost_currency="USD",
     )
 
-    assert b'"1E+999999999"' in usage.canonical_json()
+    assert '"1E+999999999"' in usage.model_dump_json()
 
 
 @pytest.mark.parametrize(
@@ -250,8 +255,12 @@ def test_mutated_nested_payload_cannot_serialize_a_credential_field() -> None:
             "payload": {},
         }
     )
-    with pytest.raises(TypeError, match="frozen"):
-        contract.payload["api_key"] = "not-a-real-value"
+    with pytest.raises(TypeError):
+        dict.__setitem__(
+            cast(dict[str, JsonValue], contract.payload),
+            "api_key",
+            "not-a-real-value",
+        )
 
 
 def test_nested_json_arrays_are_frozen() -> None:
@@ -264,9 +273,9 @@ def test_nested_json_arrays_are_frozen() -> None:
     )
     items = contract.payload["items"]
 
-    assert isinstance(items, list)
-    with pytest.raises(TypeError, match="frozen"):
-        items.append({"id": "item-2"})
+    assert isinstance(items, tuple)
+    with pytest.raises(TypeError):
+        list.append(cast(list[JsonValue], items), {"id": "item-2"})
 
 
 def test_model_copy_revalidates_updates_and_preserves_deep_freezing() -> None:
@@ -282,9 +291,9 @@ def test_model_copy_revalidates_updates_and_preserves_deep_freezing() -> None:
     deep_copy = contract.model_copy(deep=True)
 
     copied_items = copied.payload["items"]
-    assert isinstance(copied_items, list)
-    with pytest.raises(TypeError, match="frozen"):
-        copied_items.append(3)
+    assert isinstance(copied_items, tuple)
+    with pytest.raises(TypeError):
+        list.append(cast(list[JsonValue], copied_items), 3)
     assert deep_copy == contract
 
     with pytest.raises(ValidationError, match="forbidden field"):
@@ -312,6 +321,11 @@ def test_contracts_reject_strings_that_are_not_valid_utf8(
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_canonical_json_rejects_non_finite_floats(value: float) -> None:
+def test_content_hash_rejects_non_finite_floats(value: float) -> None:
+    contract = ExampleContract.model_construct(
+        run_id="run-1",
+        occurred_at=datetime(2026, 8, 16, tzinfo=UTC),
+        payload={"value": value},
+    )
     with pytest.raises(ValueError):
-        canonical_json({"value": value})
+        content_sha256(contract)

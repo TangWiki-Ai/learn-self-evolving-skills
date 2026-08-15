@@ -10,16 +10,20 @@ from ses.contracts import (
     CaseSplit,
     Money,
     RecordType,
+    SchemaVersion,
     ShopSnapshot,
     StateChange,
     StateDiff,
     ToolResult,
     ToolResultStatus,
+    content_sha256,
 )
 
 
 def _case() -> CaseDefinition:
     return CaseDefinition(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.CASE_DEFINITION,
         case_id="case-1",
         source_id="state-bench-task-2",
         source_version="5644b183",
@@ -34,6 +38,8 @@ def _case() -> CaseDefinition:
 def _snapshot(*, captured_at: str = "2026-08-16T04:00:00Z") -> ShopSnapshot:
     return ShopSnapshot.model_validate(
         {
+            "schema_version": "v1alpha1",
+            "record_type": "shop_snapshot",
             "snapshot_id": "snapshot-1",
             "case_id": "case-1",
             "captured_at": captured_at,
@@ -49,6 +55,8 @@ def _snapshot(*, captured_at: str = "2026-08-16T04:00:00Z") -> ShopSnapshot:
 
 def _diff(*, summary: str = "Order moved to returned.") -> StateDiff:
     return StateDiff(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.STATE_DIFF,
         diff_id="diff-1",
         before_snapshot_id="snapshot-before",
         after_snapshot_id="snapshot-after",
@@ -128,8 +136,8 @@ def test_shop_snapshot_round_trips_and_hashes_business_state() -> None:
     assert restored == snapshot
     assert restored.record_type is RecordType.SHOP_SNAPSHOT
     assert snapshot.captured_at == datetime(2026, 8, 16, 4, 0, tzinfo=UTC)
-    assert snapshot.canonical_sha256() == later.canonical_sha256()
-    assert snapshot.canonical_sha256() != changed.canonical_sha256()
+    assert content_sha256(snapshot) == content_sha256(later)
+    assert content_sha256(snapshot) != content_sha256(changed)
 
 
 @pytest.mark.parametrize(
@@ -149,6 +157,8 @@ def test_shop_snapshot_rejects_binary_floats(state: dict[str, object]) -> None:
 
 def test_empty_state_diff_is_valid() -> None:
     diff = StateDiff(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.STATE_DIFF,
         diff_id="diff-empty",
         before_snapshot_id="snapshot-before",
         after_snapshot_id="snapshot-after",
@@ -166,7 +176,7 @@ def test_state_diff_summary_does_not_change_content_hash() -> None:
     second = _diff(summary="Returned.")
 
     assert first.record_type is RecordType.STATE_DIFF
-    assert first.canonical_sha256() == second.canonical_sha256()
+    assert content_sha256(first) == content_sha256(second)
 
 
 def test_state_change_distinguishes_json_booleans_from_numbers() -> None:
@@ -198,11 +208,15 @@ def test_state_diff_rejects_ambiguous_changes(updates: dict[str, object]) -> Non
 
 def test_tool_result_success_and_error_shapes_round_trip() -> None:
     success = ToolResult(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.TOOL_RESULT,
         tool_name="confirm_return",
         status=ToolResultStatus.SUCCESS,
         data={"refund_id": "refund-1"},
     )
     error = ToolResult(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.TOOL_RESULT,
         tool_name="confirm_return",
         status=ToolResultStatus.ERROR,
         data={"retryable": False},
@@ -219,16 +233,22 @@ def test_tool_result_success_and_error_shapes_round_trip() -> None:
     "data",
     [
         {
+            "schema_version": "v1alpha1",
+            "record_type": "tool_result",
             "tool_name": "confirm_return",
             "status": "success",
             "error_code": "unexpected",
             "error_message": "must not be present",
         },
         {
+            "schema_version": "v1alpha1",
+            "record_type": "tool_result",
             "tool_name": "confirm_return",
             "status": "error",
         },
         {
+            "schema_version": "v1alpha1",
+            "record_type": "tool_result",
             "tool_name": "confirm_return",
             "status": "failed",
         },
@@ -245,11 +265,15 @@ def test_tool_result_rejects_inconsistent_status_shapes(
     "model_data",
     [
         {
+            "schema_version": "v1alpha1",
+            "record_type": "tool_result",
             "tool_name": "confirm_return",
             "status": "success",
             "data": {"refund": 12.99},
         },
         {
+            "schema_version": "v1alpha1",
+            "record_type": "state_diff",
             "diff_id": "diff-1",
             "before_snapshot_id": "before",
             "after_snapshot_id": "after",
@@ -285,6 +309,8 @@ def test_shop_json_seams_reject_nested_credentials_and_private_answers() -> None
     with pytest.raises(ValidationError, match="forbidden field"):
         ToolResult.model_validate(
             {
+                "schema_version": "v1alpha1",
+                "record_type": "tool_result",
                 "tool_name": "confirm_return",
                 "status": "success",
                 "data": {"hidden__gold": "private"},

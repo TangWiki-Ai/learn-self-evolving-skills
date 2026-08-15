@@ -13,13 +13,17 @@ from ses.contracts import (
     EngineExitStatus,
     EngineRequest,
     RecordType,
+    SchemaVersion,
     Usage,
+    content_sha256,
 )
 
 
 def _event(payload: dict[str, object], *, sequence: int = 0) -> EngineEvent:
     return EngineEvent.model_validate(
         {
+            "schema_version": "v1alpha1",
+            "record_type": "engine_event",
             "event_id": f"event-{sequence}",
             "request_id": "request-1",
             "sequence": sequence,
@@ -31,6 +35,8 @@ def _event(payload: dict[str, object], *, sequence: int = 0) -> EngineEvent:
 
 def test_engine_request_round_trips_without_provider_configuration() -> None:
     request = EngineRequest(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.ENGINE_REQUEST,
         request_id="request-1",
         prompt="Process the return request.",
         resume_session_id=None,
@@ -54,6 +60,8 @@ def test_engine_request_rejects_invalid_tool_allowlists(
 ) -> None:
     with pytest.raises(ValidationError):
         EngineRequest(
+            schema_version=SchemaVersion.V1ALPHA1,
+            record_type=RecordType.ENGINE_REQUEST,
             request_id="request-1",
             prompt="Process the return request.",
             allowed_tools=allowed_tools,
@@ -68,6 +76,8 @@ def test_engine_request_requires_a_strict_positive_timeout(
     with pytest.raises(ValidationError):
         EngineRequest.model_validate(
             {
+                "schema_version": "v1alpha1",
+                "record_type": "engine_request",
                 "request_id": "request-1",
                 "prompt": "Process the return request.",
                 "timeout_seconds": timeout_seconds,
@@ -81,6 +91,8 @@ def test_engine_request_requires_a_strict_positive_timeout(
 )
 def test_engine_request_rejects_provider_private_fields(field: str) -> None:
     data: dict[str, object] = {
+        "schema_version": "v1alpha1",
+        "record_type": "engine_request",
         "request_id": "request-1",
         "prompt": "Process the return request.",
         "timeout_seconds": 30,
@@ -287,4 +299,4 @@ def test_engine_event_hash_excludes_wall_clock_time() -> None:
     second_data["occurred_at"] = "2026-08-17T04:00:00Z"
     second = EngineEvent.model_validate(second_data)
 
-    assert first.canonical_sha256() == second.canonical_sha256()
+    assert content_sha256(first) == content_sha256(second)
