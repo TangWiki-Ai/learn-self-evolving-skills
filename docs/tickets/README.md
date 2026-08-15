@@ -1,6 +1,6 @@
 # 开发任务与依赖图
 
-GitHub Issues 是任务状态的唯一来源。本文保留初始拆解和依赖关系，帮助开发者快速理解整体路线。
+[GitHub Issues](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues) 是任务状态的唯一来源。本文保留初始拆解和依赖关系，帮助开发者快速理解整体路线。
 
 ```text
 01 Phase 0 smoke

@@ -1,6 +1,6 @@
 # 系统与模块规格
 
-这些文档把产品需求拆成稳定的系统边界。课程章节可以跨模块组合，但实现、测试和后续 Provider 扩展都以这些模块契约为准。
+这些文档把产品需求拆成稳定的系统边界。课程章节可以跨模块组合，但实现、测试和后续 Provider 扩展都以这些模块契约为准。GitHub 上的 [spec tracking issue](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues/13) 提供统一入口。
 
 ## 规格索引
 

@@ -18,8 +18,8 @@ create -> eval -> evolve -> gate -> rollback -> portfolio
 
 - [产品需求](docs/product/prd.md)
 - [已确认的产品与架构决策](docs/product/alignment.md)
-- [开发任务与依赖图](docs/tickets/README.md)
-- [系统与模块规格](docs/specs/README.md)
+- [开发任务与依赖图](docs/tickets/README.md) / [GitHub Issues](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues)
+- [系统与模块规格](docs/specs/README.md) / [Spec tracking issue](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues/13)
 
 ## 安全
 
