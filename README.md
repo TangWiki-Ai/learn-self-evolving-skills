@@ -12,12 +12,25 @@ create -> eval -> evolve -> gate -> rollback -> portfolio
 
 ## 当前阶段
 
-仓库目前处于规格与任务拆解阶段。开发从一个快速 Phase 0 冒烟测试开始，然后优先跑通单 case 的完整评测链。
+仓库已经进入 Phase 0。先运行不消耗 Key 的本地与数据检查：
+
+```bash
+python3 scripts/phase0_check.py
+```
+
+设置轮换后的 `SILICONFLOW_API_KEY` 后，运行一次完整 smoke：
+
+```bash
+python3 scripts/phase0_check.py --live
+```
+
+完整 smoke 会验证 Claude Code headless 的硅流模型响应、一次 MCP 调用和 `stream-json` 解析。通过后优先跑通单 case 的完整评测链。
 
 ## 文档
 
 - [产品需求](docs/product/prd.md)
 - [已确认的产品与架构决策](docs/product/alignment.md)
+- [Phase 0 前置检查](docs/phase0-validation.md)
 - [开发任务与依赖图](docs/tickets/README.md) / [GitHub Issues](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues)
 - [系统与模块规格](docs/specs/README.md) / [Spec tracking issue](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues/13)
 
