@@ -8,7 +8,7 @@
 python3 scripts/phase0_check.py
 ```
 
-完整 smoke 只从进程环境读取轮换后的硅流 Key：
+完整 smoke 只从进程环境读取有效的硅流 Key：
 
 ```bash
 read -s SILICONFLOW_API_KEY && export SILICONFLOW_API_KEY && python3 scripts/phase0_check.py --live
@@ -32,8 +32,8 @@ read -s SILICONFLOW_API_KEY && export SILICONFLOW_API_KEY && python3 scripts/pha
 | tau2-bench retail | PASS | 固定 commit `c3398666e6559e3a063da3fc04b5acf7f941464e`；114 tasks；4 个模型结果各含 456 次模拟，共 1,824 trajectories |
 | 硅流 endpoint | PASS | `https://api.siliconflow.cn/` TLS 校验通过，未认证根请求返回 HTTP 404，网络可达 |
 | 本地 MCP 协议 | PASS | Claude CLI 使用临时配置执行健康检查，`phase0` server 返回 `Connected` |
-| 硅流模型响应 | PENDING | 当前进程没有设置轮换后的 `SILICONFLOW_API_KEY`，因此未执行付费调用 |
-| 模型驱动 MCP + stream-json | PENDING | 与硅流模型响应共用一次 live smoke；Key 到位后执行 |
+| 硅流模型响应 | PASS | Claude Code headless 通过 `api.siliconflow.cn` 调用 `deepseek-ai/DeepSeek-V3.2`，进程退出码为 0 |
+| 模型驱动 MCP + stream-json | PASS | 模型调用 `mcp__phase0__phase0_ping`，脚本解析 114 条 JSON 事件并验证 `pong:ses-phase0` |
 
 ABCD 完整数据 `data/abcd_v1.1.json.gz` 的实测大小为 `36,985,084` bytes，SHA256 为 `2bdf53ac359543dcdc38d55bc6513e78df120363f8f44870716e909f4606de15`。检查脚本日常只读取小样例并用 HTTP metadata 核对完整文件大小，避免反复下载 37 MB。
 
@@ -41,7 +41,7 @@ STATE-Bench 的 33/21 来自 JSON 字段过滤，不来自文件名匹配。后�
 
 ## 当前结论
 
-本机运行时和三组官方数据满足开发条件，可以确认这部分 **GO**。硅流 headless、MCP tool calling 和 `stream-json` 仍是一个明确的 **NO-GO/PENDING** 项；设置轮换后的环境变量并让 `--live` 返回 0 后，才关闭 GitHub Issue #1。
+本机运行时、三组官方数据、硅流 headless、模型驱动 MCP tool calling 和 `stream-json` 已完成一次端到端验证，Phase 0 结论为 **GO**。GitHub Issue #1 可以关闭，开发进入单 case 完整评测链。
 
 首版只验证 Claude Code headless + 硅基流动。代码保留薄 Engine 边界，后续可以增加其他 Provider，但 Phase 0 不实现路由、fallback 或通用 Provider 框架。
 

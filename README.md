@@ -12,19 +12,21 @@ create -> eval -> evolve -> gate -> rollback -> portfolio
 
 ## 当前阶段
 
-仓库已经进入 Phase 0。先运行不消耗 Key 的本地与数据检查：
+Phase 0 已于 2026-08-16 通过。Claude Code headless 已通过硅基流动完成模型响应、MCP 工具调用和 `stream-json` 解析。当前开发重点是单 case 完整评测链。
+
+你可以随时运行不消耗 Key 的本地与数据检查：
 
 ```bash
 python3 scripts/phase0_check.py
 ```
 
-设置轮换后的 `SILICONFLOW_API_KEY` 后，运行一次完整 smoke：
+设置有效的 `SILICONFLOW_API_KEY` 后，运行完整 smoke：
 
 ```bash
 python3 scripts/phase0_check.py --live
 ```
 
-完整 smoke 会验证 Claude Code headless 的硅流模型响应、一次 MCP 调用和 `stream-json` 解析。通过后优先跑通单 case 的完整评测链。
+完整 smoke 会验证 Claude Code headless 的硅流模型响应、一次 MCP 调用和 `stream-json` 解析。
 
 ## 文档
 
