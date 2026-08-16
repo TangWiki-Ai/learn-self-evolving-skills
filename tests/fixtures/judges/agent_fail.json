@@ -1,0 +1,11 @@
+{
+  "events": [
+    {
+      "payload": {
+        "kind": "text_delta",
+        "message_id": "judge-message",
+        "text": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The message conflicts with the observed state.\",\"completed_checks\":[\"state_diff_facts\",\"key_messages\"],\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/2/after\"]}"
+      }
+    }
+  ]
+}

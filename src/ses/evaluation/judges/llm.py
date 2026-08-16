@@ -1,10 +1,11 @@
-"""Rubric LLM Judge built on the repository's provider-neutral Engine seam."""
+"""Single-pass rubric LLM Judge over a constrained evidence packet."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from pydantic import JsonValue, model_validator
 
@@ -33,17 +34,26 @@ from ses.evaluation.evidence_extractor import (
     evidence_sha256,
 )
 
-RUBRIC_PROMPT_VERSION = "rubric-prompt-v1"
-MODEL_PROTOCOL_VERSION = "assertion-json-v1"
+RUBRIC_PROMPT_VERSION = "rubric-prompt-v2"
+MODEL_PROTOCOL_VERSION = "llm-assertion-json-v2"
 _MODEL_PROTOCOL = (
-    "ses.evaluation.model-judge/assertion-json-v1|"
+    "ses.evaluation.llm-judge/llm-assertion-json-v2|"
+    "single-pass-rubric-rating|"
     "assertion_id:string|status:pass,fail,not_evaluated|"
-    "reason:string|evidence_references:json-pointer[]|"
+    "reason:string|evidence_references:allowed-evidence-json-pointer[]|"
     "strict-json:no-markdown:no-retry"
 )
 MODEL_PROTOCOL_SHA256: Sha256Digest = hashlib.sha256(
     _MODEL_PROTOCOL.encode("utf-8")
 ).hexdigest()
+_ALLOWED_EVIDENCE_ROOTS = frozenset(
+    {
+        "state_diff_facts",
+        "tool_timeline",
+        "amount_reconciliation",
+        "key_messages",
+    }
+)
 
 
 class Rubric(ContractModel):
@@ -56,8 +66,20 @@ class Rubric(ContractModel):
     criterion: str
 
 
+class JudgeModelConfig(ContractModel):
+    """Locked model identity and inference settings that affect judgment."""
+
+    model_id: str
+    model_lock_version: str
+    model_parameters: Mapping[str, JsonValue]
+
+    @property
+    def sha256(self) -> Sha256Digest:
+        return _sha256_json(self.model_dump(mode="json"))
+
+
 class ModelDecision(ContractModel):
-    """Strict model wire response before canonical result construction."""
+    """Strict LLM wire response before canonical result construction."""
 
     assertion_id: str
     status: GradeStatus
@@ -90,6 +112,9 @@ class JudgeProtocolMetadata(ContractModel):
     extractor_version: str
     extractor_sha256: Sha256Digest
     evidence_sha256: Sha256Digest
+    judge_model_id: str
+    model_lock_version: str
+    model_config_sha256: Sha256Digest
     model_protocol_version: str
     model_protocol_sha256: Sha256Digest
     protocol_sha256: Sha256Digest
@@ -101,35 +126,32 @@ class ModelJudgeRun(ContractModel):
     assertion: AssertionResult
     protocol: JudgeProtocolMetadata
     request: EngineRequest
+    raw_response: str
+
+
+@dataclass(frozen=True)
+class _EngineOutput:
+    text: str
+    error: str | None = None
 
 
 def _sha256_text(value: str) -> Sha256Digest:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _rubric_sha256(rubric: Rubric) -> Sha256Digest:
+def _sha256_json(value: object) -> Sha256Digest:
     return hashlib.sha256(
         json.dumps(
-            rubric.model_dump(mode="json"),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
     ).hexdigest()
 
 
-def _render_prompt(
-    *,
-    judge: JudgeKind,
-    prompt_version: str,
-    rubric: Rubric,
-    evidence: EvidenceBundle,
-) -> str:
-    role = (
-        "Apply the rubric to the supplied evidence."
-        if judge is JudgeKind.LLM
-        else "Reason only over the supplied read-only evidence."
-    )
+def _rubric_sha256(rubric: Rubric) -> Sha256Digest:
+    return _sha256_json(rubric.model_dump(mode="json"))
+
+
+def _render_llm_prompt(*, rubric: Rubric, evidence: EvidenceBundle) -> str:
     rubric_json = json.dumps(
         rubric.model_dump(mode="json"),
         ensure_ascii=False,
@@ -138,11 +160,12 @@ def _render_prompt(
     )
     evidence_json = evidence_json_bytes(evidence).decode("utf-8")
     return (
-        f"Protocol: {prompt_version}. {role} "
-        "Do not call tools or use information outside this prompt. "
-        "Return exactly one JSON object with assertion_id, status, reason, and "
-        "evidence_references. status must be pass, fail, or not_evaluated. "
-        "Each evidence reference must be a JSON Pointer into EVIDENCE.\n"
+        f"Protocol: {RUBRIC_PROMPT_VERSION}. Rate the rubric criterion in one "
+        "single pass from the supplied evidence. Do not call tools or use outside "
+        "information. Return exactly one JSON object with assertion_id, status, "
+        "reason, and evidence_references. status must be pass, fail, or "
+        "not_evaluated. Evidence references may point only into "
+        "state_diff_facts, tool_timeline, amount_reconciliation, or key_messages.\n"
         f"RUBRIC={rubric_json}\nEVIDENCE={evidence_json}"
     )
 
@@ -154,6 +177,9 @@ def _metadata(
     prompt: str,
     rubric: Rubric,
     evidence: EvidenceBundle,
+    model: JudgeModelConfig,
+    model_protocol_version: str,
+    model_protocol_sha256: Sha256Digest,
 ) -> JudgeProtocolMetadata:
     values = {
         "judge": judge.value,
@@ -164,12 +190,12 @@ def _metadata(
         "extractor_version": evidence.extractor_version,
         "extractor_sha256": evidence.extractor_sha256,
         "evidence_sha256": evidence_sha256(evidence),
-        "model_protocol_version": MODEL_PROTOCOL_VERSION,
-        "model_protocol_sha256": MODEL_PROTOCOL_SHA256,
+        "judge_model_id": model.model_id,
+        "model_lock_version": model.model_lock_version,
+        "model_config_sha256": model.sha256,
+        "model_protocol_version": model_protocol_version,
+        "model_protocol_sha256": model_protocol_sha256,
     }
-    protocol_sha256 = hashlib.sha256(
-        json.dumps(values, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
     return JudgeProtocolMetadata(
         judge=judge,
         rubric_version=rubric.rubric_version,
@@ -179,9 +205,12 @@ def _metadata(
         extractor_version=evidence.extractor_version,
         extractor_sha256=evidence.extractor_sha256,
         evidence_sha256=values["evidence_sha256"],
-        model_protocol_version=MODEL_PROTOCOL_VERSION,
-        model_protocol_sha256=MODEL_PROTOCOL_SHA256,
-        protocol_sha256=protocol_sha256,
+        judge_model_id=model.model_id,
+        model_lock_version=model.model_lock_version,
+        model_config_sha256=values["model_config_sha256"],
+        model_protocol_version=model_protocol_version,
+        model_protocol_sha256=model_protocol_sha256,
+        protocol_sha256=_sha256_json(values),
     )
 
 
@@ -192,8 +221,11 @@ def _decode_pointer(pointer: str) -> tuple[str, ...]:
 
 
 def _pointer_exists(evidence: EvidenceBundle, pointer: str) -> bool:
+    tokens = _decode_pointer(pointer)
+    if not tokens or tokens[0] not in _ALLOWED_EVIDENCE_ROOTS:
+        return False
     current: object = evidence.model_dump(mode="json")
-    for token in _decode_pointer(pointer):
+    for token in tokens:
         if isinstance(current, Mapping):
             if token not in current:
                 return False
@@ -210,6 +242,24 @@ def _pointer_exists(evidence: EvidenceBundle, pointer: str) -> bool:
     return True
 
 
+def _validated_refs(
+    *,
+    evidence: EvidenceBundle,
+    evidence_artifact: ArtifactRef,
+    pointers: tuple[JsonPointer, ...],
+) -> tuple[EvidenceRef, ...]:
+    invalid = next(
+        (pointer for pointer in pointers if not _pointer_exists(evidence, pointer)),
+        None,
+    )
+    if invalid is not None:
+        raise ValueError(f"invalid evidence reference: {invalid}")
+    return tuple(
+        EvidenceRef(artifact=evidence_artifact, json_pointer=pointer)
+        for pointer in pointers
+    )
+
+
 def _assertion(
     *,
     rubric: Rubric,
@@ -224,7 +274,7 @@ def _assertion(
         record_type=RecordType.ASSERTION_RESULT,
         assertion_id=rubric.assertion_id,
         judge=judge,
-        judge_version=f"{judge.value}-v1:{metadata.protocol_sha256[:16]}",
+        judge_version=f"{judge.value}-v2:{metadata.protocol_sha256[:16]}",
         required=rubric.required,
         status=status,
         reason=reason,
@@ -239,6 +289,7 @@ def _error_run(
     metadata: JudgeProtocolMetadata,
     request: EngineRequest,
     reason: str,
+    raw_response: str = "",
 ) -> ModelJudgeRun:
     return ModelJudgeRun(
         assertion=_assertion(
@@ -250,53 +301,13 @@ def _error_run(
         ),
         protocol=metadata,
         request=request,
+        raw_response=raw_response,
     )
 
 
-async def _run_model_judge(
-    engine: Engine,
-    *,
-    judge: JudgeKind,
-    prompt_version: str,
-    rubric: Rubric,
-    evidence: EvidenceBundle,
-    evidence_artifact: ArtifactRef,
-    timeout_seconds: float,
-) -> ModelJudgeRun:
-    prompt = _render_prompt(
-        judge=judge,
-        prompt_version=prompt_version,
-        rubric=rubric,
-        evidence=evidence,
-    )
-    metadata = _metadata(
-        judge=judge,
-        prompt_version=prompt_version,
-        prompt=prompt,
-        rubric=rubric,
-        evidence=evidence,
-    )
-    request = EngineRequest(
-        schema_version=SchemaVersion.V1ALPHA1,
-        record_type=RecordType.ENGINE_REQUEST,
-        request_id=(
-            f"judge-{judge.value}-{metadata.evidence_sha256[:12]}-"
-            f"{metadata.rubric_sha256[:12]}"
-        ),
-        prompt=prompt,
-        allowed_tools=(),
-        timeout_seconds=timeout_seconds,
-    )
-    actual_artifact_sha256 = hashlib.sha256(evidence_json_bytes(evidence)).hexdigest()
-    if evidence_artifact.sha256 != actual_artifact_sha256:
-        return _error_run(
-            rubric=rubric,
-            judge=judge,
-            metadata=metadata,
-            request=request,
-            reason="evidence artifact checksum does not match the supplied evidence",
-        )
-
+async def _collect_engine_output(
+    engine: Engine, request: EngineRequest
+) -> _EngineOutput:
     text_parts: list[str] = []
     terminal_status: EngineExitStatus | None = None
     engine_error = False
@@ -313,80 +324,39 @@ async def _run_model_judge(
             elif isinstance(payload, CompletedPayload):
                 terminal_status = payload.exit_status
     except Exception:
-        return _error_run(
-            rubric=rubric,
-            judge=judge,
-            metadata=metadata,
-            request=request,
-            reason="engine execution failed",
-        )
+        return _EngineOutput(text="".join(text_parts), error="engine execution failed")
+    text = "".join(text_parts)
     if unauthorized_tools:
-        return _error_run(
-            rubric=rubric,
-            judge=judge,
-            metadata=metadata,
-            request=request,
-            reason=f"unauthorized tool request: {unauthorized_tools[0]}",
+        return _EngineOutput(
+            text=text, error=f"unauthorized tool request: {unauthorized_tools[0]}"
         )
     if engine_error or terminal_status is not EngineExitStatus.SUCCESS:
-        return _error_run(
-            rubric=rubric,
-            judge=judge,
-            metadata=metadata,
-            request=request,
-            reason="engine did not complete successfully",
-        )
-    try:
-        raw: JsonValue = json.loads("".join(text_parts))
-        decision = ModelDecision.model_validate(raw)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return _error_run(
-            rubric=rubric,
-            judge=judge,
-            metadata=metadata,
-            request=request,
-            reason="malformed model output",
-        )
-    if decision.assertion_id != rubric.assertion_id:
-        return _error_run(
-            rubric=rubric,
-            judge=judge,
-            metadata=metadata,
-            request=request,
-            reason="model output assertion_id does not match the rubric",
-        )
-    invalid = next(
-        (
-            pointer
-            for pointer in decision.evidence_references
-            if not _pointer_exists(evidence, pointer)
+        return _EngineOutput(text=text, error="engine did not complete successfully")
+    return _EngineOutput(text=text)
+
+
+def _request(
+    *,
+    judge: JudgeKind,
+    prompt: str,
+    metadata: JudgeProtocolMetadata,
+    timeout_seconds: float,
+) -> EngineRequest:
+    return EngineRequest(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.ENGINE_REQUEST,
+        request_id=(
+            f"judge-{judge.value}-{metadata.evidence_sha256[:12]}-"
+            f"{metadata.rubric_sha256[:12]}"
         ),
-        None,
+        prompt=prompt,
+        allowed_tools=(),
+        timeout_seconds=timeout_seconds,
     )
-    if invalid is not None:
-        return _error_run(
-            rubric=rubric,
-            judge=judge,
-            metadata=metadata,
-            request=request,
-            reason=f"invalid evidence reference: {invalid}",
-        )
-    refs = tuple(
-        EvidenceRef(artifact=evidence_artifact, json_pointer=pointer)
-        for pointer in decision.evidence_references
-    )
-    return ModelJudgeRun(
-        assertion=_assertion(
-            rubric=rubric,
-            judge=judge,
-            metadata=metadata,
-            status=decision.status,
-            reason=decision.reason,
-            evidence=refs,
-        ),
-        protocol=metadata,
-        request=request,
-    )
+
+
+def _artifact_matches(evidence: EvidenceBundle, artifact: ArtifactRef) -> bool:
+    return artifact.sha256 == hashlib.sha256(evidence_json_bytes(evidence)).hexdigest()
 
 
 async def judge_llm(
@@ -395,16 +365,80 @@ async def judge_llm(
     rubric: Rubric,
     evidence: EvidenceBundle,
     evidence_artifact: ArtifactRef,
+    model: JudgeModelConfig,
     timeout_seconds: float = 30,
 ) -> ModelJudgeRun:
-    """Evaluate one rubric with one Engine call and no retries."""
+    """Rate one rubric in a single model pass with no retries or tools."""
 
-    return await _run_model_judge(
-        engine,
+    prompt = _render_llm_prompt(rubric=rubric, evidence=evidence)
+    metadata = _metadata(
         judge=JudgeKind.LLM,
         prompt_version=RUBRIC_PROMPT_VERSION,
+        prompt=prompt,
         rubric=rubric,
         evidence=evidence,
-        evidence_artifact=evidence_artifact,
+        model=model,
+        model_protocol_version=MODEL_PROTOCOL_VERSION,
+        model_protocol_sha256=MODEL_PROTOCOL_SHA256,
+    )
+    request = _request(
+        judge=JudgeKind.LLM,
+        prompt=prompt,
+        metadata=metadata,
         timeout_seconds=timeout_seconds,
+    )
+    if not _artifact_matches(evidence, evidence_artifact):
+        return _error_run(
+            rubric=rubric,
+            judge=JudgeKind.LLM,
+            metadata=metadata,
+            request=request,
+            reason="evidence artifact checksum does not match the supplied evidence",
+        )
+    output = await _collect_engine_output(engine, request)
+    if output.error is not None:
+        return _error_run(
+            rubric=rubric,
+            judge=JudgeKind.LLM,
+            metadata=metadata,
+            request=request,
+            reason=output.error,
+            raw_response=output.text,
+        )
+    try:
+        raw: JsonValue = json.loads(output.text)
+        decision = ModelDecision.model_validate(raw)
+        if decision.assertion_id != rubric.assertion_id:
+            raise ValueError("model output assertion_id does not match the rubric")
+        refs = _validated_refs(
+            evidence=evidence,
+            evidence_artifact=evidence_artifact,
+            pointers=decision.evidence_references,
+        )
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        reason = (
+            str(exc)
+            if str(exc).startswith("invalid evidence")
+            else "malformed model output"
+        )
+        return _error_run(
+            rubric=rubric,
+            judge=JudgeKind.LLM,
+            metadata=metadata,
+            request=request,
+            reason=reason,
+            raw_response=output.text,
+        )
+    return ModelJudgeRun(
+        assertion=_assertion(
+            rubric=rubric,
+            judge=JudgeKind.LLM,
+            metadata=metadata,
+            status=decision.status,
+            reason=decision.reason,
+            evidence=refs,
+        ),
+        protocol=metadata,
+        request=request,
+        raw_response=output.text,
     )

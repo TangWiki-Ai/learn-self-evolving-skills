@@ -25,9 +25,14 @@ from ses.evaluation.evidence_extractor import (
     evidence_json_bytes,
     extract_evidence,
 )
-from ses.evaluation.judges.llm import Rubric, judge_llm
+from ses.evaluation.judges.llm import JudgeModelConfig, Rubric, judge_llm
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
+MODEL = JudgeModelConfig(
+    model_id="Qwen/Qwen3.6-35B-A3B",
+    model_lock_version="v1alpha1:843b2fc6",
+    model_parameters={"temperature": 0, "top_p": 1},
+)
 
 
 def _evidence() -> EvidenceBundle:
@@ -105,6 +110,7 @@ def test_llm_judge_returns_canonical_assertion_results(
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
+            model=MODEL,
         )
     )
 
@@ -131,6 +137,7 @@ def test_llm_judge_records_protocol_failures_as_judge_error(
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
+            model=MODEL,
         )
     )
 
@@ -147,19 +154,66 @@ def test_llm_judge_records_all_protocol_versions_and_hashes() -> None:
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
+            model=MODEL,
         )
     )
 
     assert run.protocol.rubric_version == "1.0.0"
-    assert run.protocol.prompt_version == "rubric-prompt-v1"
-    assert run.protocol.extractor_version == "evidence-extractor-v1"
-    assert run.protocol.model_protocol_version == "assertion-json-v1"
+    assert run.protocol.prompt_version == "rubric-prompt-v2"
+    assert run.protocol.extractor_version == "evidence-extractor-v2"
+    assert run.protocol.model_protocol_version == "llm-assertion-json-v2"
+    assert run.protocol.judge_model_id == MODEL.model_id
+    assert run.protocol.model_lock_version == MODEL.model_lock_version
     for digest in (
         run.protocol.rubric_sha256,
         run.protocol.prompt_sha256,
         run.protocol.extractor_sha256,
         run.protocol.model_protocol_sha256,
+        run.protocol.model_config_sha256,
         run.protocol.protocol_sha256,
     ):
         assert len(digest) == 64
         int(digest, 16)
+
+
+def test_metadata_reference_is_rejected_even_when_it_exists() -> None:
+    evidence = _evidence()
+    fixture = load_fake_fixture(FIXTURES / "judges" / "metadata_reference.json")
+
+    run = asyncio.run(
+        judge_llm(
+            FakeEngine(fixture),
+            rubric=_rubric(),
+            evidence=evidence,
+            evidence_artifact=_artifact(evidence),
+            model=MODEL,
+        )
+    )
+
+    assert run.assertion.status is GradeStatus.ERROR
+    assert "invalid evidence reference" in run.assertion.reason
+
+
+def test_model_change_changes_protocol_hash() -> None:
+    evidence = _evidence()
+    first = asyncio.run(
+        judge_llm(
+            FakeEngine(load_fake_fixture(FIXTURES / "judges" / "pass.json")),
+            rubric=_rubric(),
+            evidence=evidence,
+            evidence_artifact=_artifact(evidence),
+            model=MODEL,
+        )
+    )
+    changed_model = MODEL.model_copy(update={"model_id": "Qwen/Qwen3.6-70B"})
+    second = asyncio.run(
+        judge_llm(
+            FakeEngine(load_fake_fixture(FIXTURES / "judges" / "pass.json")),
+            rubric=_rubric(),
+            evidence=evidence,
+            evidence_artifact=_artifact(evidence),
+            model=changed_model,
+        )
+    )
+
+    assert first.protocol.protocol_sha256 != second.protocol.protocol_sha256

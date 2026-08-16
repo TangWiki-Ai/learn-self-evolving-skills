@@ -1,23 +1,95 @@
 {
-  "dataset_id": "lesson-03-human-review-v1",
-  "dataset_version": "1.0.0",
+  "dataset_id": "lesson-03-human-review-v2",
+  "dataset_version": "2.0.0",
+  "human_label_version": "human-labels-v1",
   "source": "Course-authored return scenarios derived from the pinned Issue #2 flow.",
-  "measurement_context": "Offline fixed responses; no live model was called.",
+  "measurement_context": "Both Judge implementations executed their fixed offline protocols over raw responses; no live model was called.",
   "live_model_measured": false,
-  "labels": [
-    {"case_id": "cal-001", "assertion_id": "response-quality", "status": "pass", "review_status": "human_reviewed"},
-    {"case_id": "cal-002", "assertion_id": "response-quality", "status": "fail", "review_status": "human_reviewed"},
-    {"case_id": "cal-003", "assertion_id": "response-quality", "status": "not_evaluated", "review_status": "human_reviewed"},
-    {"case_id": "cal-004", "assertion_id": "response-quality", "status": "pass", "review_status": "human_reviewed"}
-  ],
-  "predictions": [
-    {"case_id": "cal-001", "assertion_id": "response-quality", "judge": "llm", "status": "pass", "reason": "Matches the reviewed label."},
-    {"case_id": "cal-002", "assertion_id": "response-quality", "judge": "llm", "status": "fail", "reason": "Matches the reviewed label."},
-    {"case_id": "cal-003", "assertion_id": "response-quality", "judge": "llm", "status": "pass", "reason": "Overconfident despite missing evidence."},
-    {"case_id": "cal-004", "assertion_id": "response-quality", "judge": "llm", "status": "fail", "reason": "Disagrees on response clarity."},
-    {"case_id": "cal-001", "assertion_id": "response-quality", "judge": "agent", "status": "pass", "reason": "Matches the reviewed label."},
-    {"case_id": "cal-002", "assertion_id": "response-quality", "judge": "agent", "status": "fail", "reason": "Matches the reviewed label."},
-    {"case_id": "cal-003", "assertion_id": "response-quality", "judge": "agent", "status": "not_evaluated", "reason": "Correctly identifies insufficient evidence."},
-    {"case_id": "cal-004", "assertion_id": "response-quality", "judge": "agent", "status": "fail", "reason": "Disagrees on response clarity."}
+  "model": {
+    "model_id": "Qwen/Qwen3.6-35B-A3B",
+    "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472",
+    "model_parameters": {"temperature": 0, "top_p": 1}
+  },
+  "cases": [
+    {
+      "case_id": "cal-001",
+      "label": {"case_id": "cal-001", "assertion_id": "response-quality", "status": "pass", "review_status": "human_reviewed"},
+      "rubric": {"rubric_id": "response-quality-v1", "rubric_version": "1.0.0", "assertion_id": "response-quality", "required": true, "criterion": "The final message accurately explains the observed return outcome."},
+      "evidence": {
+        "evidence_version": "evidence-v2",
+        "extractor_version": "evidence-extractor-v2",
+        "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+        "trace_id": "trace-cal-001",
+        "diff_id": "diff-cal-001",
+        "state_diff_facts": [{"bucket": "changed", "path": "/status", "before": "delivered", "after": "returned"}],
+        "tool_timeline": [],
+        "amount_reconciliation": {"components": [], "relations": [], "agreement": "insufficient"},
+        "key_messages": [{"index": 0, "message_id": "message-cal-001", "text": "The return is complete and the refund was submitted.", "event_sequences": [1], "text_evidence_pointer": "/key_messages/0/text"}]
+      },
+      "fixed_responses": {
+        "llm": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The response matches the completed state.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
+        "agent": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The message and deterministic state agree.\",\"completed_checks\":[\"state_diff_facts\",\"key_messages\"],\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}"
+      }
+    },
+    {
+      "case_id": "cal-002",
+      "label": {"case_id": "cal-002", "assertion_id": "response-quality", "status": "fail", "review_status": "human_reviewed"},
+      "rubric": {"rubric_id": "response-quality-v1", "rubric_version": "1.0.0", "assertion_id": "response-quality", "required": true, "criterion": "The final message accurately explains the observed return outcome."},
+      "evidence": {
+        "evidence_version": "evidence-v2",
+        "extractor_version": "evidence-extractor-v2",
+        "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+        "trace_id": "trace-cal-002",
+        "diff_id": "diff-cal-002",
+        "state_diff_facts": [{"bucket": "changed", "path": "/status", "before": "delivered", "after": "returned"}],
+        "tool_timeline": [],
+        "amount_reconciliation": {"components": [], "relations": [], "agreement": "insufficient"},
+        "key_messages": [{"index": 0, "message_id": "message-cal-002", "text": "I could not process your request.", "event_sequences": [1], "text_evidence_pointer": "/key_messages/0/text"}]
+      },
+      "fixed_responses": {
+        "llm": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The response conflicts with the completed state.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
+        "agent": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The message and deterministic state conflict.\",\"completed_checks\":[\"state_diff_facts\",\"key_messages\"],\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}"
+      }
+    },
+    {
+      "case_id": "cal-003",
+      "label": {"case_id": "cal-003", "assertion_id": "response-quality", "status": "not_evaluated", "review_status": "human_reviewed"},
+      "rubric": {"rubric_id": "response-quality-v1", "rubric_version": "1.0.0", "assertion_id": "response-quality", "required": true, "criterion": "The final message accurately explains the observed return outcome."},
+      "evidence": {
+        "evidence_version": "evidence-v2",
+        "extractor_version": "evidence-extractor-v2",
+        "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+        "trace_id": "trace-cal-003",
+        "diff_id": "diff-cal-003",
+        "state_diff_facts": [{"bucket": "changed", "path": "/status", "before": "delivered", "after": "returned"}],
+        "tool_timeline": [],
+        "amount_reconciliation": {"components": [], "relations": [], "agreement": "insufficient"},
+        "key_messages": []
+      },
+      "fixed_responses": {
+        "llm": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The state shows completion.\",\"evidence_references\":[\"/state_diff_facts/0/after\"]}",
+        "agent": "{\"assertion_id\":\"response-quality\",\"status\":\"not_evaluated\",\"reason\":\"There is no customer-facing final message to assess.\",\"completed_checks\":[\"key_messages\"],\"evidence_references\":[]}"
+      }
+    },
+    {
+      "case_id": "cal-004",
+      "label": {"case_id": "cal-004", "assertion_id": "response-quality", "status": "pass", "review_status": "human_reviewed"},
+      "rubric": {"rubric_id": "response-quality-v1", "rubric_version": "1.0.0", "assertion_id": "response-quality", "required": true, "criterion": "The final message accurately explains the observed return outcome."},
+      "evidence": {
+        "evidence_version": "evidence-v2",
+        "extractor_version": "evidence-extractor-v2",
+        "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+        "trace_id": "trace-cal-004",
+        "diff_id": "diff-cal-004",
+        "state_diff_facts": [{"bucket": "changed", "path": "/status", "before": "delivered", "after": "returned"}],
+        "tool_timeline": [],
+        "amount_reconciliation": {"components": [], "relations": [], "agreement": "insufficient"},
+        "key_messages": [{"index": 0, "message_id": "message-cal-004", "text": "Done — your original payment method will receive the funds.", "event_sequences": [1], "text_evidence_pointer": "/key_messages/0/text"}]
+      },
+      "fixed_responses": {
+        "llm": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The wording is too vague.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
+        "agent": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The wording does not name the return explicitly.\",\"completed_checks\":[\"state_diff_facts\",\"key_messages\"],\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}"
+      }
+    }
   ]
 }

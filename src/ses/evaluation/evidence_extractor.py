@@ -22,12 +22,12 @@ from ses.contracts import (
 from .evidence import escape_json_pointer_token
 from .trace import trace_messages, trace_tool_calls
 
-EXTRACTOR_VERSION: Final[Literal["evidence-extractor-v1"]] = "evidence-extractor-v1"
+EXTRACTOR_VERSION: Final[Literal["evidence-extractor-v2"]] = "evidence-extractor-v2"
 _EXTRACTOR_PROTOCOL = (
-    "ses.evaluation.evidence-extractor/v1|"
+    "ses.evaluation.evidence-extractor/v2|"
     "state_diff_facts:bucket,path,before,after|"
     "tool_timeline:sequence,call,arguments,result|"
-    "amount_reconciliation:actual_amount_minor_observations|"
+    "amount_reconciliation:named-components,explicit-relations,adjustments-separated|"
     "key_messages:trace_message_order"
 )
 EXTRACTOR_SHA256: Sha256Digest = hashlib.sha256(
@@ -36,11 +36,36 @@ EXTRACTOR_SHA256: Sha256Digest = hashlib.sha256(
 
 
 class AmountAgreement(StrEnum):
-    """Whether independently observed current amounts agree."""
+    """Whether the amounts in one declared business relation agree."""
 
     AGREES = "agrees"
     DISAGREES = "disagrees"
     INSUFFICIENT = "insufficient"
+
+
+class AmountComponentKind(StrEnum):
+    """Business meaning of one extracted amount."""
+
+    PRODUCT_PRICE = "product_price"
+    ORDER_TOTAL = "order_total"
+    CONFIRMED_AMOUNT = "confirmed_amount"
+    POLICY_COMPUTED_REFUND = "policy_computed_refund"
+    REFUND = "refund"
+    STATE_REFUND = "state_refund"
+    RESTOCKING_FEE = "restocking_fee"
+    RESTOCKING_DISCOUNT = "restocking_discount"
+    SHIPPING_CLAWBACK = "shipping_clawback"
+    RETURN_SHIPPING_FEE = "return_shipping_fee"
+    STATE_RESTOCKING_FEE = "state_restocking_fee"
+
+
+class AmountPhase(StrEnum):
+    """Point in the return flow at which an amount was observed."""
+
+    ORDER = "order"
+    PREVIEW = "preview"
+    FINAL = "final"
+    STATE = "state"
 
 
 class StateDiffFact(ContractModel):
@@ -64,19 +89,31 @@ class ToolTimelineFact(ContractModel):
     result_content: JsonValue = None
 
 
-class AmountObservation(ContractModel):
-    """One current amount found in state or tool evidence."""
+class AmountComponent(ContractModel):
+    """One named amount without an implied equality to unrelated amounts."""
 
-    source: Literal["state_after", "tool_argument", "tool_result"]
+    kind: AmountComponentKind
+    phase: AmountPhase
     amount_minor: StrictInt
+    currency: str | None = None
     evidence_pointer: JsonPointer
 
 
-class AmountReconciliation(ContractModel):
-    """Exact integer comparison across independently observed amounts."""
+class AmountRelation(ContractModel):
+    """One explicit business equality checked across named components."""
 
-    observations: tuple[AmountObservation, ...]
-    distinct_amounts_minor: tuple[StrictInt, ...]
+    relation_id: Literal["preview_refund", "confirmed_refund"]
+    component_kinds: tuple[AmountComponentKind, ...]
+    amounts_minor: tuple[StrictInt, ...]
+    evidence_pointers: tuple[JsonPointer, ...]
+    agreement: AmountAgreement
+
+
+class AmountReconciliation(ContractModel):
+    """Named amounts plus only the business relations that should hold."""
+
+    components: tuple[AmountComponent, ...]
+    relations: tuple[AmountRelation, ...]
     agreement: AmountAgreement
 
 
@@ -93,8 +130,8 @@ class KeyMessage(ContractModel):
 class EvidenceBundle(ContractModel):
     """The complete read-only input available to model-based judges."""
 
-    evidence_version: Literal["evidence-v1"] = "evidence-v1"
-    extractor_version: Literal["evidence-extractor-v1"] = EXTRACTOR_VERSION
+    evidence_version: Literal["evidence-v2"] = "evidence-v2"
+    extractor_version: Literal["evidence-extractor-v2"] = EXTRACTOR_VERSION
     extractor_sha256: Sha256Digest = EXTRACTOR_SHA256
     trace_id: str
     diff_id: str
@@ -120,10 +157,7 @@ def _state_facts(diff: StateDiff) -> tuple[StateDiffFact, ...]:
         change = diff.changed[path]
         facts.append(
             StateDiffFact(
-                bucket="changed",
-                path=path,
-                before=change.before,
-                after=change.after,
+                bucket="changed", path=path, before=change.before, after=change.after
             )
         )
     return tuple(facts)
@@ -149,100 +183,250 @@ def _tool_facts(trace: Trace) -> tuple[ToolTimelineFact, ...]:
     )
 
 
-def _amounts_in(
-    value: object,
+def _mapping(value: object) -> Mapping[str, object] | None:
+    return value if isinstance(value, Mapping) else None
+
+
+def _money(value: object) -> tuple[int, str | None] | None:
+    item = _mapping(value)
+    if item is None:
+        return None
+    amount = item.get("amount_minor")
+    currency = item.get("currency")
+    if isinstance(amount, bool) or not isinstance(amount, int):
+        return None
+    return amount, currency if isinstance(currency, str) else None
+
+
+def _append_money(
+    components: list[AmountComponent],
     *,
-    source: Literal["state_after", "tool_argument", "tool_result"],
-    pointer_tokens: tuple[str, ...],
-) -> list[AmountObservation]:
-    observations: list[AmountObservation] = []
-    if isinstance(value, Mapping):
-        for key in sorted(value, key=str):
-            child = value[key]
-            child_tokens = (*pointer_tokens, str(key))
-            if (
-                key == "amount_minor"
-                and isinstance(child, int)
-                and not isinstance(child, bool)
-            ):
-                observations.append(
-                    AmountObservation(
-                        source=source,
-                        amount_minor=child,
-                        evidence_pointer=_pointer(*child_tokens),
+    kind: AmountComponentKind,
+    phase: AmountPhase,
+    value: object,
+    pointer: JsonPointer,
+) -> None:
+    parsed = _money(value)
+    if parsed is None:
+        return
+    amount, currency = parsed
+    components.append(
+        AmountComponent(
+            kind=kind,
+            phase=phase,
+            amount_minor=amount,
+            currency=currency,
+            evidence_pointer=pointer,
+        )
+    )
+
+
+def _state_amount_components(
+    state_facts: tuple[StateDiffFact, ...],
+) -> list[AmountComponent]:
+    components: list[AmountComponent] = []
+    for index, fact in enumerate(state_facts):
+        pointer = _pointer("state_diff_facts", str(index), "after")
+        if fact.path.endswith(("/refund_amount", "/refund/amount_minor")):
+            if isinstance(fact.after, int) and not isinstance(fact.after, bool):
+                components.append(
+                    AmountComponent(
+                        kind=AmountComponentKind.STATE_REFUND,
+                        phase=AmountPhase.STATE,
+                        amount_minor=fact.after,
+                        evidence_pointer=pointer,
                     )
                 )
-            else:
-                observations.extend(
-                    _amounts_in(
-                        child,
-                        source=source,
-                        pointer_tokens=child_tokens,
+                continue
+            _append_money(
+                components,
+                kind=AmountComponentKind.STATE_REFUND,
+                phase=AmountPhase.STATE,
+                value=fact.after,
+                pointer=pointer,
+            )
+        elif fact.path.endswith(("/restocking_fee", "/restocking_fee/amount_minor")):
+            if isinstance(fact.after, int) and not isinstance(fact.after, bool):
+                components.append(
+                    AmountComponent(
+                        kind=AmountComponentKind.STATE_RESTOCKING_FEE,
+                        phase=AmountPhase.STATE,
+                        amount_minor=fact.after,
+                        evidence_pointer=pointer,
                     )
                 )
-    elif isinstance(value, (list, tuple)):
-        for index, child in enumerate(value):
-            observations.extend(
-                _amounts_in(
-                    child,
-                    source=source,
-                    pointer_tokens=(*pointer_tokens, str(index)),
+                continue
+            _append_money(
+                components,
+                kind=AmountComponentKind.STATE_RESTOCKING_FEE,
+                phase=AmountPhase.STATE,
+                value=fact.after,
+                pointer=pointer,
+            )
+    return components
+
+
+def _tool_amount_components(
+    tool_facts: tuple[ToolTimelineFact, ...],
+) -> list[AmountComponent]:
+    components: list[AmountComponent] = []
+    for index, fact in enumerate(tool_facts):
+        result = _mapping(fact.result_content)
+        data = _mapping(result.get("data")) if result is not None else None
+        base = ("tool_timeline", str(index))
+        if fact.tool_name == "get_order" and data is not None:
+            order = _mapping(data.get("order"))
+            if order is not None:
+                _append_money(
+                    components,
+                    kind=AmountComponentKind.ORDER_TOTAL,
+                    phase=AmountPhase.ORDER,
+                    value=order.get("total_paid"),
+                    pointer=_pointer(
+                        *base, "result_content", "data", "order", "total_paid"
+                    ),
+                )
+            items = data.get("items")
+            if isinstance(items, (list, tuple)):
+                for item_index, item_value in enumerate(items):
+                    item = _mapping(item_value)
+                    product = (
+                        _mapping(item.get("product")) if item is not None else None
+                    )
+                    if product is not None:
+                        _append_money(
+                            components,
+                            kind=AmountComponentKind.PRODUCT_PRICE,
+                            phase=AmountPhase.ORDER,
+                            value=product.get("price"),
+                            pointer=_pointer(
+                                *base,
+                                "result_content",
+                                "data",
+                                "items",
+                                str(item_index),
+                                "product",
+                                "price",
+                            ),
+                        )
+        if fact.tool_name != "process_return" or data is None:
+            continue
+        phase = (
+            AmountPhase.FINAL
+            if data.get("status") == "returned"
+            else AmountPhase.PREVIEW
+        )
+        fields = (
+            ("policy_computed_amount", AmountComponentKind.POLICY_COMPUTED_REFUND),
+            ("refund_amount", AmountComponentKind.REFUND),
+            ("restocking_fee", AmountComponentKind.RESTOCKING_FEE),
+            ("restocking_discount", AmountComponentKind.RESTOCKING_DISCOUNT),
+            ("shipping_clawback", AmountComponentKind.SHIPPING_CLAWBACK),
+            ("paid_return_shipping_fee", AmountComponentKind.RETURN_SHIPPING_FEE),
+        )
+        for field, kind in fields:
+            _append_money(
+                components,
+                kind=kind,
+                phase=phase,
+                value=data.get(field),
+                pointer=_pointer(*base, "result_content", "data", field),
+            )
+        confirmed = fact.arguments.get("amount_minor")
+        if (
+            phase is AmountPhase.FINAL
+            and fact.arguments.get("confirm") is True
+            and isinstance(confirmed, int)
+            and not isinstance(confirmed, bool)
+        ):
+            refund = _money(data.get("refund_amount"))
+            components.append(
+                AmountComponent(
+                    kind=AmountComponentKind.CONFIRMED_AMOUNT,
+                    phase=AmountPhase.FINAL,
+                    amount_minor=confirmed,
+                    currency=refund[1] if refund is not None else None,
+                    evidence_pointer=_pointer(*base, "arguments", "amount_minor"),
                 )
             )
-    return observations
+    return components
+
+
+def _relation(
+    components: tuple[AmountComponent, ...],
+    *,
+    relation_id: Literal["preview_refund", "confirmed_refund"],
+    selectors: tuple[tuple[AmountComponentKind, AmountPhase], ...],
+) -> AmountRelation:
+    selected: list[AmountComponent] = []
+    for kind, phase in selectors:
+        match = next(
+            (
+                component
+                for component in components
+                if component.kind is kind and component.phase is phase
+            ),
+            None,
+        )
+        if match is not None:
+            selected.append(match)
+    if len(selected) != len(selectors):
+        agreement = AmountAgreement.INSUFFICIENT
+    elif len({item.amount_minor for item in selected}) == 1:
+        agreement = AmountAgreement.AGREES
+    else:
+        agreement = AmountAgreement.DISAGREES
+    return AmountRelation(
+        relation_id=relation_id,
+        component_kinds=tuple(item.kind for item in selected),
+        amounts_minor=tuple(item.amount_minor for item in selected),
+        evidence_pointers=tuple(item.evidence_pointer for item in selected),
+        agreement=agreement,
+    )
 
 
 def _amount_reconciliation(
     state_facts: tuple[StateDiffFact, ...],
     tool_facts: tuple[ToolTimelineFact, ...],
 ) -> AmountReconciliation:
-    observations: list[AmountObservation] = []
-    for index, fact in enumerate(state_facts):
-        observations.extend(
-            _amounts_in(
-                fact.after,
-                source="state_after",
-                pointer_tokens=("state_diff_facts", str(index), "after"),
-            )
+    components = tuple(
+        sorted(
+            (
+                *_state_amount_components(state_facts),
+                *_tool_amount_components(tool_facts),
+            ),
+            key=lambda item: item.evidence_pointer,
         )
-        if (
-            fact.path.endswith("/amount_minor")
-            and isinstance(fact.after, int)
-            and not isinstance(fact.after, bool)
-        ):
-            observations.append(
-                AmountObservation(
-                    source="state_after",
-                    amount_minor=fact.after,
-                    evidence_pointer=_pointer("state_diff_facts", str(index), "after"),
-                )
-            )
-    for index, tool_fact in enumerate(tool_facts):
-        observations.extend(
-            _amounts_in(
-                tool_fact.arguments,
-                source="tool_argument",
-                pointer_tokens=("tool_timeline", str(index), "arguments"),
-            )
-        )
-        observations.extend(
-            _amounts_in(
-                tool_fact.result_content,
-                source="tool_result",
-                pointer_tokens=("tool_timeline", str(index), "result_content"),
-            )
-        )
-    distinct = tuple(sorted({item.amount_minor for item in observations}))
-    if len(observations) < 2:
-        agreement = AmountAgreement.INSUFFICIENT
-    elif len(distinct) == 1:
+    )
+    relations = (
+        _relation(
+            components,
+            relation_id="preview_refund",
+            selectors=(
+                (AmountComponentKind.POLICY_COMPUTED_REFUND, AmountPhase.PREVIEW),
+                (AmountComponentKind.REFUND, AmountPhase.PREVIEW),
+            ),
+        ),
+        _relation(
+            components,
+            relation_id="confirmed_refund",
+            selectors=(
+                (AmountComponentKind.CONFIRMED_AMOUNT, AmountPhase.FINAL),
+                (AmountComponentKind.POLICY_COMPUTED_REFUND, AmountPhase.FINAL),
+                (AmountComponentKind.REFUND, AmountPhase.FINAL),
+                (AmountComponentKind.STATE_REFUND, AmountPhase.STATE),
+            ),
+        ),
+    )
+    statuses = {item.agreement for item in relations}
+    if AmountAgreement.DISAGREES in statuses:
+        agreement = AmountAgreement.DISAGREES
+    elif relations[1].agreement is AmountAgreement.AGREES:
         agreement = AmountAgreement.AGREES
     else:
-        agreement = AmountAgreement.DISAGREES
+        agreement = AmountAgreement.INSUFFICIENT
     return AmountReconciliation(
-        observations=tuple(observations),
-        distinct_amounts_minor=distinct,
-        agreement=agreement,
+        components=components, relations=relations, agreement=agreement
     )
 
 
