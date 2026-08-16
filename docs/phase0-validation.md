@@ -5,20 +5,20 @@
 本地工具和数据检查不调用付费模型：
 
 ```bash
-python3 scripts/phase0_check.py
+uv run ses doctor
 ```
 
 完整 smoke 只从进程环境读取有效的硅流 Key：
 
 ```bash
-read -s SILICONFLOW_API_KEY && export SILICONFLOW_API_KEY && python3 scripts/phase0_check.py --live
+read -s SILICONFLOW_API_KEY && export SILICONFLOW_API_KEY && uv run ses doctor --live
 ```
 
 命令会静默读取 Key，不把值写进 shell history。不要把 Key 写进 `.env`、Claude 配置、命令脚本、Issue 或聊天。
 
 `--live` 使用 `claude --bare`、临时 `CLAUDE_CONFIG_DIR` 和严格 MCP 配置。它不会读取现有 Claude OAuth、全局 Provider、hooks、plugins、项目说明或持久会话。脚本只在内存中解析 `stream-json`，退出后删除临时 MCP 配置；该配置不含凭据。
 
-主模型默认使用 `deepseek-ai/DeepSeek-V3.2`。你可以通过 `SES_MAIN_MODEL` 临时覆盖模型标识。
+`ses doctor` 严格读取根目录的 `ses.json` 和 `models.lock.json`。主模型锁定为 `deepseek-ai/DeepSeek-V3.2`；命令不接受环境变量覆盖模型标识。`scripts/phase0_check.py` 只作为兼容入口保留；运行 live 时必须显式传入 `--config ses.json`。
 
 ## 2026-08-16 实测结果
 

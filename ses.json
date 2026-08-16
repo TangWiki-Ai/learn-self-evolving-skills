@@ -1,0 +1,7 @@
+{
+  "schema_version": "v1alpha1",
+  "models_lock": "models.lock.json",
+  "data_manifest": "data/upstream/manifest.json",
+  "workspace_root": null,
+  "claude_executable": "claude"
+}
