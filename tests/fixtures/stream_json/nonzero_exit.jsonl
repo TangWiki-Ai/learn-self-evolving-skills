@@ -1,0 +1,2 @@
+{"schema_version":"v1alpha1","record_type":"engine_event","event_id":"event-error","request_id":"request-1","sequence":0,"occurred_at":"2026-08-16T04:00:00Z","payload":{"kind":"error","error_code":"process_exit","message":"engine process exited with status 17"}}
+{"schema_version":"v1alpha1","record_type":"engine_event","event_id":"event-completed","request_id":"request-1","sequence":1,"occurred_at":"2026-08-16T04:00:01Z","payload":{"kind":"completed","exit_status":"error","session_id":"session-error"}}
