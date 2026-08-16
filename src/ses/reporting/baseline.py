@@ -13,6 +13,29 @@ from ses.contracts.security import validate_public_data
 from ses.runner import compute_reliability_metrics, load_run_events
 
 
+def _planned_results(
+    config: Mapping[str, object],
+) -> dict[tuple[str, str], dict[str, object]]:
+    raw_plan = config.get("case_plan")
+    if not isinstance(raw_plan, list | tuple):
+        raise ValueError("run case plan is invalid")
+    planned: dict[tuple[str, str], dict[str, object]] = {}
+    for value in raw_plan:
+        if not isinstance(value, str):
+            raise ValueError("run case plan is invalid")
+        case_id, separator, iteration = value.rpartition(":iteration-")
+        if not separator or not case_id or not iteration.isdigit():
+            raise ValueError("run case plan is invalid")
+        iteration_id = f"iteration-{iteration}"
+        planned[(case_id, iteration_id)] = {
+            "event_type": "not_evaluated",
+            "case_id": case_id,
+            "iteration_id": iteration_id,
+            "status": "not_evaluated",
+        }
+    return planned
+
+
 def _verify_artifacts(events_path: Path, attempts: list[dict[str, object]]) -> None:
     run_dir = events_path.parent
     for attempt in attempts:
@@ -55,7 +78,7 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
         raise ValueError("run iteration count is invalid")
 
     attempts: list[dict[str, object]] = []
-    latest: dict[tuple[str, str], dict[str, object]] = {}
+    latest = _planned_results(config)
     for event in events:
         if event.get("event_type") != "attempt":
             continue

@@ -50,3 +50,33 @@ def test_runner_contracts_are_strict_immutable_and_keep_statuses_distinct() -> N
         RunRecord.model_validate({**record.model_dump(), "unknown": True})
     with pytest.raises(ValidationError):
         BudgetState(**{**budget.model_dump(), "consumed_cost_amount": "-0.1"})
+
+
+@pytest.mark.parametrize(
+    ("event_type", "status", "stop_reason"),
+    [
+        (RunEventType.BUDGET_STOP, RunnerStatus.PASS, "case_limit"),
+        (RunEventType.BUDGET_STOP, RunnerStatus.BUDGET_STOP, None),
+        (RunEventType.NOT_EVALUATED, RunnerStatus.PASS, None),
+    ],
+)
+def test_runner_event_type_requires_its_canonical_status(
+    event_type: RunEventType,
+    status: RunnerStatus,
+    stop_reason: str | None,
+) -> None:
+    with pytest.raises(ValidationError):
+        RunRecord(
+            schema_version=SchemaVersion.V1ALPHA1,
+            record_type="run_record",
+            event_type=event_type,
+            sequence=1,
+            run_id="run-contract",
+            config_hash="a" * 64,
+            case_id="case-a",
+            iteration_id="iteration-0",
+            attempt_id="attempt-0",
+            status=status,
+            budget=BudgetState(max_cases=1, max_turns_per_case=1),
+            stop_reason=stop_reason,
+        )

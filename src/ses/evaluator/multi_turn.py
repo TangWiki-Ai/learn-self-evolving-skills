@@ -67,6 +67,26 @@ def _sum_usage(traces: tuple[Trace, ...]) -> Usage:
     )
 
 
+def _usage_budget_reason(
+    usage: Usage,
+    *,
+    max_input_tokens: int | None,
+    max_output_tokens: int | None,
+    max_cost_amount: Decimal | None,
+    cost_currency: str,
+) -> str | None:
+    if max_input_tokens is not None and usage.input_tokens >= max_input_tokens:
+        return "input_token_limit"
+    if max_output_tokens is not None and usage.output_tokens >= max_output_tokens:
+        return "output_token_limit"
+    if max_cost_amount is None:
+        return None
+    actual_cost = usage.cost_amount or Decimal(0)
+    if usage.cost_currency is not None and usage.cost_currency != cost_currency:
+        raise ValueError("case usage currency does not match the run budget")
+    return "cost_limit" if actual_cost >= max_cost_amount else None
+
+
 class MultiTurnEvaluator:
     """Drive one simulator and resume only the session created for that case."""
 
@@ -91,10 +111,23 @@ class MultiTurnEvaluator:
         iteration_id: str,
         simulator: ConstrainedUserSimulator,
         max_turns: int,
+        max_input_tokens: int | None = None,
+        max_output_tokens: int | None = None,
+        max_cost_amount: Decimal | None = None,
+        cost_currency: str = "CNY",
     ) -> MultiTurnResult:
         """Run fresh then resumed requests until the user ends or budget stops."""
         if max_turns < 1:
             raise ValueError("max_turns must be at least one")
+        for value in (max_input_tokens, max_output_tokens):
+            if value is not None and (isinstance(value, bool) or value < 0):
+                raise ValueError("token budgets must be nonnegative integers")
+        if max_cost_amount is not None and (
+            not max_cost_amount.is_finite() or max_cost_amount < 0
+        ):
+            raise ValueError("cost budget must be finite and nonnegative")
+        if not cost_currency.strip():
+            raise ValueError("cost currency must not be blank")
         started = monotonic()
         traces: list[Trace] = []
         assistant_messages: list[str] = []
@@ -110,7 +143,25 @@ class MultiTurnEvaluator:
                 traces=(),
                 usage=_sum_usage(()),
                 latency_ms=round((monotonic() - started) * 1000),
-                stop_reason=str(exc) or type(exc).__name__,
+                stop_reason=f"simulator raised {type(exc).__name__}",
+            )
+        initial_reason = _usage_budget_reason(
+            _sum_usage(()),
+            max_input_tokens=max_input_tokens,
+            max_output_tokens=max_output_tokens,
+            max_cost_amount=max_cost_amount,
+            cost_currency=cost_currency,
+        )
+        if initial_reason is not None:
+            return MultiTurnResult(
+                run_id=run_id,
+                case_id=case_id,
+                iteration_id=iteration_id,
+                outcome=MultiTurnOutcome.BUDGET_STOP,
+                traces=(),
+                usage=_sum_usage(()),
+                latency_ms=round((monotonic() - started) * 1000),
+                stop_reason=initial_reason,
             )
         while turn.kind is SimulatorTurnKind.MESSAGE:
             if len(traces) >= max_turns:
@@ -146,7 +197,7 @@ class MultiTurnEvaluator:
                     traces=completed,
                     usage=_sum_usage(completed),
                     latency_ms=round((monotonic() - started) * 1000),
-                    stop_reason=str(exc) or type(exc).__name__,
+                    stop_reason=f"engine raised {type(exc).__name__}",
                 )
             trace = build_trace(
                 events,
@@ -169,7 +220,7 @@ class MultiTurnEvaluator:
                         traces=completed,
                         usage=_sum_usage(completed),
                         latency_ms=round((monotonic() - started) * 1000),
-                        stop_reason=str(exc) or type(exc).__name__,
+                        stop_reason=f"trace persistence raised {type(exc).__name__}",
                     )
             if trace.exit_status is not EngineExitStatus.SUCCESS:
                 completed = tuple(traces)
@@ -200,8 +251,28 @@ class MultiTurnEvaluator:
                     traces=completed,
                     usage=_sum_usage(completed),
                     latency_ms=round((monotonic() - started) * 1000),
-                    stop_reason=str(exc) or type(exc).__name__,
+                    stop_reason=f"simulator raised {type(exc).__name__}",
                 )
+            if turn.kind is SimulatorTurnKind.MESSAGE:
+                completed = tuple(traces)
+                reason = _usage_budget_reason(
+                    _sum_usage(completed),
+                    max_input_tokens=max_input_tokens,
+                    max_output_tokens=max_output_tokens,
+                    max_cost_amount=max_cost_amount,
+                    cost_currency=cost_currency,
+                )
+                if reason is not None:
+                    return MultiTurnResult(
+                        run_id=run_id,
+                        case_id=case_id,
+                        iteration_id=iteration_id,
+                        outcome=MultiTurnOutcome.BUDGET_STOP,
+                        traces=completed,
+                        usage=_sum_usage(completed),
+                        latency_ms=round((monotonic() - started) * 1000),
+                        stop_reason=reason,
+                    )
         completed = tuple(traces)
         return MultiTurnResult(
             run_id=run_id,

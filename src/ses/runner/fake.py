@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
@@ -37,7 +38,7 @@ from ses.engines.base import Engine
 from ses.engines.fake import FakeEngine, FakeFixture, FakeStep, load_fake_fixture
 from ses.evaluation import (
     aggregate_case_grade,
-    judge_rules,
+    judge_rules_across_traces,
     judge_state,
     tool_arguments,
     tool_count,
@@ -87,6 +88,32 @@ def load_develop_catalog() -> Mapping[str, ExecutableDevelopCase]:
     fixture = PINNED_CASE_FIXTURE.model_copy(deep=True)
     case = ExecutableDevelopCase(fixture, _expected_actions(fixture))
     return {fixture.case_id: case}
+
+
+def develop_catalog_sha256(
+    catalog: Mapping[str, ExecutableDevelopCase],
+) -> str:
+    """Hash the exact fixtures and expected actions supplied to evaluation."""
+
+    payload = [
+        {
+            "case_id": case_id,
+            "fixture": case.fixture.model_dump(mode="json"),
+            "expected_actions": [
+                {"tool_name": tool_name, "arguments": dict(arguments)}
+                for tool_name, arguments in case.expected_actions
+            ],
+        }
+        for case_id, case in sorted(catalog.items())
+    ]
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 class _SequencedFakeEngine:
@@ -285,6 +312,10 @@ class DevelopCatalogEvaluator:
                 iteration_id=context.iteration_id,
                 simulator=simulator,
                 max_turns=context.max_turns,
+                max_input_tokens=context.max_input_tokens,
+                max_output_tokens=context.max_output_tokens,
+                max_cost_amount=context.max_cost_amount,
+                cost_currency=context.cost_currency,
             )
             usage_cost = multi.usage.cost_amount or Decimal(0)
             usage_currency = multi.usage.cost_currency or "CNY"
@@ -358,23 +389,22 @@ class DevelopCatalogEvaluator:
                 return evaluation(
                     RunnerStatus.INFRASTRUCTURE_ERROR,
                     partial_artifacts,
-                    error=str(exc) or type(exc).__name__,
+                    error=f"snapshot persistence raised {type(exc).__name__}",
                 )
             try:
                 state_assertions = judge_state(
                     _expected_diff(case), actual_diff, evidence_artifact=diff_ref
                 )
-                action_trace = multi.traces[-1]
                 expected_names = tuple(name for name, _ in case.expected_actions)
                 final_arguments = case.expected_actions[-1][1]
-                rule_assertions = judge_rules(
-                    action_trace,
+                rule_assertions = judge_rules_across_traces(
+                    multi.traces,
                     (
                         tool_order(expected_names, exact=True),
                         tool_count("process_return", 2),
                         tool_arguments("process_return", final_arguments),
                     ),
-                    evidence_artifact=trace_refs[-1],
+                    evidence_artifacts=trace_refs,
                 )
                 grade = aggregate_case_grade(
                     (*state_assertions, *rule_assertions),
@@ -397,7 +427,7 @@ class DevelopCatalogEvaluator:
                     diff=cast(
                         Mapping[str, JsonValue], actual_diff.model_dump(mode="json")
                     ),
-                    error=str(exc) or type(exc).__name__,
+                    error=f"judge raised {type(exc).__name__}",
                 )
             status = (
                 RunnerStatus.PASS

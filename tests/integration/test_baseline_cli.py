@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ses.runner import develop_catalog_sha256, load_develop_catalog
+
 CASE_ID = "state-bench-customer-support-2-return-defective-electronics"
 ROOT = Path(__file__).parents[2]
 
@@ -81,6 +83,9 @@ def test_cli_runs_catalog_case_through_multiturn_judges_and_links_artifacts(
     assert completed.returncode == 0, completed.stderr
     events_path = tmp_path / "run-cli-pipeline" / "events.jsonl"
     records = [json.loads(line) for line in events_path.read_text().splitlines()]
+    assert records[0]["config"]["data_version"] == develop_catalog_sha256(
+        load_develop_catalog()
+    )
     result = next(record for record in records if record["event_type"] == "attempt")
     assert result["status"] == "pass"
     assert result["turn_count"] == 2
@@ -167,7 +172,7 @@ def test_resume_is_idempotent_and_explicit_rerun_appends_a_new_iteration(
     assert '"iteration_id":"iteration-1"' in events_path.read_text(encoding="utf-8")
 
 
-def test_cli_keeps_completed_attempt_when_budget_stops_next_work(
+def test_cli_stops_before_the_second_turn_and_keeps_the_partial_trace(
     tmp_path: Path,
 ) -> None:
     completed = _run(
@@ -189,7 +194,9 @@ def test_cli_keeps_completed_attempt_when_budget_stops_next_work(
         .splitlines()
     ]
     attempt = next(event for event in events if event["event_type"] == "attempt")
-    assert attempt["status"] == "pass"
-    assert attempt["artifacts"]["traces"]
+    assert attempt["status"] == "budget_stop"
+    assert len(attempt["artifacts"]["traces"]) == 1
+    assert attempt["artifacts"]["grade"] is None
+    assert attempt["usage"]["input_tokens"] > 1
     assert events[-1]["status"] == "budget_stop"
     assert events[-1]["event_type"] == "budget_stop"

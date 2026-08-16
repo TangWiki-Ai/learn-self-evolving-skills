@@ -221,6 +221,7 @@ def test_metrics_exclude_non_evaluated_and_keep_failure_categories_distinct() ->
             {"case_id": "a", "iteration_id": "iteration-1", "status": "judge_error"},
             {"case_id": "b", "iteration_id": "iteration-0", "status": "agent_fail"},
             {"case_id": "b", "iteration_id": "iteration-1", "status": "not_evaluated"},
+            {"case_id": "c", "iteration_id": "iteration-0", "status": "not_evaluated"},
         ],
         k=2,
     )
@@ -229,6 +230,21 @@ def test_metrics_exclude_non_evaluated_and_keep_failure_categories_distinct() ->
     assert metrics["iteration_sample_size"] == 3
     assert metrics["pass_at_1"] == 0.5
     assert metrics["pass_power_k"] == 0.0
+
+
+def test_pass_power_k_counts_wholly_unevaluated_planned_cases() -> None:
+    metrics = compute_reliability_metrics(
+        [
+            {"case_id": "a", "iteration_id": "iteration-0", "status": "pass"},
+            {"case_id": "b", "iteration_id": "iteration-0", "status": "not_evaluated"},
+        ],
+        k=1,
+    )
+
+    assert metrics["sample_size"] == 1
+    assert metrics["iteration_sample_size"] == 1
+    assert metrics["pass_at_1"] == 1.0
+    assert metrics["pass_power_k"] == 0.5
 
 
 def test_pass_power_k_counts_sampled_cases_with_missing_repetitions_as_unreliable() -> (

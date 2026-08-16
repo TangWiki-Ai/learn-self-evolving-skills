@@ -103,6 +103,10 @@ class EvaluationContext:
     iteration_id: str
     attempt_id: str
     max_turns: int
+    max_input_tokens: int | None = None
+    max_output_tokens: int | None = None
+    max_cost_amount: Decimal | None = None
+    cost_currency: str = "CNY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,7 +243,10 @@ def compute_reliability_metrics(
     for result in results:
         case_id = result.get("case_id")
         status = result.get("status")
-        if isinstance(case_id, str) and status in _EVALUATED_STATUSES:
+        if not isinstance(case_id, str):
+            continue
+        grouped.setdefault(case_id, [])
+        if status in _EVALUATED_STATUSES:
             grouped[case_id].append(result)
     for values in grouped.values():
         values.sort(key=lambda value: str(value.get("iteration_id")))
@@ -304,6 +311,14 @@ def _budget_reason(budget: BudgetState) -> str | None:
     ):
         return "cost_limit"
     return None
+
+
+def _remaining(limit: int | None, consumed: int) -> int | None:
+    return None if limit is None else max(limit - consumed, 0)
+
+
+def _remaining_cost(limit: Decimal | None, consumed: Decimal) -> Decimal | None:
+    return None if limit is None else max(limit - consumed, Decimal(0))
 
 
 class BaselineRunner:
@@ -460,6 +475,10 @@ class BaselineRunner:
                 iteration_id=iteration_id,
                 attempt_id=attempt_id,
                 max_turns=budgets.max_turns_per_case,
+                max_input_tokens=_remaining(budgets.max_input_tokens, totals[0]),
+                max_output_tokens=_remaining(budgets.max_output_tokens, totals[1]),
+                max_cost_amount=_remaining_cost(budgets.max_cost, totals[2]),
+                cost_currency=budgets.cost_currency,
             )
             try:
                 method = getattr(self._evaluator, "evaluate_attempt", None)
@@ -478,7 +497,7 @@ class BaselineRunner:
                     turn_count=0,
                     input_tokens=0,
                     output_tokens=0,
-                    error=str(exc) or type(exc).__name__,
+                    error=f"evaluator raised {type(exc).__name__}",
                 )
             post = (
                 totals[0] + evaluation.input_tokens,
@@ -547,7 +566,18 @@ class BaselineRunner:
                 )
 
         latest = _latest_results(events)
-        metrics = compute_reliability_metrics(list(latest.values()), k=iterations)
+        metric_results: list[Mapping[str, object]] = list(latest.values())
+        metric_results.extend(
+            {
+                "case_id": case_id,
+                "iteration_id": f"iteration-{index}",
+                "status": RunnerStatus.NOT_EVALUATED.value,
+            }
+            for case_id in case_ids
+            for index in range(iterations)
+            if (case_id, f"iteration-{index}") not in latest
+        )
+        metrics = compute_reliability_metrics(metric_results, k=iterations)
         totals = _usage_totals(events)
         final_budget = budgets.to_state(
             consumed_input_tokens=totals[0],

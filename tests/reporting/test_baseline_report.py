@@ -149,3 +149,25 @@ def test_report_totals_all_attempts_but_displays_latest_iteration_result(
     cases = report["cases"]
     assert isinstance(cases, list)
     assert len(cases[0]["repetitions"]) == 1
+
+
+def test_report_keeps_budget_skipped_plan_entries_visible(tmp_path: Path) -> None:
+    completed = BaselineRunner(tmp_path, _evaluate).run(
+        run_id="run-partial-report",
+        case_ids=("case-a", "case-b"),
+        iterations=1,
+        budgets=BudgetLimits(max_cases=1, max_turns_per_case=3),
+    )
+
+    report = build_baseline_report(completed.events_path)
+
+    assert report["metrics"] == {
+        "sample_size": 1,
+        "iteration_sample_size": 1,
+        "pass_at_1": 1.0,
+        "pass_power_k": 0.5,
+        "k": 1,
+    }
+    cases = report["cases"]
+    assert isinstance(cases, list)
+    assert [case["first_status"] for case in cases] == ["pass", "not_evaluated"]

@@ -154,4 +154,12 @@ class RunRecord(VersionedRecord):
             )
         elif self.config is not None:
             raise ValueError("only run_started stores the reproducibility config")
+        if self.event_type is RunEventType.BUDGET_STOP:
+            if self.status is not RunnerStatus.BUDGET_STOP or self.stop_reason is None:
+                raise ValueError(
+                    "budget_stop requires budget_stop status and a stop reason"
+                )
+        if self.event_type is RunEventType.NOT_EVALUATED:
+            if self.status is not RunnerStatus.NOT_EVALUATED:
+                raise ValueError("not_evaluated requires not_evaluated status")
         return self

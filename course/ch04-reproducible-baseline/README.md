@@ -53,7 +53,7 @@ uv run pytest course/ch04-reproducible-baseline/tests
 
 [`baseline-comparison.json`](baseline-comparison.json) 明确区分两种来源：
 
-- `outcome_source` 是本地 FakeEngine fixture 的 measured 结果。
+- `outcome_source` 是用于统计练习的手写 synthetic fixture，不是模型实测结果。
 - `live_provider_projection` 是 estimated 说明。我们没有运行 live provider，不能把它写成实测成绩。
 
 这组课程数据用于验证统计逻辑，不代表真实模型表现。live 成本、延迟和成功率需要你显式授权并单独记录。

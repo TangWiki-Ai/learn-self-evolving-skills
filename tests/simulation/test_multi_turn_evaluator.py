@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Sequence
+from decimal import Decimal
+
+import pytest
 
 from ses.contracts import (
     EngineEvent,
@@ -16,7 +19,7 @@ from ses.evaluator.multi_turn import MultiTurnEvaluator, MultiTurnOutcome
 from ses.simulation import ConstrainedUserSimulator, SimulatorTurn, UserIntent
 
 
-def _engine() -> FakeEngine:
+def _engine(usage: Usage | None = None) -> FakeEngine:
     return FakeEngine(
         FakeFixture(
             session_id="session-case-a",
@@ -27,7 +30,9 @@ def _engine() -> FakeEngine:
                     )
                 ),
                 FakeStep(
-                    payload=UsagePayload(usage=Usage(input_tokens=11, output_tokens=7))
+                    payload=UsagePayload(
+                        usage=usage or Usage(input_tokens=11, output_tokens=7)
+                    )
                 ),
             ),
         )
@@ -83,6 +88,59 @@ def test_turn_budget_preserves_completed_trace_and_stops_structurally() -> None:
     assert result.outcome is MultiTurnOutcome.BUDGET_STOP
     assert result.stop_reason == "turn_limit"
     assert len(result.traces) == 1
+
+
+@pytest.mark.parametrize(
+    ("max_input", "max_output", "max_cost", "usage", "expected_reason"),
+    [
+        (11, None, None, Usage(input_tokens=11, output_tokens=7), "input_token_limit"),
+        (None, 7, None, Usage(input_tokens=11, output_tokens=7), "output_token_limit"),
+        (
+            None,
+            None,
+            Decimal("0.01"),
+            Usage(
+                input_tokens=11,
+                output_tokens=7,
+                cost_amount=Decimal("0.01"),
+                cost_currency="CNY",
+            ),
+            "cost_limit",
+        ),
+    ],
+)
+def test_usage_budgets_stop_before_a_second_paid_turn(
+    max_input: int | None,
+    max_output: int | None,
+    max_cost: Decimal | None,
+    usage: Usage,
+    expected_reason: str,
+) -> None:
+    simulator = ConstrainedUserSimulator(
+        UserIntent(
+            want="I want to return a defective item.",
+            allowed_facts={"order_id": "ORD-6006"},
+        )
+    )
+
+    result = asyncio.run(
+        MultiTurnEvaluator(_engine(usage)).evaluate(
+            run_id="run-usage-budget",
+            case_id="case-a",
+            iteration_id="iteration-0",
+            simulator=simulator,
+            max_turns=3,
+            max_input_tokens=max_input,
+            max_output_tokens=max_output,
+            max_cost_amount=max_cost,
+            cost_currency="CNY",
+        )
+    )
+
+    assert result.outcome is MultiTurnOutcome.BUDGET_STOP
+    assert result.stop_reason == expected_reason
+    assert len(result.traces) == 1
+    assert result.usage == usage
 
 
 def test_a_new_case_never_receives_an_old_case_session() -> None:

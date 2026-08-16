@@ -22,6 +22,7 @@ from ses.evaluation import (
     build_trace,
     forbidden_call,
     judge_rules,
+    judge_rules_across_traces,
     tool_arguments,
     tool_called,
     tool_count,
@@ -53,11 +54,40 @@ def _trace() -> Trace:
     )
 
 
-def _artifact(trace: Trace) -> ArtifactRef:
+def _artifact(trace: Trace, name: str = "trace-1") -> ArtifactRef:
     return ArtifactRef(
         root=ArtifactRoot.RUN,
-        path="traces/trace-1.json",
+        path=f"traces/{name}.json",
         sha256=hashlib.sha256(artifact_json_bytes(trace)).hexdigest(),
+    )
+
+
+def _trace_slice(indices: tuple[int, ...], request_id: str) -> Trace:
+    source = _trace()
+    request = EngineRequest(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.ENGINE_REQUEST,
+        request_id=request_id,
+        prompt="Continue the return.",
+        allowed_tools=("preview_return", "confirm_return"),
+        timeout_seconds=30,
+    )
+    events = tuple(
+        source.events[source_index].model_copy(
+            update={
+                "event_id": f"{request_id}-event-{sequence}",
+                "request_id": request_id,
+                "sequence": sequence,
+            }
+        )
+        for sequence, source_index in enumerate(indices)
+    )
+    return build_trace(
+        events,
+        request=request,
+        run_id="run-1",
+        case_id="case-1",
+        iteration_id="iteration-0",
     )
 
 
@@ -118,6 +148,36 @@ def test_rule_judge_requires_persisted_trace_evidence_for_decisions() -> None:
 
     assert assertions[0].status.value == "not_evaluated"
     assert assertions[0].evidence == ()
+
+
+def test_rule_judge_evaluates_order_across_all_turns_with_matching_evidence() -> None:
+    preview = _trace_slice((0, 1, 2, 4, 7, 8), "request-preview")
+    confirm = _trace_slice((5, 6, 7, 8), "request-confirm")
+    preview_artifact = _artifact(preview, "trace-preview")
+    confirm_artifact = _artifact(confirm, "trace-confirm")
+
+    assertions = judge_rules_across_traces(
+        (preview, confirm),
+        (
+            tool_order(("preview_return", "confirm_return"), exact=True),
+            tool_count("confirm_return", 1),
+            tool_arguments(
+                "confirm_return",
+                {"order_id": "order-1", "amount_minor": 1299},
+            ),
+        ),
+        evidence_artifacts=(preview_artifact, confirm_artifact),
+    )
+
+    assert [assertion.status for assertion in assertions] == [
+        GradeStatus.PASS,
+        GradeStatus.PASS,
+        GradeStatus.PASS,
+    ]
+    assert {ref.artifact.path for ref in assertions[0].evidence} == {
+        "traces/trace-preview.json",
+        "traces/trace-confirm.json",
+    }
 
 
 def test_rule_mapping_rejects_conflicting_fields_without_dropping_them() -> None:

@@ -17,6 +17,7 @@ from ses.runner import (
     BaselineRunner,
     BudgetLimits,
     DevelopCatalogEvaluator,
+    develop_catalog_sha256,
     load_develop_catalog,
 )
 
@@ -85,9 +86,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_cost=args.max_cost,
         )
         project_root = args.project_root.resolve()
-        data_manifest = project_root / "data/upstream/manifest.json"
         model_lock = project_root / "models.lock.json"
-        data_version = hashlib.sha256(data_manifest.read_bytes()).hexdigest()
+        data_version = develop_catalog_sha256(catalog)
         model_lock_hash = hashlib.sha256(model_lock.read_bytes()).hexdigest()
         completed = BaselineRunner(
             args.output_root, DevelopCatalogEvaluator(catalog)

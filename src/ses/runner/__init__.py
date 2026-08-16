@@ -8,7 +8,11 @@ from ses.runner.baseline import (
     compute_reliability_metrics,
     load_run_events,
 )
-from ses.runner.fake import DevelopCatalogEvaluator, load_develop_catalog
+from ses.runner.fake import (
+    DevelopCatalogEvaluator,
+    develop_catalog_sha256,
+    load_develop_catalog,
+)
 
 __all__ = [
     "BaselineRun",
@@ -17,6 +21,7 @@ __all__ = [
     "CaseEvaluation",
     "DevelopCatalogEvaluator",
     "compute_reliability_metrics",
+    "develop_catalog_sha256",
     "load_develop_catalog",
     "load_run_events",
 ]

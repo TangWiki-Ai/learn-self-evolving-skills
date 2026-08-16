@@ -2,10 +2,10 @@
   "schema_version": "v1alpha1",
   "record_type": "lesson_baseline_comparison",
   "outcome_source": {
-    "kind": "measured",
-    "measured": true,
+    "kind": "synthetic_fixture",
+    "measured": false,
     "estimated": false,
-    "scope": "offline FakeEngine fixture"
+    "scope": "hand-authored offline records for the reporting exercise"
   },
   "live_provider_projection": {
     "kind": "estimated",

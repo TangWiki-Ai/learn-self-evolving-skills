@@ -107,5 +107,6 @@ def test_starter_retains_each_core_pipeline_gap(function: str) -> None:
 
 def test_comparison_labels_measured_and_estimated_sources_separately() -> None:
     artifact = json.loads((LESSON / "baseline-comparison.json").read_text())
-    assert artifact["outcome_source"]["kind"] == "measured"
+    assert artifact["outcome_source"]["kind"] == "synthetic_fixture"
+    assert artifact["outcome_source"]["measured"] is False
     assert artifact["live_provider_projection"]["kind"] == "estimated"
