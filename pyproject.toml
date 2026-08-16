@@ -34,7 +34,7 @@ module-name = "ses"
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]
-testpaths = ["tests"]
+testpaths = ["tests", "course"]
 
 [tool.mypy]
 python_version = "3.11"

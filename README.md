@@ -10,11 +10,38 @@ create -> eval -> evolve -> gate -> rollback -> portfolio
 
 项目使用 Python 3.11+、Pydantic v2、pytest 和 Claude Code headless。首版只实现硅基流动接入，但保留轻量 Engine 边界，方便以后扩展其他 Provider。
 
+## 快速开始
+
+安装依赖后，先运行严格的本地检查：
+
+```bash
+uv sync --all-extras
+uv run ses doctor
+```
+
+`ses doctor` 默认读取 [`ses.json`](ses.json) 和 [`models.lock.json`](models.lock.json)。离线检查不读取 Key，也不调用付费模型。
+
+运行固定 STATE-Bench 退货 case：
+
+```bash
+uv run ses run-case
+```
+
+命令会启动 FakeEngine 和本地 Shop MCP，为本次 case 创建独立工作区，并输出 `run_id`。它会把 Trace、执行前后快照、StateDiff、State/Rule 断言和最小 L1 结果写到 `.ses/runs/<run-id>/`。这个默认路径不访问网络，也不读取 Key。
+
+查看刚才的结果：
+
+```bash
+uv run ses inspect <run-id>
+```
+
+需要结构化输出时，为 `run-case` 或 `inspect` 加 `--json`。
+
 ## 当前阶段
 
-Phase 0 已于 2026-08-16 通过。Claude Code headless 已通过硅基流动完成模型响应、MCP 工具调用和 `stream-json` 解析。当前开发重点是单 case 完整评测链。
+Phase 0 已于 2026-08-16 通过。Claude Code headless 已通过硅基流动完成模型响应、MCP 工具调用和 `stream-json` 解析。Issue #2 的单 case 评测链、最小 L1 结果和 Lesson 2 练习现已完成。
 
-你可以随时运行不消耗 Key 的本地与数据检查：
+兼容脚本仍可运行不消耗 Key 的本地与数据检查：
 
 ```bash
 python3 scripts/phase0_check.py
@@ -23,10 +50,12 @@ python3 scripts/phase0_check.py
 设置有效的 `SILICONFLOW_API_KEY` 后，运行完整 smoke：
 
 ```bash
-python3 scripts/phase0_check.py --live
+python3 scripts/phase0_check.py --config ses.json --live
 ```
 
 完整 smoke 会验证 Claude Code headless 的硅流模型响应、一次 MCP 调用和 `stream-json` 解析。
+
+首版只实现 Claude Code + 硅基流动。Engine 和模型锁保留 Provider 中立边界，后续可以增加其他 Provider，但当前不实现路由或 fallback。
 
 ## 文档
 

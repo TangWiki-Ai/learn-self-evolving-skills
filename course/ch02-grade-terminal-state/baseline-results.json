@@ -1,0 +1,13 @@
+{
+  "schema_version": "v1alpha1",
+  "record_type": "lesson_exercise_fixture",
+  "measured": false,
+  "records": [
+    {"case_id": "develop-exercise-01", "state_grade": "pass"},
+    {"case_id": "develop-exercise-02", "state_grade": "fail"},
+    {"case_id": "develop-exercise-03", "state_grade": "pass"},
+    {"case_id": "develop-exercise-04", "state_grade": "pass"},
+    {"case_id": "develop-exercise-05", "state_grade": "judge_error"},
+    {"case_id": "develop-exercise-06", "state_grade": "pass"}
+  ]
+}

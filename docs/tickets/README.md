@@ -42,11 +42,11 @@
 
 **Acceptance criteria:**
 
-- [ ] A single CLI command runs one case in a fresh workspace and emits a stable run identifier.
-- [ ] The result contains messages, tool inputs and outputs, StateDiff, judge assertions, tokens, cost fields, and Skill hash fields where applicable.
-- [ ] State and rule judges grade observable outcomes and tool order, including failure precedence.
-- [ ] CLI-level tests run the complete path with a fake engine and no network access.
-- [ ] Lesson 2 starter, solution, tests, and baseline state pass-rate exercise are included.
+- [x] A single CLI command runs one case in a fresh workspace and emits a stable run identifier.
+- [x] The result contains messages, tool inputs and outputs, StateDiff, judge assertions, tokens, cost fields, and Skill hash fields where applicable.
+- [x] State and rule judges grade observable outcomes and tool order, including failure precedence.
+- [x] CLI-level tests run the complete path with a fake engine and no network access.
+- [x] Lesson 2 starter, solution, tests, and baseline state pass-rate exercise are included.
 
 ## 03 - Show the first with/without Skill comparison
 
