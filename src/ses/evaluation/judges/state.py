@@ -44,14 +44,21 @@ def _semantic_equal(left: object, right: object) -> bool:
     return left == right
 
 
-def _display(value: object) -> str:
+def _display_value(value: object) -> object:
     if isinstance(value, Mapping):
-        value = {str(key): value[key] for key in sorted(value, key=str)}
-    elif isinstance(value, (list, tuple)):
-        value = list(value)
+        return {str(key): _display_value(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [_display_value(item) for item in value]
+    return value
+
+
+def _display(value: object) -> str:
     try:
         return json.dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            _display_value(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
         )
     except (TypeError, ValueError):
         return repr(value)

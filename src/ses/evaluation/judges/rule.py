@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -36,6 +37,26 @@ class RuleKind(StrEnum):
     FORBIDDEN_CALL = "forbidden_call"
 
 
+def _validate_json_value(value: object, *, path: str = "$") -> None:
+    if value is None or isinstance(value, str | bool | int):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"{path} must contain a finite JSON number")
+        return
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"{path} keys must be strings")
+            _validate_json_value(child, path=f"{path}.{key}")
+        return
+    if isinstance(value, list | tuple):
+        for index, child in enumerate(value):
+            _validate_json_value(child, path=f"{path}[{index}]")
+        return
+    raise ValueError(f"{path} contains a non-JSON value")
+
+
 @dataclass(frozen=True, slots=True)
 class Rule:
     """An internal immutable rule specification, not a cross-module schema."""
@@ -58,6 +79,10 @@ class Rule:
             raise ValueError("assertion_id must be a non-empty string")
         if not isinstance(self.required, bool):
             raise ValueError("required must be boolean")
+        if not isinstance(self.exact_arguments, bool):
+            raise ValueError("exact_arguments must be boolean")
+        if not isinstance(self.exact_order, bool):
+            raise ValueError("exact_order must be boolean")
         if self.tool_name is not None and (
             not isinstance(self.tool_name, str) or not self.tool_name.strip()
         ):
@@ -69,6 +94,7 @@ class Rule:
         if self.expected_arguments is not None:
             if not isinstance(self.expected_arguments, Mapping):
                 raise ValueError("expected_arguments must be a mapping")
+            _validate_json_value(self.expected_arguments)
             object.__setattr__(
                 self,
                 "expected_arguments",
@@ -402,12 +428,21 @@ def _arguments_match(
     )
 
 
-def _display(value: object) -> str:
+def _display_value(value: object) -> object:
     if isinstance(value, Mapping):
-        value = {str(key): value[key] for key in sorted(value, key=str)}
+        return {str(key): _display_value(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [_display_value(item) for item in value]
+    return value
+
+
+def _display(value: object) -> str:
     try:
         return json.dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            _display_value(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
         )
     except (TypeError, ValueError):
         return repr(value)
@@ -578,6 +613,17 @@ def judge_rules(
     calls = trace_tool_calls(trace)
     results: list[AssertionResult] = []
     seen_ids: set[str] = set()
+
+    def next_error_id(index: int) -> str:
+        base = f"rule-error:{index}"
+        candidate = base
+        suffix = 1
+        while candidate in seen_ids:
+            candidate = f"{base}:{suffix}"
+            suffix += 1
+        seen_ids.add(candidate)
+        return candidate
+
     for index, raw_rule in enumerate(rules):
         try:
             rule = _coerce_rule(raw_rule)
@@ -595,7 +641,7 @@ def judge_rules(
         except (TypeError, ValueError) as exc:
             error_rule = tool_called(
                 "__invalid_rule__",
-                assertion_id=f"rule-error:{index}",
+                assertion_id=next_error_id(index),
             )
             results.append(
                 _result(

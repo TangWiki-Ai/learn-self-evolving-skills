@@ -152,3 +152,43 @@ def test_direct_rule_rejects_count_and_range_conflict() -> None:
             expected_count=1,
             min_count=1,
         )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"exact_arguments": "yes"},
+        {"exact_order": "yes"},
+        {"expected_arguments": {1: "not-a-string-key"}},
+        {"expected_arguments": {"value": object()}},
+    ],
+)
+def test_direct_rule_rejects_noncanonical_values(arguments: dict[str, object]) -> None:
+    values: dict[str, object] = {
+        "kind": RuleKind.TOOL_ARGUMENTS,
+        "assertion_id": "strict-rule",
+        "tool_name": "preview_return",
+        "expected_arguments": {"order_id": "order-1"},
+    }
+    values.update(arguments)
+
+    with pytest.raises(ValueError):
+        Rule(**values)  # type: ignore[arg-type]
+
+
+def test_invalid_rules_always_receive_unique_assertion_ids() -> None:
+    assertions = judge_rules(
+        _trace(),
+        (
+            {"kind": "unknown"},
+            tool_called("preview_return", assertion_id="rule-error:0"),
+        ),
+        evidence_artifact=_artifact(_trace()),
+    )
+
+    ids = [assertion.assertion_id for assertion in assertions]
+    assert len(ids) == len(set(ids))
+    assert [assertion.status for assertion in assertions] == [
+        GradeStatus.ERROR,
+        GradeStatus.ERROR,
+    ]

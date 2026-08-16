@@ -117,12 +117,61 @@ def test_fake_can_be_cancelled_during_a_delayed_replay() -> None:
     assert events[0].payload.exit_status is EngineExitStatus.CANCELLED
 
 
+def test_fake_cannot_be_cancelled_after_explicit_terminal_event(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "terminal.json"
+    path.write_text(
+        """{
+          "events": [{
+            "payload": {
+              "kind": "completed",
+              "exit_status": "success",
+              "session_id": "fixture-session"
+            }
+          }]
+        }""",
+        encoding="utf-8",
+    )
+    engine = FakeEngine(load_fake_fixture(path))
+
+    async def scenario() -> tuple[bool, list[EngineEvent]]:
+        stream = engine.stream(_request())
+        events = [await anext(stream)]
+        cancelled = await engine.cancel("request-1")
+        events.extend([event async for event in stream])
+        return cancelled, events
+
+    cancelled, events = asyncio.run(scenario())
+
+    assert not cancelled
+    assert len(events) == 1
+    assert isinstance(events[0].payload, CompletedPayload)
+    assert events[0].payload.exit_status is EngineExitStatus.SUCCESS
+
+
 def test_fake_fixture_rejects_unknown_and_malformed_fields(tmp_path: Path) -> None:
     path = tmp_path / "bad.json"
     path.write_text('{"events": [], "api_key": "not-allowed"}', encoding="utf-8")
 
     with pytest.raises(FakeFixtureError):
         load_fake_fixture(path)
+
+
+def test_fake_fixture_validation_does_not_expose_rejected_values(
+    tmp_path: Path,
+) -> None:
+    secret = "ordinary-secret-value"
+    path = tmp_path / "bad.json"
+    path.write_text(
+        '{"events": [], "unexpected": "ordinary-secret-value"}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FakeFixtureError) as exc_info:
+        load_fake_fixture(path)
+
+    assert secret not in str(exc_info.value)
 
 
 def test_fake_fixture_rejects_conflicting_terminal_modes() -> None:

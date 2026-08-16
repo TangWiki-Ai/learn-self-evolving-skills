@@ -77,6 +77,22 @@ class BudgetLimits:
             return cls(max_total_tokens=value)
         if not isinstance(value, Mapping):
             raise ValueError("budget must be an integer, mapping, or BudgetLimits")
+        allowed_fields = {
+            "max_input_tokens",
+            "input_tokens",
+            "max_output_tokens",
+            "output_tokens",
+            "max_total_tokens",
+            "max_tokens",
+            "total_tokens",
+            "max_cost_amount",
+            "cost_amount",
+            "cost_currency",
+            "currency",
+        }
+        unknown_fields = sorted(repr(key) for key in value if key not in allowed_fields)
+        if unknown_fields:
+            raise ValueError("unknown budget fields: " + ", ".join(unknown_fields))
 
         def one(names: tuple[str, ...]) -> object | None:
             supplied = [(name, value[name]) for name in names if name in value]
@@ -224,8 +240,8 @@ def expect(
                 "fixture_id does not match case.fixture_id",
             )
         )
-    if loaded_fixture is not None and "fixture_id" in loaded_fixture:
-        embedded_id = loaded_fixture["fixture_id"]
+    if loaded_fixture is not None:
+        embedded_id = loaded_fixture.get("fixture_id")
         if not isinstance(embedded_id, str) or embedded_id != fixture_id:
             failures.append(
                 _failure(
@@ -257,14 +273,28 @@ def expect(
                 )
             )
 
-    if not environment_ready:
+    if not isinstance(environment_ready, bool):
+        failures.append(
+            _failure(
+                EvaluationErrorCode.ENVIRONMENT_NOT_READY,
+                "environment_ready must be boolean",
+            )
+        )
+    elif not environment_ready:
         failures.append(
             _failure(
                 EvaluationErrorCode.ENVIRONMENT_NOT_READY,
                 "environment is not ready",
             )
         )
-    if environment_closed:
+    if not isinstance(environment_closed, bool):
+        failures.append(
+            _failure(
+                EvaluationErrorCode.ENVIRONMENT_NOT_READY,
+                "environment_closed must be boolean",
+            )
+        )
+    elif environment_closed:
         failures.append(
             _failure(
                 EvaluationErrorCode.ENVIRONMENT_NOT_READY,

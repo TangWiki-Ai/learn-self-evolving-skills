@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -34,7 +33,9 @@ class FakeFixtureError(ValueError):
 class FakeStep(BaseModel):
     """One event and optional deterministic delay."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, hide_input_in_errors=True, strict=True
+    )
     delay_seconds: float = Field(default=0, ge=0)
     payload: EngineEventPayload
 
@@ -49,7 +50,9 @@ class FakeStep(BaseModel):
 class FakeFixture(BaseModel):
     """A complete replay, including process-like terminal behavior."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, hide_input_in_errors=True, strict=True
+    )
     events: tuple[FakeStep, ...] = ()
     session_id: str = Field(default="fake-session-1", min_length=1)
     exit_code: int = 0
@@ -103,9 +106,17 @@ class FakeFixture(BaseModel):
 def load_fake_fixture(path: Path) -> FakeFixture:
     """Load a strict fixture without accessing the network or process environment."""
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-        return FakeFixture.model_validate(value)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as exc:
+        payload = path.read_text(encoding="utf-8")
+        return FakeFixture.model_validate_json(payload)
+    except ValidationError as exc:
+        details = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors(include_url=False, include_input=False)
+        )
+        raise FakeFixtureError(
+            f"invalid fake-engine fixture {path}: {details}"
+        ) from None
+    except (OSError, UnicodeError) as exc:
         raise FakeFixtureError(f"invalid fake-engine fixture {path}: {exc}") from exc
 
 
@@ -125,7 +136,6 @@ class FakeEngine:
 
     async def stream(self, request: EngineRequest) -> AsyncIterator[EngineEvent]:
         sequence = 0
-        terminal = False
         session_id = request.resume_session_id or self._fixture.session_id
         self._active.add(request.request_id)
         try:
@@ -136,9 +146,17 @@ class FakeEngine:
                     break
                 payload = step.payload
                 if isinstance(payload, CompletedPayload):
-                    terminal = True
                     if payload.exit_status is EngineExitStatus.SUCCESS:
                         payload = payload.model_copy(update={"session_id": session_id})
+                    event = make_event(
+                        request_id=request.request_id,
+                        sequence=sequence,
+                        payload=payload,
+                    )
+                    self._active.discard(request.request_id)
+                    self._cancelled.discard(request.request_id)
+                    yield event
+                    return
                 yield make_event(
                     request_id=request.request_id,
                     sequence=sequence,
@@ -207,7 +225,7 @@ class FakeEngine:
                     sequence=sequence + 1,
                     payload=CompletedPayload(exit_status=EngineExitStatus.ERROR),
                 )
-            elif not terminal:
+            else:
                 yield make_event(
                     request_id=request.request_id,
                     sequence=sequence,

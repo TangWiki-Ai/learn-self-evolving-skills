@@ -100,6 +100,12 @@ def test_existing_fixture_path_must_contain_matching_fixture_id(tmp_path: Path) 
     assert _expect(fixture=path).passed
 
 
+def test_fixture_mapping_requires_an_embedded_matching_fixture_id() -> None:
+    result = _expect(fixture={"order_id": "order-1"})
+
+    assert EvaluationErrorCode.MISSING_FIXTURE in {f.code for f in result.failures}
+
+
 @pytest.mark.parametrize("role", ["judge", "simulator"])
 def test_toolless_environment_fails_for_every_execution_role(role: str) -> None:
     result = _expect(available_tools=())
@@ -112,6 +118,26 @@ def test_closed_environment_fails_even_when_marked_ready() -> None:
     result = _expect(environment_closed=True)
 
     assert EvaluationErrorCode.ENVIRONMENT_NOT_READY in {
+        failure.code for failure in result.failures
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("environment_ready", "yes"), ("environment_closed", 0)],
+)
+def test_environment_flags_must_be_actual_booleans(field: str, value: object) -> None:
+    result = _expect(**{field: value})
+
+    assert EvaluationErrorCode.ENVIRONMENT_NOT_READY in {
+        failure.code for failure in result.failures
+    }
+
+
+def test_budget_mapping_rejects_unknown_fields() -> None:
+    result = _expect(budget={"max_total_tokens": 100, "token_count": 100})
+
+    assert EvaluationErrorCode.INVALID_BUDGET in {
         failure.code for failure in result.failures
     }
 
