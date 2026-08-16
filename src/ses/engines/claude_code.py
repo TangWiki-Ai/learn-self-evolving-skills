@@ -51,6 +51,7 @@ class ClaudeCodeEngine:
         environ: Mapping[str, str] | None = None,
         system_prompt: str | None = None,
         output_json_schema: Mapping[str, object] | None = None,
+        native_skill_discovery: bool = False,
     ) -> None:
         self._model = model
         self._credentials = credentials
@@ -63,6 +64,7 @@ class ClaudeCodeEngine:
             )
         )
         self._system_prompt = system_prompt
+        self._native_skill_discovery = native_skill_discovery
         if output_json_schema is not None and not output_json_schema:
             raise ValueError("output JSON schema cannot be empty")
         self._output_json_schema = (
@@ -102,18 +104,21 @@ class ClaudeCodeEngine:
                 "case engine cannot enable filesystem tools: "
                 + ", ".join(sorted(forbidden))
             )
-        command = [
-            self._executable,
-            "--bare",
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--permission-mode",
-            "dontAsk",
-            "--disallowedTools",
-            ",".join(_FILESYSTEM_TOOLS),
-        ]
+        command = [self._executable]
+        if not self._native_skill_discovery:
+            command.append("--bare")
+        command.extend(
+            [
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--permission-mode",
+                "dontAsk",
+                "--disallowedTools",
+                ",".join(_FILESYSTEM_TOOLS),
+            ]
+        )
         if request.resume_session_id is not None:
             command.extend(("--resume", request.resume_session_id))
         if request.allowed_tools:
@@ -130,7 +135,12 @@ class ClaudeCodeEngine:
             )
         command.extend(("--model", self._model.model_id))
         if self._system_prompt:
-            command.extend(("--system-prompt", self._system_prompt))
+            prompt_flag = (
+                "--append-system-prompt"
+                if self._native_skill_discovery
+                else "--system-prompt"
+            )
+            command.extend((prompt_flag, self._system_prompt))
         command.append(request.prompt)
         return command
 

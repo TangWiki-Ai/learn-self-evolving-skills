@@ -1,0 +1,1 @@
+{"scenario":"policy-ineligible request","reusable_steps":["inspect before answering","cite current policy facts","do not claim an unperformed action","offer only supported next steps","verify every tool claim"],"tool_sequence":["get_order","get_policies"]}

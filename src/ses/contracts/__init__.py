@@ -54,6 +54,7 @@ from ses.contracts.primitives import (
     TraceId,
     UtcDateTime,
 )
+from ses.contracts.runner import PairCategory, PairedCaseResult, PairedComparison
 from ses.contracts.serialization import artifact_json_bytes, content_sha256
 from ses.contracts.shop import (
     Money,
@@ -94,6 +95,9 @@ __all__ = [
     "Money",
     "NonEmptyStr",
     "OpaqueId",
+    "PairCategory",
+    "PairedCaseResult",
+    "PairedComparison",
     "RecordType",
     "RelativeArtifactPath",
     "RequestId",

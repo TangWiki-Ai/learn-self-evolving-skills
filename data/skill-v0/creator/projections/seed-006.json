@@ -1,0 +1,1 @@
+{"scenario":"return-window boundary","reusable_steps":["inspect delivery timing","use policy evidence","do not invent eligibility","preview the result","confirm and verify"],"tool_sequence":["get_order","get_policies","process_return preview","process_return confirm"]}

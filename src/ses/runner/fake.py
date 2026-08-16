@@ -285,7 +285,13 @@ class _ShopBoundEngine:
         return await self._engine.cancel(request_id)
 
 
-def _action_fixture(case: ExecutableDevelopCase) -> FakeFixture:
+def _action_fixture(
+    case: ExecutableDevelopCase,
+    *,
+    force_fail: bool = False,
+    input_token_overhead: int = 0,
+    cost_amount: Decimal = Decimal("0.0010"),
+) -> FakeFixture:
     steps: list[FakeStep] = [
         FakeStep(
             payload=TextDeltaPayload(
@@ -294,7 +300,8 @@ def _action_fixture(case: ExecutableDevelopCase) -> FakeFixture:
             )
         )
     ]
-    for index, (tool_name, arguments) in enumerate(case.expected_actions):
+    actions = case.expected_actions[:-1] if force_fail else case.expected_actions
+    for index, (tool_name, arguments) in enumerate(actions):
         tool_call_id = f"tool-{index:02d}-{tool_name}"
         steps.extend(
             (
@@ -323,7 +330,14 @@ def _action_fixture(case: ExecutableDevelopCase) -> FakeFixture:
                 )
             ),
             FakeStep(
-                payload=UsagePayload(usage=Usage(input_tokens=137, output_tokens=61))
+                payload=UsagePayload(
+                    usage=Usage(
+                        input_tokens=137 + input_token_overhead,
+                        output_tokens=61,
+                        cost_amount=cost_amount,
+                        cost_currency="CNY",
+                    )
+                )
             ),
         )
     )
@@ -395,9 +409,25 @@ class DevelopCatalogEvaluator:
     """Evaluate catalog cases with isolated Shop state, Simulator, Trace, and Judges."""
 
     def __init__(
-        self, catalog: Mapping[str, ExecutableDevelopCase] | None = None
+        self,
+        catalog: Mapping[str, ExecutableDevelopCase] | None = None,
+        *,
+        forced_fail_case_ids: frozenset[str] = frozenset(),
+        skill_files: tuple[tuple[Path, str], ...] = (),
+        input_token_overhead: int = 0,
+        cost_amount: Decimal = Decimal("0.0010"),
+        latency_overhead_ms: int = 0,
+        fixed_latency_ms: int | None = None,
     ) -> None:
         self._catalog = dict(catalog or load_develop_catalog())
+        if not forced_fail_case_ids.issubset(self._catalog):
+            raise ValueError("forced failure cases must belong to the catalog")
+        self._forced_fail_case_ids = forced_fail_case_ids
+        self._skill_files = skill_files
+        self._input_token_overhead = input_token_overhead
+        self._cost_amount = cost_amount
+        self._latency_overhead_ms = latency_overhead_ms
+        self._fixed_latency_ms = fixed_latency_ms
 
     def evaluate_attempt(self, context: EvaluationContext) -> CaseEvaluation:
         case = self._catalog.get(context.case_id)
@@ -417,6 +447,7 @@ class DevelopCatalogEvaluator:
             run_id=context.run_id,
             case_id=context.case_id,
             iteration_id=f"{context.iteration_id}:{context.attempt_id}",
+            skill_files=self._skill_files,
         )
         environment = CaseEnvironment(case.fixture)
         trace_refs: list[ArtifactRef] = []
@@ -442,7 +473,15 @@ class DevelopCatalogEvaluator:
                 )
             )
             engine = _ShopBoundEngine(
-                _SequencedFakeEngine(_action_fixture(case)), environment
+                _SequencedFakeEngine(
+                    _action_fixture(
+                        case,
+                        force_fail=context.case_id in self._forced_fail_case_ids,
+                        input_token_overhead=self._input_token_overhead,
+                        cost_amount=self._cost_amount,
+                    )
+                ),
+                environment,
             )
             multi = await MultiTurnEvaluator(
                 engine,
@@ -485,7 +524,11 @@ class DevelopCatalogEvaluator:
                     output_tokens=multi.usage.output_tokens,
                     cost_amount=usage_cost,
                     cost_currency=usage_currency,
-                    latency_ms=multi.latency_ms,
+                    latency_ms=(
+                        self._fixed_latency_ms
+                        if self._fixed_latency_ms is not None
+                        else multi.latency_ms + self._latency_overhead_ms
+                    ),
                     artifacts=artifacts,
                     session_resumed=resumed,
                     evidence=evidence,

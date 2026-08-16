@@ -1,0 +1,1 @@
+{"scenario":"wrong-size apparel","reusable_steps":["identify the requested item","check eligibility","show any fee before mutation","confirm once","report tool evidence"],"tool_sequence":["get_order","get_policies","process_return preview","process_return confirm"]}

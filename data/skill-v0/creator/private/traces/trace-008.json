@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-008","outcome":"success","messages":["Customer selected one item in a multi-item order.","Agent avoided changing unrelated items."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

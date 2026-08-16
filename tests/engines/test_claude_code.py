@@ -102,6 +102,28 @@ def test_command_is_an_array_with_bare_stream_json_resume_and_no_key(
     assert environment["HOME"] != str(Path.home())
 
 
+def test_command_can_enable_full_native_skill_discovery(tmp_path: Path) -> None:
+    engine = _engine(tmp_path, "/usr/bin/claude")
+    engine = ClaudeCodeEngine(
+        model=engine.model,
+        credentials=ProviderCredentials(api_key="exact-process-secret"),
+        workspace=engine.workspace,
+        executable="/usr/bin/claude",
+        environ={"PATH": os.environ.get("PATH", "")},
+        native_skill_discovery=True,
+    )
+
+    command = engine.build_command(_request())
+
+    assert "--bare" not in command
+    assert command[:4] == [
+        "/usr/bin/claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+    ]
+
+
 def test_command_uses_native_json_schema_and_disables_other_tools(
     tmp_path: Path,
 ) -> None:

@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-004","outcome":"success","messages":["Customer requested an unopened-item return.","Agent previewed consequences before state mutation."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

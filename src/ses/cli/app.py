@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.cli import baseline, doctor, qualify_cases, skill_demo
+from ses.cli import baseline, doctor, qualify_cases, skill_demo, skill_v0
 from ses.evaluator import SingleCaseRunError, run_pinned_case
 from ses.foundation.credentials import credential_values, redact
 from ses.reporting import l1_json_bytes, load_l1_result, render_l1_text
@@ -32,6 +32,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Triage sources, verify cases, and build the develop catalog.",
     )
     commands.add_parser("baseline", help="Run the offline develop L1 baseline.")
+    commands.add_parser(
+        "skill-v0-pipeline",
+        help="Create, gate, trigger-test, pair, and render Skill v0.",
+    )
+    commands.add_parser("skill", help="Create or statically gate Skill v0.")
+    commands.add_parser("trigger-eval", help="Evaluate native Skill discovery.")
+    commands.add_parser("paired-comparison", help="Run fresh baseline and Skill pairs.")
+    commands.add_parser("l2-render", help="Render a paired L2 HTML report.")
     return parser
 
 
@@ -112,6 +120,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return qualify_cases.main(command_args)
     if command == "baseline":
         return baseline.main(command_args)
+    if command == "skill-v0-pipeline":
+        return skill_v0.main(command_args)
+    if command == "skill":
+        return skill_v0.skill_main(command_args)
+    if command == "trigger-eval":
+        return skill_v0.trigger_main(command_args)
+    if command == "paired-comparison":
+        return skill_v0.paired_main(command_args)
+    if command == "l2-render":
+        return skill_v0.l2_main(command_args)
     build_parser().parse_args(values)
     return 2
 

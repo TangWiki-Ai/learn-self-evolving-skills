@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-009","outcome":"success","messages":["Customer made an ineligible return request.","Agent explained supported next steps without claiming a mutation."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

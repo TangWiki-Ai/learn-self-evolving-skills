@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-002","outcome":"success","messages":["Customer requested a wrong-size apparel return.","Agent preserved item identity through preview and confirmation."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

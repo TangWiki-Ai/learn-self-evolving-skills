@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-003","outcome":"success","messages":["Customer requested a wrong-color product return.","Agent used policy evidence and verified the terminal state."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

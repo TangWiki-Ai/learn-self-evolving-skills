@@ -1,0 +1,1 @@
+{"scenario":"damaged delivery","reusable_steps":["read the order","read policy instead of guessing","preview consequences","ask for confirmation","ground the response in tools"],"tool_sequence":["get_order","get_policies","process_return preview","process_return confirm"]}

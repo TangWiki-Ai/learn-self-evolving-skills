@@ -63,6 +63,9 @@ class SkillManifest(BaseModel):
     record_type: str = Field(pattern=r"^skill_artifact_manifest$")
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
     version: str = Field(min_length=1)
+    source_version: str = "unspecified"
+    content_sha256: str | None = None
+    provider_compatibility: tuple[str, ...] = ("claude-code-native",)
     files: tuple[_ManifestFile, ...]
 
     @field_validator("files", mode="before")
@@ -70,6 +73,40 @@ class SkillManifest(BaseModel):
     def _json_files_to_tuple(cls, value: object) -> object:
         if isinstance(value, list):
             return tuple(value)
+        return value
+
+    @field_validator("provider_compatibility", mode="before")
+    @classmethod
+    def _json_compatibility_to_tuple(cls, value: object) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @field_validator("source_version")
+    @classmethod
+    def _source_version_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("source_version must not be blank")
+        return value
+
+    @field_validator("content_sha256")
+    @classmethod
+    def _optional_content_hash(cls, value: str | None) -> str | None:
+        if value is not None and not _SHA256_PATTERN.fullmatch(value):
+            raise ValueError("content_sha256 must be 64 lowercase hex characters")
+        return value
+
+    @field_validator("provider_compatibility")
+    @classmethod
+    def _provider_compatibility_not_empty(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if (
+            not value
+            or len(set(value)) != len(value)
+            or any(not item.strip() for item in value)
+        ):
+            raise ValueError("provider compatibility must be nonempty and unique")
         return value
 
     @field_validator("files")
@@ -168,7 +205,10 @@ def _digest(files: tuple[tuple[str, Path], ...]) -> str:
 def normalized_skill_sha256(source: Path) -> str:
     """Hash the normalized contents of every manifest-declared runtime file."""
     manifest = load_skill_manifest(source)
-    return _digest(_declared_files(source, manifest))
+    digest = _digest(_declared_files(source, manifest))
+    if manifest.content_sha256 is not None and manifest.content_sha256 != digest:
+        raise SkillInstallError("manifest content hash does not match runtime files")
+    return digest
 
 
 def write_skill_manifest(
@@ -177,13 +217,19 @@ def write_skill_manifest(
     name: str,
     version: str,
     files: tuple[str, ...],
+    source_version: str = "unspecified",
+    provider_compatibility: tuple[str, ...] = ("claude-code-native",),
 ) -> Path:
     """Write a strict manifest for files already created below ``source``."""
+    declared = tuple((relative, source / PurePosixPath(relative)) for relative in files)
     payload = {
         "schema_version": "v1alpha1",
         "record_type": "skill_artifact_manifest",
         "name": name,
         "version": version,
+        "source_version": source_version,
+        "content_sha256": _digest(declared),
+        "provider_compatibility": provider_compatibility,
         "files": [
             {
                 "path": relative,

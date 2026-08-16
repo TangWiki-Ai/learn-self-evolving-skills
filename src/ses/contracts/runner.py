@@ -43,6 +43,15 @@ class RunEventType(StrEnum):
     NOT_EVALUATED = "not_evaluated"
 
 
+class PairCategory(StrEnum):
+    """Outcome of comparing the same case across a baseline and Skill run."""
+
+    FAIL_TO_PASS = "fail-to-pass"
+    PASS_TO_FAIL = "pass-to-fail"
+    BOTH_PASS = "both-pass"
+    BOTH_FAIL = "both-fail"
+
+
 class RunArtifacts(ContractModel):
     """Evidence artifacts created by one paid attempt."""
 
@@ -162,4 +171,84 @@ class RunRecord(VersionedRecord):
         if self.event_type is RunEventType.NOT_EVALUATED:
             if self.status is not RunnerStatus.NOT_EVALUATED:
                 raise ValueError("not_evaluated requires not_evaluated status")
+        return self
+
+
+class PairedCaseResult(ContractModel):
+    """One compatible case pair with relative evidence references."""
+
+    case_id: CaseId
+    category: PairCategory
+    baseline_status: RunnerStatus
+    skill_status: RunnerStatus
+    baseline_score: float = Field(ge=0, le=1)
+    skill_score: float = Field(ge=0, le=1)
+    score_delta: float = Field(ge=-1, le=1)
+    baseline_input_tokens: StrictNonNegativeInt
+    skill_input_tokens: StrictNonNegativeInt
+    baseline_output_tokens: StrictNonNegativeInt
+    skill_output_tokens: StrictNonNegativeInt
+    baseline_cost_amount: Decimal
+    skill_cost_amount: Decimal
+    baseline_latency_ms: StrictNonNegativeInt
+    skill_latency_ms: StrictNonNegativeInt
+    baseline_trace: NonEmptyStr
+    skill_trace: NonEmptyStr
+    baseline_state_diff: NonEmptyStr
+    skill_state_diff: NonEmptyStr
+    baseline_grade: NonEmptyStr
+    skill_grade: NonEmptyStr
+
+    @field_validator("baseline_cost_amount", "skill_cost_amount", mode="before")
+    @classmethod
+    def _decimal_pair_cost(cls, value: object) -> object:
+        if not isinstance(value, (str, Decimal)):
+            raise ValueError("paired cost amounts must use decimal strings")
+        return value
+
+
+class PairedComparison(VersionedRecord):
+    """Canonical fresh-run comparison consumed by L2 reporting."""
+
+    record_type: Literal["paired_comparison"]
+    baseline_run_id: RunId
+    skill_run_id: RunId
+    skill_sha256: Sha256Digest
+    protocol_sha256: Sha256Digest
+    compatible: bool
+    fresh_baseline: bool
+    fresh_skill: bool
+    category_counts: Mapping[PairCategory, StrictNonNegativeInt]
+    baseline_pass_rate: float = Field(ge=0, le=1)
+    skill_pass_rate: float = Field(ge=0, le=1)
+    baseline_input_tokens: StrictNonNegativeInt
+    skill_input_tokens: StrictNonNegativeInt
+    baseline_output_tokens: StrictNonNegativeInt
+    skill_output_tokens: StrictNonNegativeInt
+    baseline_cost_amount: Decimal
+    skill_cost_amount: Decimal
+    baseline_latency_ms: StrictNonNegativeInt
+    skill_latency_ms: StrictNonNegativeInt
+    cases: tuple[PairedCaseResult, ...]
+
+    @field_validator("baseline_cost_amount", "skill_cost_amount", mode="before")
+    @classmethod
+    def _decimal_comparison_cost(cls, value: object) -> object:
+        if not isinstance(value, (str, Decimal)):
+            raise ValueError("paired cost amounts must use decimal strings")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_pair_set(self) -> PairedComparison:
+        if not self.cases or len({item.case_id for item in self.cases}) != len(
+            self.cases
+        ):
+            raise ValueError("paired comparison cases must be nonempty and unique")
+        if not self.compatible or not self.fresh_baseline or not self.fresh_skill:
+            raise ValueError("persisted paired comparison must be compatible and fresh")
+        expected = {category: 0 for category in PairCategory}
+        for item in self.cases:
+            expected[item.category] += 1
+        if dict(self.category_counts) != expected:
+            raise ValueError("paired category counts do not match case rows")
         return self

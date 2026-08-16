@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-006","outcome":"success","messages":["Customer asked at a return-window boundary.","Agent inspected delivery timing and did not guess eligibility."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

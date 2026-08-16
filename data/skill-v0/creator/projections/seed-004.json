@@ -1,0 +1,1 @@
+{"scenario":"unopened return","reusable_steps":["inspect purchase facts","apply the current policy","preview before writing","confirm only the approved item","verify the final state"],"tool_sequence":["get_order","get_policies","process_return preview","process_return confirm"]}

@@ -1,0 +1,1 @@
+{"scenario":"defective electronics","reusable_steps":["inspect the order","read applicable policies","preview the return","confirm after consent","verify terminal state"],"tool_sequence":["get_order","get_policies","process_return preview","process_return confirm"]}

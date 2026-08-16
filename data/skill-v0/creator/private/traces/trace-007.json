@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-007","outcome":"success","messages":["Customer requested a return with a possible fee.","Agent showed the preview and waited for consent."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

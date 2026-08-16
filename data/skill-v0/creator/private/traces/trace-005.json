@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-005","outcome":"success","messages":["Customer reported delivery damage.","Agent grounded every claim in tool results."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

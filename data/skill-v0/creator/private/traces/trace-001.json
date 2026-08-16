@@ -1,0 +1,1 @@
+{"trace_id":"state-bench-creator-001","outcome":"success","messages":["Customer requested a defective electronics return.","Agent inspected policy, previewed, confirmed, and verified."],"state_judge":"pass","model_judge":"pass","human_review":"approved"}

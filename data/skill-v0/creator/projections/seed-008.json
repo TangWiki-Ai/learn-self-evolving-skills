@@ -1,0 +1,1 @@
+{"scenario":"multi-item order","reusable_steps":["identify one requested item","avoid changing other items","preview the selected return","confirm the same arguments","verify the final state"],"tool_sequence":["get_order","get_policies","process_return preview","process_return confirm"]}

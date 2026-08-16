@@ -1,0 +1,155 @@
+{
+  "engine_version": "claude-code:2.1.220",
+  "fn": 0,
+  "fp": 0,
+  "indeterminate_count": 0,
+  "precision": 1.0,
+  "prompts": [
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "I need to return a defective laptop from my recent order.",
+      "prompt_id": "positive-01"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "Can you help me send back shoes that arrived in the wrong size?",
+      "prompt_id": "positive-02"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "Please process a return for an unopened item I bought last week.",
+      "prompt_id": "positive-03"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "The screen flickers and I want to return the product.",
+      "prompt_id": "positive-04"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "I received the wrong color and would like to send it back.",
+      "prompt_id": "positive-05"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "Help me check the policy and return one item from an order.",
+      "prompt_id": "positive-06"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "I want a return, but please preview any fee before confirming.",
+      "prompt_id": "positive-07"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "Can you verify whether my damaged item can be returned?",
+      "prompt_id": "positive-08"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "Start a policy-compliant product return after I approve the preview.",
+      "prompt_id": "positive-09"
+    },
+    {
+      "actual": "triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": true,
+      "prompt": "Please inspect my purchase and complete the eligible return safely.",
+      "prompt_id": "positive-10"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "What is the shipping status of my package?",
+      "prompt_id": "negative-01"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "Please update the email address on my account.",
+      "prompt_id": "negative-02"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "Can you recommend a laptop for photo editing?",
+      "prompt_id": "negative-03"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "I forgot my password and cannot sign in.",
+      "prompt_id": "negative-04"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "Where can I find the store opening hours?",
+      "prompt_id": "negative-05"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "Please explain how loyalty points work.",
+      "prompt_id": "negative-06"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "I want to buy two more units of this product.",
+      "prompt_id": "negative-07"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "Can you cancel a newsletter subscription?",
+      "prompt_id": "negative-08"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "What colors are available for this shirt?",
+      "prompt_id": "negative-09"
+    },
+    {
+      "actual": "not_triggered",
+      "evidence": "fixed Claude Code native discovery observation",
+      "expected_trigger": false,
+      "prompt": "Please summarize this meeting transcript.",
+      "prompt_id": "negative-10"
+    }
+  ],
+  "recall": 1.0,
+  "record_type": "trigger_eval_result",
+  "schema_version": "v1alpha1",
+  "skill_sha256": "45089f68bcbe7dc767c9123839472f1a1803eee2c69aec7ee8b3aebe0e151fb7",
+  "tn": 10,
+  "tp": 10
+}

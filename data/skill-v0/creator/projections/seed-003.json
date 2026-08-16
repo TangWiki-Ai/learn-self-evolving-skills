@@ -1,0 +1,1 @@
+{"scenario":"wrong-color product","reusable_steps":["disambiguate the item","inspect policy facts","preview the action","obtain consent","verify the result"],"tool_sequence":["get_order","get_policies","process_return preview","process_return confirm"]}
