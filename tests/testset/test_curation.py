@@ -199,4 +199,5 @@ def test_live_adapter_records_locked_model_and_measured_usage(tmp_path: Path) ->
     assert response.invocation.model_id == "test/triage"
     assert response.invocation.provider_host == "provider.example"
     assert response.invocation.usage.input_tokens == 12
+    assert len(response.invocation.output_schema_sha256) == 64
     assert response.invocation.live_model_measured is True

@@ -73,7 +73,7 @@ SILICONFLOW_API_KEY=... uv run ses qualify-cases \
   --json
 ```
 
-Live 模式会产生费用并记录真实 token/耗时。它不会把 Key 写入日志或 artifact。模型输出只要不是严格 JSON、引用了不存在的 source turn，或者试图生成 oracle 数据，Pipeline 就会失败。
+Live 模式会产生费用并记录真实 token/耗时。它不会把 Key 写入日志或 artifact。ClaudeCLI 使用原生 JSON Schema 限制输出类型，并把 schema hash 写入 provenance。模型引用不存在的 source turn 或试图生成 oracle 数据时，Pipeline 仍会失败。
 
 ## Judge meta-eval
 

@@ -36,11 +36,11 @@ from ses.foundation.credentials import ProviderCredentials
 from ses.foundation.workspace import CaseWorkspace, WorkspaceFactory
 from ses.testset.scrub import ScrubbedConversation, scrub_abcd
 
-CURATION_VERSION: Final[Literal["ses-llm-assisted-curation-v1"]] = (
-    "ses-llm-assisted-curation-v1"
+CURATION_VERSION: Final[Literal["ses-llm-assisted-curation-v2"]] = (
+    "ses-llm-assisted-curation-v2"
 )
-TRIAGE_PROMPT_VERSION: Final = "ses-source-triage-v1"
-RUBRIC_PROMPT_VERSION: Final = "ses-rubric-draft-v1"
+TRIAGE_PROMPT_VERSION: Final = "ses-source-triage-v2"
+RUBRIC_PROMPT_VERSION: Final = "ses-rubric-draft-v2"
 SOURCE_KIND: Final[Literal["benchmark_proxy"]] = "benchmark_proxy"
 _SUPPORTED_SOURCE_LABELS = frozenset({("product_defect", "return_size")})
 
@@ -196,6 +196,7 @@ class ModelInvocation(CurationRecord):
     model_lock_version: str
     prompt_version: str
     prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    output_schema_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     response_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     usage: Usage
     latency_ms: int = Field(ge=0)
@@ -267,7 +268,7 @@ class CuratedSource(CurationRecord):
 class CurationBundle(CurationRecord):
     """Complete source-screening result consumed by qualification."""
 
-    curation_version: Literal["ses-llm-assisted-curation-v1"] = CURATION_VERSION
+    curation_version: Literal["ses-llm-assisted-curation-v2"] = CURATION_VERSION
     sources: tuple[CuratedSource, ...]
 
     @model_validator(mode="after")
@@ -315,8 +316,8 @@ class FixedCurationFixture(CurationRecord):
     schema_version: Literal["v1alpha1"]
     fixture_version: str
     model_id: str
-    triage_prompt_version: Literal["ses-source-triage-v1"]
-    rubric_prompt_version: Literal["ses-rubric-draft-v1"]
+    triage_prompt_version: Literal["ses-source-triage-v2"]
+    rubric_prompt_version: Literal["ses-rubric-draft-v2"]
     responses: Mapping[str, FixedSourceResponses]
 
 
@@ -355,6 +356,13 @@ def _canonical_bytes(value: object) -> bytes:
 
 def _sha256(value: object) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _output_schema(
+    stage: Literal["triage", "rubric_draft"],
+) -> Mapping[str, object]:
+    model = TriageDecision if stage == "triage" else RubricDraft
+    return cast(Mapping[str, object], model.model_json_schema(mode="validation"))
 
 
 def _source_evidence(record: ScrubbedConversation) -> SourceEvidence:
@@ -425,7 +433,8 @@ def _render_triage_prompt(source: SourceEvidence, signals: DeterministicSignals)
         "initiate an item return and compute policy outcomes, but cannot answer an "
         "existing refund-status query. Use only SOURCE and SIGNALS. Return exactly "
         "one JSON object with intent, failure_type, mappable, severity, "
-        "evidence_spans, confidence, and reason. Each evidence span must copy one "
+        "evidence_spans, confidence, and reason. confidence must be a JSON number "
+        "between 0 and 1, not a label. Each evidence span must copy one "
         "complete source turn with turn_index, speaker, and text. Do not return "
         "markdown.\n"
         f"SOURCE={_canonical_bytes(source).decode('utf-8')}\n"
@@ -505,6 +514,7 @@ class FixedCurationModel:
                 model_lock_version=f"fixture:sha256:{self._fixture_hash}",
                 prompt_version=prompt_version,
                 prompt_sha256=hashlib.sha256(prompt.encode()).hexdigest(),
+                output_schema_sha256=_sha256(_output_schema(stage)),
                 response_sha256=hashlib.sha256(text.encode()).hexdigest(),
                 usage=usage,
                 latency_ms=0,
@@ -550,7 +560,9 @@ class LiveCurationModel:
     ) -> LiveCurationModel:
         factory = WorkspaceFactory()
 
-        def bind(stage: str, model: LockedModel) -> LiveModelBinding:
+        def bind(
+            stage: Literal["triage", "rubric_draft"], model: LockedModel
+        ) -> LiveModelBinding:
             workspace = factory.create(
                 run_id="ticket07-curation",
                 case_id=stage,
@@ -566,12 +578,13 @@ class LiveCurationModel:
                     "Return only the requested JSON. Do not call tools, read files, "
                     "or use outside information."
                 ),
+                output_json_schema=_output_schema(stage),
             )
             return LiveModelBinding(engine=engine, model=model, workspace=workspace)
 
         triage = bind("triage", triage_model)
         try:
-            rubric = bind("rubric-draft", rubric_model)
+            rubric = bind("rubric_draft", rubric_model)
         except Exception:
             cleanup = triage.workspace.cleanup_root
             if cleanup is not None and cleanup.exists():
@@ -636,6 +649,7 @@ class LiveCurationModel:
                 model_lock_version=f"locked-model:sha256:{model_hash}",
                 prompt_version=prompt_version,
                 prompt_sha256=hashlib.sha256(prompt.encode()).hexdigest(),
+                output_schema_sha256=_sha256(_output_schema(stage)),
                 response_sha256=hashlib.sha256(text.encode()).hexdigest(),
                 usage=usage,
                 latency_ms=round((monotonic() - started) * 1000),

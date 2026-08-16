@@ -49,7 +49,7 @@ VARIANT_VERSION = "ses-controlled-variant-v1"
 ORACLE_VERSION = "ses-shop-oracle-v1"
 REPLAY_VERSION = "ses-environment-replay-v1"
 CALIBRATION_VERSION = "ses-case-calibration-v1"
-QUALIFICATION_VERSION = "ses-case-qualification-v2"
+QUALIFICATION_VERSION = "ses-case-qualification-v3"
 
 
 class PrivateModel(BaseModel):

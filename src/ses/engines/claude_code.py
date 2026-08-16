@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import sys
@@ -49,6 +50,7 @@ class ClaudeCodeEngine:
         executable: str = "claude",
         environ: Mapping[str, str] | None = None,
         system_prompt: str | None = None,
+        output_json_schema: Mapping[str, object] | None = None,
     ) -> None:
         self._model = model
         self._credentials = credentials
@@ -61,6 +63,19 @@ class ClaudeCodeEngine:
             )
         )
         self._system_prompt = system_prompt
+        if output_json_schema is not None and not output_json_schema:
+            raise ValueError("output JSON schema cannot be empty")
+        self._output_json_schema = (
+            json.dumps(
+                output_json_schema,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            if output_json_schema is not None
+            else None
+        )
         self._running: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
         self._lock = asyncio.Lock()
@@ -79,6 +94,8 @@ class ClaudeCodeEngine:
 
     def build_command(self, request: EngineRequest) -> list[str]:
         """Build an argv array; credentials never enter this value."""
+        if self._output_json_schema is not None and request.allowed_tools:
+            raise ValueError("structured output requests cannot enable case tools")
         forbidden = set(request.allowed_tools) & set(_FILESYSTEM_TOOLS)
         if forbidden:
             raise ValueError(
@@ -101,6 +118,8 @@ class ClaudeCodeEngine:
             command.extend(("--resume", request.resume_session_id))
         if request.allowed_tools:
             command.extend(("--allowedTools", ",".join(request.allowed_tools)))
+        if self._output_json_schema is not None:
+            command.extend(("--tools", "", "--json-schema", self._output_json_schema))
         if self._workspace.mcp_config is not None:
             command.extend(
                 (
@@ -136,7 +155,10 @@ class ClaudeCodeEngine:
         return True
 
     async def stream(self, request: EngineRequest) -> AsyncIterator[EngineEvent]:
-        parser = ClaudeStreamParser(secrets=self._secrets)
+        parser = ClaudeStreamParser(
+            secrets=self._secrets,
+            expects_structured_output=self._output_json_schema is not None,
+        )
         sequence = 0
         pending_completed: CompletedPayload | None = None
         stream_failed = False

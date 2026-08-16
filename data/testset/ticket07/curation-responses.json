@@ -1,9 +1,9 @@
 {
   "schema_version": "v1alpha1",
-  "fixture_version": "ticket07-curation-fixed-v1",
+  "fixture_version": "ticket07-curation-fixed-v2",
   "model_id": "ses/course-authored-curation-fixture",
-  "triage_prompt_version": "ses-source-triage-v1",
-  "rubric_prompt_version": "ses-rubric-draft-v1",
+  "triage_prompt_version": "ses-source-triage-v2",
+  "rubric_prompt_version": "ses-rubric-draft-v2",
   "responses": {
     "abcd:6b8700ce67c6b37b062dd7a60abc76d7ef832a97:train:3592": {
       "triage": {

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import stat
 from pathlib import Path
+
+import pytest
 
 from ses.contracts import (
     CompletedPayload,
@@ -39,6 +42,7 @@ def _engine(
     executable: str,
     *,
     environ: dict[str, str] | None = None,
+    output_json_schema: dict[str, object] | None = None,
 ) -> ClaudeCodeEngine:
     workspace = WorkspaceFactory(tmp_path / "workspaces").create(
         run_id="run-1",
@@ -56,6 +60,7 @@ def _engine(
         executable=executable,
         environ=environ or {"PATH": os.environ.get("PATH", "")},
         system_prompt="Use only the allowed shop tools.",
+        output_json_schema=output_json_schema,
     )
 
 
@@ -95,6 +100,41 @@ def test_command_is_an_array_with_bare_stream_json_resume_and_no_key(
     assert environment["CLAUDE_CONFIG_DIR"].endswith("claude-config")
     assert environment["HOME"] == str(engine._workspace.cleanup_root)
     assert environment["HOME"] != str(Path.home())
+
+
+def test_command_uses_native_json_schema_and_disables_other_tools(
+    tmp_path: Path,
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {"confidence": {"type": "number"}},
+        "required": ["confidence"],
+        "additionalProperties": False,
+    }
+    engine = _engine(
+        tmp_path,
+        "/usr/bin/claude",
+        output_json_schema=schema,
+    )
+    request = _request().model_copy(update={"allowed_tools": ()})
+
+    command = engine.build_command(request)
+
+    assert command[command.index("--tools") + 1] == ""
+    encoded = command[command.index("--json-schema") + 1]
+    assert json.loads(encoded) == schema
+    assert command[-1] == "Handle the return."
+
+
+def test_structured_output_cannot_enable_case_tools(tmp_path: Path) -> None:
+    engine = _engine(
+        tmp_path,
+        "/usr/bin/claude",
+        output_json_schema={"type": "object"},
+    )
+
+    with pytest.raises(ValueError, match="cannot enable case tools"):
+        engine.build_command(_request())
 
 
 def test_subprocess_stream_is_normalized_and_secret_is_redacted(tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ from ses.contracts import (
     EngineEventKind,
     EngineExitStatus,
     ErrorPayload,
+    TextDeltaPayload,
     ToolCallPayload,
 )
 from ses.engines.stream_json import ClaudeStreamParser, StreamParseError
@@ -97,6 +98,61 @@ def test_parser_keeps_unknown_events_provider_neutral() -> None:
     assert payload.kind is EngineEventKind.UNKNOWN
     assert payload.source_type == "provider_heartbeat"
     assert payload.artifact is None
+
+
+def test_parser_normalizes_claude_structured_output_without_exposing_a_tool() -> None:
+    parser = ClaudeStreamParser(expects_structured_output=True)
+    assistant = {
+        "type": "assistant",
+        "message": {
+            "id": "message-structured",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "structured-1",
+                    "name": "StructuredOutput",
+                    "input": {"confidence": 0.9, "mappable": True},
+                }
+            ],
+        },
+    }
+    acknowledgement = {
+        "type": "user",
+        "message": {
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "structured-1",
+                    "content": "Structured output provided successfully",
+                }
+            ]
+        },
+    }
+    result = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "session_id": "session-structured",
+        "structured_output": {"confidence": 0.9, "mappable": True},
+    }
+
+    assert parser.parse_line(json.dumps(assistant)) == []
+    assert parser.parse_line(json.dumps(acknowledgement)) == []
+    payloads = parser.parse_line(json.dumps(result))
+
+    assert len(payloads) == 2
+    assert isinstance(payloads[0], TextDeltaPayload)
+    assert json.loads(payloads[0].text) == {"confidence": 0.9, "mappable": True}
+    assert isinstance(payloads[1], CompletedPayload)
+
+
+def test_parser_rejects_missing_structured_result() -> None:
+    parser = ClaudeStreamParser(expects_structured_output=True)
+
+    with pytest.raises(StreamParseError):
+        parser.parse_line(
+            json.dumps({"type": "result", "subtype": "success", "is_error": False})
+        )
 
 
 def test_parser_emits_structured_error_before_failed_completion() -> None:

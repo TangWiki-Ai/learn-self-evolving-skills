@@ -56,7 +56,7 @@ SILICONFLOW_API_KEY=... uv run ses qualify-cases \
   --json
 ```
 
-凭据只从进程环境读取。产物只记录 provider host、model ID、model lock hash、prompt version/hash、response hash、token 和耗时，不保存原始 Key。live 输出仍经过与 fixed 相同的 JSON parser、能力门、oracle、replay 和人工审核规则。模型改变公开题面时，旧 reviewed hash 自动失效。
+凭据只从进程环境读取。ClaudeCLI 使用 Pydantic 生成的原生 JSON Schema 限制 live 输出，产物记录 provider host、model ID、model lock hash、prompt 与 schema hash、response hash、token 和耗时，不保存原始 Key。live 输出仍经过与 fixed 相同的 parser、能力门、oracle、replay 和人工审核规则。模型改变公开题面时，旧 reviewed hash 自动失效。
 
 ## Split 与可见性
 

@@ -31,8 +31,15 @@ class StreamParseError(ValueError):
 class ClaudeStreamParser:
     """Stateful parser for Claude Code's documented JSONL output shapes."""
 
-    def __init__(self, *, secrets: Sequence[str] = ()) -> None:
+    def __init__(
+        self,
+        *,
+        secrets: Sequence[str] = (),
+        expects_structured_output: bool = False,
+    ) -> None:
         self._secrets = tuple(secrets)
+        self._expects_structured_output = expects_structured_output
+        self._structured_output_ids: set[str] = set()
         self.session_id: str | None = None
         self.completed = False
 
@@ -83,7 +90,11 @@ class ClaudeStreamParser:
             kind = block.get("type")
             if kind == "text":
                 text = block.get("text")
-                if isinstance(text, str) and text:
+                if (
+                    isinstance(text, str)
+                    and text
+                    and not self._expects_structured_output
+                ):
                     payloads.append(
                         TextDeltaPayload(message_id=raw_message_id, text=text)
                     )
@@ -95,14 +106,19 @@ class ClaudeStreamParser:
                     raise ValueError("tool_use id and name must be strings")
                 if not isinstance(arguments, Mapping):
                     raise ValueError("tool_use input must be an object")
-                payloads.append(
-                    ToolCallPayload(
-                        message_id=raw_message_id,
-                        tool_call_id=tool_id,
-                        tool_name=name,
-                        arguments=cast(dict[str, JsonValue], dict(arguments)),
+                if name == "StructuredOutput" and self._expects_structured_output:
+                    if self._structured_output_ids:
+                        raise ValueError("duplicate structured output")
+                    self._structured_output_ids.add(tool_id)
+                else:
+                    payloads.append(
+                        ToolCallPayload(
+                            message_id=raw_message_id,
+                            tool_call_id=tool_id,
+                            tool_name=name,
+                            arguments=cast(dict[str, JsonValue], dict(arguments)),
+                        )
                     )
-                )
             else:
                 payloads.append(
                     UnknownPayload(source_type=f"assistant_block:{kind or 'unknown'}")
@@ -131,6 +147,8 @@ class ClaudeStreamParser:
             tool_id = block.get("tool_use_id")
             if not isinstance(tool_id, str):
                 raise ValueError("tool_result.tool_use_id must be a string")
+            if tool_id in self._structured_output_ids:
+                continue
             content_value = cast(JsonValue, block.get("content"))
             payloads.append(
                 ToolResultPayload(
@@ -147,7 +165,29 @@ class ClaudeStreamParser:
         session = event.get("session_id")
         if isinstance(session, str) and session.strip():
             self.session_id = session
+        is_error = bool(event.get("is_error", False))
+        subtype = event.get("subtype")
+        status = (
+            EngineExitStatus.ERROR
+            if is_error or subtype in {"error", "error_max_turns"}
+            else EngineExitStatus.SUCCESS
+        )
         payloads: list[EngineEventPayload] = []
+        if self._expects_structured_output and status is EngineExitStatus.SUCCESS:
+            if "structured_output" not in event:
+                raise ValueError("successful result is missing structured output")
+            payloads.append(
+                TextDeltaPayload(
+                    message_id=f"{self.session_id or 'claude'}-structured-output",
+                    text=json.dumps(
+                        event["structured_output"],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ),
+                )
+            )
         usage = event.get("usage")
         if isinstance(usage, Mapping):
             input_tokens = usage.get("input_tokens", 0)
@@ -167,13 +207,6 @@ class ClaudeStreamParser:
                     )
                 )
             )
-        is_error = bool(event.get("is_error", False))
-        subtype = event.get("subtype")
-        status = (
-            EngineExitStatus.ERROR
-            if is_error or subtype in {"error", "error_max_turns"}
-            else EngineExitStatus.SUCCESS
-        )
         if status is EngineExitStatus.ERROR:
             raw_message = (
                 event.get("result") or event.get("error") or "claude result error"
