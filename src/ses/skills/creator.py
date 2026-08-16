@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .installer import normalized_skill_sha256
+from .installer import normalized_skill_sha256, write_skill_manifest
 
 COURSE_CREATOR_PROMPT = """\
 You are the Lesson 1 Skill Creator.
@@ -68,6 +68,12 @@ class FakeCreator:
         (output_dir / "references" / "return-checklist.md").write_text(
             """# Generic return checklist\n\n1. Identify the requested item from the conversation.\n2. Read policy before making a change.\n3. Preview, then confirm, and inspect the result.\n""",
             encoding="utf-8",
+        )
+        write_skill_manifest(
+            output_dir,
+            name="return-support-demo",
+            version="demo-v1",
+            files=("SKILL.md", "references/return-checklist.md"),
         )
         return SkillCandidate(
             source=output_dir,

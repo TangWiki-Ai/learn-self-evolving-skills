@@ -15,6 +15,7 @@ def test_default_fake_creator_is_offline_and_returns_installable_candidate(
 
     assert result.version == "demo-v1"
     assert result.source.is_dir()
+    assert result.source.joinpath("skill-manifest.json").is_file()
     assert (
         "do not invent case-specific answers"
         in result.source.joinpath("SKILL.md").read_text(encoding="utf-8").lower()

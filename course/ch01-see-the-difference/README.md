@@ -1,36 +1,81 @@
 # 第 1 课：先看见 Skill 的差别
 
-## 目标
+## 困惑
 
-你在同一个固定退货 benchmark case 上运行两次：一次不安装 Skill，一次安装 demo Skill。两次运行都使用新的 workspace、新环境和新 Trace。你先看消息、工具调用和终态，再决定 Skill 是否改变了行为。
+你给 Agent 一份长提示词，再看到它成功一次，很容易得出“Skill 有效”的结论。但两次运行如果用了不同 case、不同 fixture 或缓存，这个差别没有意义。生成器也可能给你一份很短、结构错误或无法安装的候选，课程不能假装它可用。
+
+## 方法
+
+你在同一个固定退货 benchmark case 上运行两次 fresh conversation。第一次不安装 Skill。第二次把 manifest 声明的 Skill 文件安装到新的 workspace。两边使用同一个离线 Engine、同一工具协议和新的 Shop 环境；Engine 根据 workspace 里实际安装的 Skill 决定动作。
+
+运行默认离线生成候选：
 
 ```bash
-uv run python -m ses.cli.skill_demo --output-root .ses/lesson-1-demo
+uv run ses skill-demo --generate --output-root .ses/lesson-1-demo
 ```
 
-需要机器可读产物时加 `--json`。命令默认使用离线 `FakeCreator` 和 FakeEngine，不联网，也不读取 Key。Creator 失败时，命令会使用 `reference-skill/` 中明确标记的 reference Skill，并在 comparison artifact 中写出 fallback 原因。
+你也可以指定自己的候选，或明确使用 reference：
 
-## 你要观察什么
+```bash
+uv run ses skill-demo --candidate ./my-skill --output-root .ses/lesson-1-demo
+uv run ses skill-demo --reference --output-root .ses/lesson-1-reference
+```
+
+需要机器可读产物时加 `--json`。候选内容弱、结构错误或不可安装时，流程才使用 reference fallback，并在 comparison artifact 中记录原因。
+
+## 业界做法
+
+成熟的 Agent 评测会锁定 case、工具、模型配置和协议，再做 paired run。Skill 安装器采用 allowlist：manifest 明确列出运行文件及 SHA-256，安装后再核对文件清单、hash、符号链接和路径。这个做法与软件供应链的“声明—验证—安装”模式相同。
+
+## 关键 insight
+
+fixture 只能描述离线世界，不能替你决定实验结论。真正的自变量是 workspace 里有没有适用 Skill。无关 Skill 不能让 case 自动通过。
+
+## Starter
+
+[`starter/skill_choice.py`](starter/skill_choice.py) 留下一个明确缺口。你需要选择安全的生成候选；候选不可用时，选择 reference 并标记 fallback。
+
+## 实现任务
+
+1. 阅读 [`creator-prompt.md`](creator-prompt.md)，列出 Creator 看不到的材料。
+2. 阅读 [`reference-skill/skill-manifest.json`](reference-skill/skill-manifest.json)，核对每个声明文件的 SHA-256。
+3. 完成 `starter/skill_choice.py`，保留候选或 fallback 原因。
+4. 分别运行 `--candidate` 和 `--reference`，观察 comparison 中的 `skill.source`。
+5. 检查两个 Trace 的 prompt、allowed tools、timeout 和 protocol hash 是否一致。
+6. 确认 with-Skill workspace 只包含 manifest 声明的 `SKILL.md` 和 references。
+
+## 测试
+
+```bash
+uv run pytest course/ch01-see-the-difference/tests
+```
+
+测试会检查 solution、starter 的预期缺口、严格 comparison schema、reference manifest，以及 Lesson 1 产物到 Lesson 2 状态证据的课程链。
+
+## 对照产物
+
+[`comparison-artifact.json`](comparison-artifact.json) 使用和当前运行相同的严格 schema。它标记 `measured: false` 和 `source.kind: checked_in_reference`，只供离线阅读。你自己运行得到的产物标记 `measured: true` 和 `source.kind: current_run`。
+
+你要观察：
 
 - 两个 run ID、workspace 和 Trace 都不同。
-- 两边的 case、协议和模型 lock 相同。
-- with-Skill Trace 记录完整可安装内容的规范化 SHA-256。
-- comparison artifact 同时展示两边的消息、工具调用和状态结果。
-- 本课只展示一个固定 case 的定性差异。它不证明稳定提升；更大样本和 paired comparison 属于后续课程。
+- 两边 case、prompt、工具和 timeout 相同。
+- baseline 没有安装 Skill；with-Skill Trace 记录完整可安装内容的 hash。
+- comparison 同时展示消息、工具调用、终态和 fallback 原因。
+- 单个固定 case 只展示定性差异，不证明稳定提升。
 
-## 练习
+下一课会读取这些 Trace 和 StateDiff：[第 2 课：从终态给一个 case 判分](../ch02-grade-terminal-state/README.md)。
 
-1. 阅读 [`creator-prompt.md`](creator-prompt.md)，圈出 Creator 不能看到的材料。
-2. 阅读 [`reference-skill/SKILL.md`](reference-skill/SKILL.md)，说明它为什么可以兜底。
-3. 完成 `starter/skill_choice.py`：生成候选可安装时使用它，否则选择 reference，并明确标记 fallback。
-4. 运行测试：
+## 拓展阅读
 
-   ```bash
-   uv run pytest course/ch01-see-the-difference/tests
-   ```
+- 阅读 [`docs/specs/06-skill-creation-triggering.md`](../../docs/specs/06-skill-creation-triggering.md) 的安装器与 paired comparison 部分。回答：为什么 baseline 不能复用卸载 Skill 后的缓存？
+- 阅读 [`docs/specs/10-cross-module-contracts.md`](../../docs/specs/10-cross-module-contracts.md) 的 serialization rules。回答：为什么 artifact 需要 `schema_version`、`record_type` 和相对路径？
+- 阅读 [Anthropic Agent Skills 概览](https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills/overview) 的 Skill 发现与目录结构部分。回答：description 为什么同时影响误触发和漏触发？
 
-5. 对照 [`comparison-artifact.json`](comparison-artifact.json)。它是离线演示产物，`measured` 为 `false`。
+## 预算
+
+默认路径使用 FakeCreator、离线 Engine 和本地 Shop MCP，预计费用和实测费用都是 0 元，不读取 Key。你只有在后续课程显式运行 live exercise 时才会产生模型费用。Lesson 1 的时间预算约 20 分钟：阅读 8 分钟，实现 7 分钟，运行与核对 5 分钟。
 
 ## 安全边界
 
-安装器只复制 `SKILL.md` 和 `references/` 下的普通文件。它不复制 eval、gold、Trace、隐藏文件或符号链接。它不接受候选目录之外的路径，也不会把已有 workspace 当成 baseline 缓存。
+安装器只复制 manifest 声明的 `SKILL.md` 和 `references/` 普通文件。它拒绝 hash 不匹配、路径逃逸、符号链接和安装后清单漂移。eval、gold、Trace、隐藏材料和未声明文件不会进入 Agent workspace。

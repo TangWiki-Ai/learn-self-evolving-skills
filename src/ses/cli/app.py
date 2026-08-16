@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.cli import doctor
+from ses.cli import doctor, skill_demo
 from ses.evaluator import SingleCaseRunError, run_pinned_case
 from ses.foundation.credentials import credential_values, redact
 from ses.reporting import l1_json_bytes, load_l1_result, render_l1_text
@@ -24,6 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("doctor", help="Check local data and the optional live path.")
     commands.add_parser("run-case", help="Evaluate the pinned return case offline.")
     commands.add_parser("inspect", help="Inspect a persisted L1 case result.")
+    commands.add_parser(
+        "skill-demo", help="Compare a return case without and with a demo Skill."
+    )
     return parser
 
 
@@ -98,6 +101,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_case_main(command_args)
     if command == "inspect":
         return _inspect_main(command_args)
+    if command == "skill-demo":
+        return skill_demo.main(command_args)
     build_parser().parse_args(values)
     return 2
 

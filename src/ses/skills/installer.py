@@ -1,30 +1,88 @@
-"""Copy only the learner-facing portion of a Skill into a fresh workspace."""
+"""Install exactly the runtime files declared by a Skill artifact manifest."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+_MANIFEST = "skill-manifest.json"
 _ENTRYPOINT = "SKILL.md"
-_REFERENCES = "references"
-_EXCLUDED_NAME_PARTS = frozenset(
-    {
-        "eval",
-        "gold",
-        "trace",
-        "traces",
-        "hidden",
-        "private",
-        "secret",
-    }
-)
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 class SkillInstallError(ValueError):
     """The candidate Skill cannot be safely inspected or installed."""
+
+
+class _ManifestFile(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    path: str = Field(min_length=1)
+    sha256: str
+
+    @field_validator("path")
+    @classmethod
+    def _installable_path(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        if (
+            "\\" in value
+            or path.is_absolute()
+            or value != path.as_posix()
+            or any(
+                part in {"", ".", ".."} or part.startswith(".") for part in path.parts
+            )
+        ):
+            raise ValueError("manifest file path must be a safe relative POSIX path")
+        if value != _ENTRYPOINT and (
+            len(path.parts) < 2 or path.parts[0] != "references"
+        ):
+            raise ValueError("manifest may declare only SKILL.md and references files")
+        return value
+
+    @field_validator("sha256")
+    @classmethod
+    def _valid_sha256(cls, value: str) -> str:
+        if not _SHA256_PATTERN.fullmatch(value):
+            raise ValueError("manifest file sha256 must be 64 lowercase hex characters")
+        return value
+
+
+class SkillManifest(BaseModel):
+    """Strict source manifest for one installable Skill artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_version: str = Field(pattern=r"^v1alpha1$")
+    record_type: str = Field(pattern=r"^skill_artifact_manifest$")
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    version: str = Field(min_length=1)
+    files: tuple[_ManifestFile, ...]
+
+    @field_validator("files", mode="before")
+    @classmethod
+    def _json_files_to_tuple(cls, value: object) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @field_validator("files")
+    @classmethod
+    def _complete_unique_inventory(
+        cls, value: tuple[_ManifestFile, ...]
+    ) -> tuple[_ManifestFile, ...]:
+        paths = [item.path for item in value]
+        if paths.count(_ENTRYPOINT) != 1:
+            raise ValueError("manifest must declare SKILL.md exactly once")
+        if len(paths) != len(set(paths)):
+            raise ValueError("manifest file paths must be unique")
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,17 +91,16 @@ class SkillInstallation:
 
     destination: Path
     installed_files: tuple[str, ...]
+    name: str
     version: str
     sha256: str
 
     @property
     def skill_version(self) -> str:
-        """Expose the Trace field name without duplicating stored state."""
         return self.version
 
     @property
     def skill_sha256(self) -> str:
-        """Expose the Trace field name without duplicating stored state."""
         return self.sha256
 
 
@@ -54,42 +111,41 @@ def _regular_file(path: Path, *, label: str) -> None:
         raise SkillInstallError(f"{label} must be a regular file: {path}")
 
 
-def _safe_name(path: str) -> bool:
-    return not any(
-        part.startswith(".")
-        or any(marker in part.lower() for marker in _EXCLUDED_NAME_PARTS)
-        for part in Path(path).parts
-    )
-
-
-def _source_files(source: Path) -> tuple[tuple[str, Path], ...]:
+def load_skill_manifest(source: Path) -> SkillManifest:
+    """Load and validate the explicit artifact manifest without following links."""
     if source.is_symlink() or not source.is_dir():
-        raise SkillInstallError(f"Skill source must be a directory: {source}")
+        raise SkillInstallError(f"Skill source must be a real directory: {source}")
+    manifest_path = source / _MANIFEST
+    _regular_file(manifest_path, label="Skill manifest")
+    try:
+        value = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return SkillManifest.model_validate(value)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as exc:
+        raise SkillInstallError(f"invalid Skill manifest: {exc}") from exc
 
-    entrypoint = source / _ENTRYPOINT
-    _regular_file(entrypoint, label="SKILL.md")
-    files: list[tuple[str, Path]] = [(_ENTRYPOINT, entrypoint)]
-    references = source / _REFERENCES
-    if references.exists():
-        if references.is_symlink() or not references.is_dir():
-            raise SkillInstallError("references must be a real directory")
-        for candidate in sorted(references.rglob("*")):
-            relative = candidate.relative_to(source).as_posix()
-            if candidate.is_symlink():
-                raise SkillInstallError(
-                    f"Skill references must not contain a symlink: {relative}"
-                )
-            if candidate.is_dir():
-                continue
-            if not _safe_name(relative):
-                continue
-            _regular_file(candidate, label="Skill reference")
-            files.append((relative, candidate))
+
+def _declared_files(
+    source: Path, manifest: SkillManifest
+) -> tuple[tuple[str, Path], ...]:
+    files: list[tuple[str, Path]] = []
+    source_root = source.resolve()
+    for item in manifest.files:
+        path = source / PurePosixPath(item.path)
+        _regular_file(path, label=f"declared Skill file {item.path}")
+        try:
+            path.resolve(strict=True).relative_to(source_root)
+        except (OSError, ValueError) as exc:
+            raise SkillInstallError(
+                f"manifest file path escapes the Skill source: {item.path}"
+            ) from exc
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != item.sha256:
+            raise SkillInstallError(f"manifest hash mismatch for {item.path}")
+        files.append((item.path, path))
     return tuple(files)
 
 
 def _canonical_bytes(path: Path) -> bytes:
-    """Normalize text line endings while keeping binary references byte-stable."""
     payload = path.read_bytes()
     if b"\x00" not in payload:
         return payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
@@ -98,7 +154,7 @@ def _canonical_bytes(path: Path) -> bytes:
 
 def _digest(files: tuple[tuple[str, Path], ...]) -> str:
     digest = hashlib.sha256()
-    for relative, path in files:
+    for relative, path in sorted(files):
         payload = _canonical_bytes(path)
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
@@ -110,54 +166,113 @@ def _digest(files: tuple[tuple[str, Path], ...]) -> str:
 
 
 def normalized_skill_sha256(source: Path) -> str:
-    """Hash the sorted, installable Skill files, excluding non-runtime material."""
-    return _digest(_source_files(source))
+    """Hash the normalized contents of every manifest-declared runtime file."""
+    manifest = load_skill_manifest(source)
+    return _digest(_declared_files(source, manifest))
 
 
-def _safe_destination(destination: Path) -> None:
-    if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
+def write_skill_manifest(
+    source: Path,
+    *,
+    name: str,
+    version: str,
+    files: tuple[str, ...],
+) -> Path:
+    """Write a strict manifest for files already created below ``source``."""
+    payload = {
+        "schema_version": "v1alpha1",
+        "record_type": "skill_artifact_manifest",
+        "name": name,
+        "version": version,
+        "files": [
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(
+                    (source / PurePosixPath(relative)).read_bytes()
+                ).hexdigest(),
+            }
+            for relative in files
+        ],
+    }
+    manifest = SkillManifest.model_validate(payload)
+    destination = source / _MANIFEST
+    destination.write_text(
+        json.dumps(manifest.model_dump(mode="json"), sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return destination
+
+
+def _prepare_destination(destination: Path) -> None:
+    if destination.is_symlink():
         raise SkillInstallError(
-            f"Skill destination must be a real directory: {destination}"
+            f"Skill destination must not be a symlink: {destination}"
         )
-    destination.mkdir(parents=True, exist_ok=True)
-    current = destination
+    current = destination.parent
     while current != current.parent:
         if current.is_symlink():
             raise SkillInstallError(f"Skill destination contains a symlink: {current}")
         current = current.parent
+    if destination.exists():
+        if not destination.is_dir():
+            raise SkillInstallError(
+                f"Skill destination must be a directory: {destination}"
+            )
+        if any(destination.iterdir()):
+            raise SkillInstallError("Skill destination must be empty")
+    else:
+        destination.mkdir(parents=True)
+
+
+def _verify_installation(
+    destination: Path, files: tuple[tuple[str, Path], ...]
+) -> None:
+    expected = tuple(sorted(relative for relative, _ in files))
+    actual_files: list[str] = []
+    for path in destination.rglob("*"):
+        if path.is_symlink():
+            raise SkillInstallError(f"installed Skill contains a symlink: {path}")
+        if path.is_file():
+            actual_files.append(path.relative_to(destination).as_posix())
+    if tuple(sorted(actual_files)) != expected:
+        raise SkillInstallError(
+            "installed Skill file inventory does not match manifest"
+        )
+    source_hashes = {
+        relative: hashlib.sha256(source.read_bytes()).hexdigest()
+        for relative, source in files
+    }
+    for relative in expected:
+        target = destination / PurePosixPath(relative)
+        if hashlib.sha256(target.read_bytes()).hexdigest() != source_hashes[relative]:
+            raise SkillInstallError(f"installed Skill hash mismatch for {relative}")
 
 
 def install_skill(
     source: Path,
     destination: Path,
     *,
-    version: str = "v0",
+    version: str | None = None,
 ) -> SkillInstallation:
-    """Install only ``SKILL.md`` and safe files below ``references``.
-
-    The installer never traverses or copies any other source entry. It refuses
-    symlinks in the allowlisted tree so a candidate cannot smuggle outside data
-    into the Agent workspace.
-    """
-    if not isinstance(version, str) or not version.strip():
-        raise SkillInstallError("Skill version must be a non-empty string")
-    files = _source_files(source)
-    _safe_destination(destination)
+    """Copy only manifest-declared runtime files and verify the installed tree."""
+    manifest = load_skill_manifest(source)
+    if version is not None and version != manifest.version:
+        raise SkillInstallError("requested Skill version does not match manifest")
+    files = _declared_files(source, manifest)
+    _prepare_destination(destination)
     for relative, source_path in files:
-        target = destination / relative
+        target = destination / PurePosixPath(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() or target.is_symlink():
-            if target.is_symlink() or not target.is_file():
-                raise SkillInstallError(
-                    f"Skill destination is not a new file: {target}"
-                )
-            raise SkillInstallError(f"Skill destination already contains: {relative}")
         shutil.copyfile(source_path, target, follow_symlinks=False)
         os.chmod(target, 0o600)
-    installed_files = tuple((relative, destination / relative) for relative, _ in files)
+    _verify_installation(destination, files)
+    installed_files = tuple(
+        (relative, destination / PurePosixPath(relative)) for relative, _ in files
+    )
     return SkillInstallation(
         destination=destination,
         installed_files=tuple(relative for relative, _ in files),
-        version=version.strip(),
+        name=manifest.name,
+        version=manifest.version,
         sha256=_digest(installed_files),
     )
