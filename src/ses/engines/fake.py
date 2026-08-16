@@ -128,6 +128,12 @@ class FakeEngine:
         self._cancelled: set[str] = set()
         self._active: set[str] = set()
 
+    @property
+    def fixture(self) -> FakeFixture:
+        """Return the immutable replay source used by this engine."""
+
+        return self._fixture
+
     async def cancel(self, request_id: str) -> bool:
         if request_id not in self._active:
             return False

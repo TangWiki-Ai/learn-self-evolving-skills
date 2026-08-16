@@ -41,10 +41,12 @@ class GradeStatus(StrEnum):
 
 
 class JudgeKind(StrEnum):
-    """Deterministic judges included in Issue #2."""
+    """Judge implementations that emit canonical assertion results."""
 
     STATE = "state"
     RULE = "rule"
+    LLM = "llm"
+    AGENT = "agent"
 
 
 class Trace(VersionedRecord):

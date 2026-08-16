@@ -35,6 +35,8 @@ class RecordType(StrEnum):
     TRACE = "trace"
     ASSERTION_RESULT = "assertion_result"
     CASE_GRADE = "case_grade"
+    CALIBRATION_FIXTURE = "calibration_fixture"
+    JUDGE_CALIBRATION = "judge_calibration"
 
 
 def _validate_non_blank(value: str) -> str:
