@@ -33,7 +33,7 @@ dev = [
 module-name = "ses"
 
 [tool.pytest.ini_options]
-addopts = ["--strict-config", "--strict-markers"]
+addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
 testpaths = ["tests", "course"]
 
 [tool.mypy]

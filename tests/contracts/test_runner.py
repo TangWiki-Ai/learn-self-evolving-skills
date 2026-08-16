@@ -77,6 +77,10 @@ def test_runner_event_type_requires_its_canonical_status(
             iteration_id="iteration-0",
             attempt_id="attempt-0",
             status=status,
-            budget=BudgetState(max_cases=1, max_turns_per_case=1),
+            budget=BudgetState(
+                max_cases=1,
+                max_turns_per_case=1,
+                cost_currency="CNY",
+            ),
             stop_reason=stop_reason,
         )
