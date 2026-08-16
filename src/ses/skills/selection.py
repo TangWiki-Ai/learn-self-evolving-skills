@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal, TypeAlias
 
+from .applicability import is_applicable_return_skill, parse_skill_front_matter
 from .creator import CreatorError, FakeCreator
 from .installer import (
     SkillInstallError,
@@ -17,7 +17,6 @@ from .installer import (
 )
 from .reference import materialize_reference_skill
 
-_REQUIRED_WORKFLOW_TERMS = ("inspect", "preview", "confirm", "verify")
 SkillSource: TypeAlias = Literal[
     "generated", "candidate", "reference", "reference_fallback"
 ]
@@ -51,26 +50,16 @@ def _validate_quality(source: Path, manifest: SkillManifest) -> None:
         content = (source / "SKILL.md").read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         raise CandidateQualityError("invalid_structure", str(exc)) from exc
-    if len(content.strip()) < 160 or any(
-        term not in content.lower() for term in _REQUIRED_WORKFLOW_TERMS
-    ):
+    if len(content.strip()) < 160:
         raise CandidateQualityError(
             "weak_content",
-            "SKILL.md must give a substantive inspect-preview-confirm-verify workflow",
+            "SKILL.md must give a substantive return workflow",
         )
-    match = re.match(r"\A---\n(?P<header>.*?)\n---\n", content, flags=re.DOTALL)
-    if match is None:
+    metadata = parse_skill_front_matter(content)
+    if metadata is None:
         raise CandidateQualityError(
-            "invalid_structure", "SKILL.md must start with YAML front matter"
+            "invalid_structure", "SKILL.md must contain valid YAML-like front matter"
         )
-    metadata: dict[str, str] = {}
-    for line in match.group("header").splitlines():
-        if ":" not in line:
-            raise CandidateQualityError(
-                "invalid_structure", "SKILL.md front matter contains an invalid line"
-            )
-        key, value = line.split(":", 1)
-        metadata[key.strip()] = value.strip()
     required = {"name", "description", "version"}
     if not required.issubset(metadata) or any(not metadata[key] for key in required):
         raise CandidateQualityError(
@@ -79,6 +68,11 @@ def _validate_quality(source: Path, manifest: SkillManifest) -> None:
     if metadata["name"] != manifest.name or metadata["version"] != manifest.version:
         raise CandidateQualityError(
             "invalid_structure", "SKILL.md metadata does not match the manifest"
+        )
+    if not is_applicable_return_skill(content, metadata):
+        raise CandidateQualityError(
+            "weak_content",
+            "SKILL.md must apply to returns and implement inspect-preview-confirm-verify",
         )
 
 

@@ -90,6 +90,7 @@ def test_same_offline_engine_changes_behavior_from_the_installed_skill(
         result.with_skill_run.run_dir.joinpath("trace.json").read_bytes()
     )
     assert without_trace.trace_id != with_trace.trace_id
+    assert without_trace.session_id != with_trace.session_id
     assert without_trace.request.prompt == with_trace.request.prompt
     assert without_trace.request.allowed_tools == with_trace.request.allowed_tools
     assert without_trace.request.timeout_seconds == with_trace.request.timeout_seconds
@@ -126,6 +127,25 @@ def test_installing_an_unrelated_skill_does_not_make_the_case_pass(
     )
 
     assert completed.outcome.value == "agent_fail"
+
+
+def test_irrelevant_candidate_uses_the_reference_fallback(tmp_path: Path) -> None:
+    source = _unrelated_skill(tmp_path)
+
+    result = run_skill_demo(
+        tmp_path / "demo",
+        mode=CandidateMode.CANDIDATE,
+        candidate_source=source,
+    )
+    comparison = SkillDemoComparison.model_validate_json(
+        (result.output_root / result.comparison_artifact).read_bytes()
+    )
+
+    assert comparison.skill.source == "reference_fallback"
+    assert comparison.skill.fallback_reason is not None
+    assert comparison.skill.fallback_reason.startswith("weak_content:")
+    assert comparison.runs.without_skill["outcome"] == "agent_fail"
+    assert comparison.runs.with_skill["outcome"] == "pass"
 
 
 def test_cli_accepts_candidate_or_explicit_reference(tmp_path: Path) -> None:

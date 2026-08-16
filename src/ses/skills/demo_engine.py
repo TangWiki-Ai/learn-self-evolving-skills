@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import re
+import hashlib
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 from ses.contracts import EngineEvent, EngineRequest
 from ses.engines.fake import FakeEngine, FakeFixture
 
+from .applicability import is_applicable_return_skill
+
 ENGINE_ID = "offline-workspace-skill-engine-v1"
-_WORKFLOW_TERMS = ("inspect", "preview", "confirm", "verify")
 
 
 def _applicable_return_skill(workspace: Path) -> bool:
@@ -24,23 +25,12 @@ def _applicable_return_skill(workspace: Path) -> bool:
             content = entrypoint.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             continue
-        match = re.match(r"\A---\n(?P<header>.*?)\n---\n", content, re.DOTALL)
-        if match is None:
-            continue
-        metadata: dict[str, str] = {}
-        for line in match.group("header").splitlines():
-            if ":" in line:
-                key, value = line.split(":", 1)
-                metadata[key.strip()] = value.strip()
-        description = metadata.get("description", "").lower()
-        if "return" in description and all(
-            term in content.lower() for term in _WORKFLOW_TERMS
-        ):
+        if is_applicable_return_skill(content):
             return True
     return False
 
 
-def _fixture(*, complete_return: bool) -> FakeFixture:
+def _fixture(*, complete_return: bool, session_id: str) -> FakeFixture:
     events: list[dict[str, object]] = [
         {
             "payload": {
@@ -149,17 +139,21 @@ def _fixture(*, complete_return: bool) -> FakeFixture:
             },
         ]
     )
-    return FakeFixture.model_validate(
-        {"session_id": "offline-skill-demo-session", "events": events}
-    )
+    return FakeFixture.model_validate({"session_id": session_id, "events": events})
 
 
 class OfflineSkillDemoEngine:
     """Derive the offline action plan from the actual workspace Skill files."""
 
     def __init__(self, workspace: Path) -> None:
+        workspace_identity = hashlib.sha256(
+            str(workspace.resolve()).encode("utf-8")
+        ).hexdigest()[:16]
         self._delegate = FakeEngine(
-            _fixture(complete_return=_applicable_return_skill(workspace))
+            _fixture(
+                complete_return=_applicable_return_skill(workspace),
+                session_id=f"offline-skill-demo-{workspace_identity}",
+            )
         )
 
     def stream(self, request: EngineRequest) -> AsyncIterator[EngineEvent]:
