@@ -1,0 +1,38 @@
+{
+  "events": [
+    {
+      "payload": {
+        "kind": "text_delta",
+        "message_id": "message-1",
+        "text": "I will inspect the order."
+      }
+    },
+    {
+      "payload": {
+        "kind": "tool_call",
+        "message_id": "message-1",
+        "tool_call_id": "tool-1",
+        "tool_name": "get_order",
+        "arguments": {"order_id": "order-1"}
+      }
+    },
+    {
+      "payload": {
+        "kind": "tool_result",
+        "tool_call_id": "tool-1",
+        "content": {"status": "ok"},
+        "is_error": false
+      }
+    },
+    {
+      "payload": {
+        "kind": "usage",
+        "usage": {"input_tokens": 10, "output_tokens": 5}
+      }
+    }
+  ],
+  "exit_code": 0,
+  "timeout": false,
+  "malformed_event": false,
+  "exception_message": null
+}
