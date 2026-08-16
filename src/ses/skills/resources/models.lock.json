@@ -1,0 +1,23 @@
+{
+  "schema_version": "v1alpha1",
+  "engine": "claude-code",
+  "engine_version": "2.1.220",
+  "roles": {
+    "main": {
+      "model_id": "deepseek-ai/DeepSeek-V3.2",
+      "base_url": "https://api.siliconflow.cn/"
+    },
+    "creator": {
+      "model_id": "deepseek-ai/DeepSeek-V3.2",
+      "base_url": "https://api.siliconflow.cn/"
+    },
+    "simulator": {
+      "model_id": "Qwen/Qwen3.6-35B-A3B",
+      "base_url": "https://api.siliconflow.cn/"
+    },
+    "judge": {
+      "model_id": "Qwen/Qwen3.6-35B-A3B",
+      "base_url": "https://api.siliconflow.cn/"
+    }
+  }
+}

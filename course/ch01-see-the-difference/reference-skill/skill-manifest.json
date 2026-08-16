@@ -1,0 +1,16 @@
+{
+  "files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "e97b87564ab28185dec44a52cd3e526ae49cec20ca568dd7ccaf3b64fa6c8cc6"
+    },
+    {
+      "path": "references/return-checklist.md",
+      "sha256": "cd0ce30a13dc1420d11fd0274778c4a6e42279ccce1434d7f8bb3967705b1075"
+    }
+  ],
+  "name": "return-support-demo",
+  "record_type": "skill_artifact_manifest",
+  "schema_version": "v1alpha1",
+  "version": "reference-v1"
+}
