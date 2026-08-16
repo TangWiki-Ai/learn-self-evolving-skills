@@ -14,7 +14,9 @@ _SENSITIVE_FIELD_COMBINATIONS = frozenset(
         "api_key",
         "api_token",
         "apikey",
+        "auth_header",
         "auth_token",
+        "authentication_header",
         "authentication_token",
         "authorization_header",
         "authorization_token",
@@ -35,7 +37,9 @@ _SENSITIVE_FIELD_COMBINATIONS = frozenset(
         "reference_trace",
         "reference_trajectory",
         "refresh_token",
+        "request_header",
         "request_headers",
+        "response_header",
         "response_headers",
         "secret_key",
         "selection_answer",
@@ -45,23 +49,31 @@ _SENSITIVE_FIELD_COMBINATIONS = frozenset(
         "x_api_key",
     }
 )
-# Ambiguous single tokens are sensitive only when they are the complete name.
-_EXACT_SENSITIVE_FIELD_NAMES = _SENSITIVE_FIELD_COMBINATIONS | {
-    "auth",
-    "authentication",
-    "authorization",
-    "cookie",
-    "cookies",
-    "credential",
-    "credentials",
-    "gold",
-    "headers",
-    "password",
-    "passwd",
-    "secret",
-    "secrets",
-    "token",
-}
+# These names unambiguously describe credential material wherever they appear as a
+# complete normalized token. Token boundaries avoid matching words such as secretary.
+_SENSITIVE_FIELD_TOKENS = frozenset(
+    {
+        "cookie",
+        "cookies",
+        "credential",
+        "credentials",
+        "passwd",
+        "password",
+        "secret",
+        "secrets",
+    }
+)
+# These names are ambiguous in business data and are sensitive only when complete.
+_AMBIGUOUS_EXACT_FIELD_NAMES = frozenset(
+    {
+        "auth",
+        "authentication",
+        "authorization",
+        "gold",
+        "headers",
+        "token",
+    }
+)
 _ACRONYM_BOUNDARY_PATTERN = re.compile(r"(?<=[A-Z])(?=[A-Z][a-z])")
 _CAMEL_CASE_PATTERN = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _FIELD_SEPARATOR_PATTERN = re.compile(r"[^a-z0-9]+")
@@ -76,7 +88,10 @@ def _normalized_field_name(value: str) -> str:
 
 def _is_forbidden_field_name(value: str) -> bool:
     normalized = _normalized_field_name(value)
-    if normalized in _EXACT_SENSITIVE_FIELD_NAMES:
+    if normalized in _AMBIGUOUS_EXACT_FIELD_NAMES:
+        return True
+    tokens = frozenset(normalized.split("_"))
+    if tokens & _SENSITIVE_FIELD_TOKENS:
         return True
     padded = f"_{normalized}_"
     return any(

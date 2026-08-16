@@ -223,6 +223,16 @@ def test_artifact_reference_requires_lowercase_sha256(sha256: str) -> None:
         {"final_answer_text": "private"},
         {"secret_key_material": "not-a-real-value"},
         {"myAPIKeyValue": "not-a-real-value"},
+        {"password_hash": "not-a-real-value"},
+        {"credential_value": "not-a-real-value"},
+        {"secret_value": "not-a-real-value"},
+        {"auth_header": "not-a-real-value"},
+        {"cookie_value": "not-a-real-value"},
+        {"nested": [{"myPasswordHash": "not-a-real-value"}]},
+        {"nested": [{"credentialValue": "not-a-real-value"}]},
+        {"nested": [{"secretValue": "not-a-real-value"}]},
+        {"nested": [{"authHeader": "not-a-real-value"}]},
+        {"nested": [{"cookieValue": "not-a-real-value"}]},
     ],
 )
 def test_contract_payloads_reject_credential_and_hidden_fields(
@@ -261,6 +271,11 @@ def test_usage_token_field_names_are_not_mistaken_for_credentials() -> None:
         "gold_tier",
         "authorization_status",
         "authorization_required",
+        "authentication_status",
+        "auth_status",
+        "secretary_name",
+        "tokenizer_version",
+        "golden_ratio",
     ],
 )
 def test_contract_payloads_allow_sensitive_lookalike_business_fields(
