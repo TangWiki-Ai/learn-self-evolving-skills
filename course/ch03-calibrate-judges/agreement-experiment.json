@@ -1,0 +1,12 @@
+{
+  "dataset_id": "lesson-03-human-review-v1",
+  "human_reviewed": true,
+  "live_model_measured": false,
+  "measurement_context": "Offline fixed responses; no live model was called.",
+  "cases": [
+    {"case_id": "cal-001", "human_status": "pass", "llm_status": "pass", "agent_status": "pass"},
+    {"case_id": "cal-002", "human_status": "fail", "llm_status": "fail", "agent_status": "fail"},
+    {"case_id": "cal-003", "human_status": "not_evaluated", "llm_status": "pass", "agent_status": "not_evaluated"},
+    {"case_id": "cal-004", "human_status": "pass", "llm_status": "fail", "agent_status": "fail"}
+  ]
+}

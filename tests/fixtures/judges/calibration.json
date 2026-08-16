@@ -1,0 +1,23 @@
+{
+  "dataset_id": "lesson-03-human-review-v1",
+  "dataset_version": "1.0.0",
+  "source": "Course-authored return scenarios derived from the pinned Issue #2 flow.",
+  "measurement_context": "Offline fixed responses; no live model was called.",
+  "live_model_measured": false,
+  "labels": [
+    {"case_id": "cal-001", "assertion_id": "response-quality", "status": "pass", "review_status": "human_reviewed"},
+    {"case_id": "cal-002", "assertion_id": "response-quality", "status": "fail", "review_status": "human_reviewed"},
+    {"case_id": "cal-003", "assertion_id": "response-quality", "status": "not_evaluated", "review_status": "human_reviewed"},
+    {"case_id": "cal-004", "assertion_id": "response-quality", "status": "pass", "review_status": "human_reviewed"}
+  ],
+  "predictions": [
+    {"case_id": "cal-001", "assertion_id": "response-quality", "judge": "llm", "status": "pass", "reason": "Matches the reviewed label."},
+    {"case_id": "cal-002", "assertion_id": "response-quality", "judge": "llm", "status": "fail", "reason": "Matches the reviewed label."},
+    {"case_id": "cal-003", "assertion_id": "response-quality", "judge": "llm", "status": "pass", "reason": "Overconfident despite missing evidence."},
+    {"case_id": "cal-004", "assertion_id": "response-quality", "judge": "llm", "status": "fail", "reason": "Disagrees on response clarity."},
+    {"case_id": "cal-001", "assertion_id": "response-quality", "judge": "agent", "status": "pass", "reason": "Matches the reviewed label."},
+    {"case_id": "cal-002", "assertion_id": "response-quality", "judge": "agent", "status": "fail", "reason": "Matches the reviewed label."},
+    {"case_id": "cal-003", "assertion_id": "response-quality", "judge": "agent", "status": "not_evaluated", "reason": "Correctly identifies insufficient evidence."},
+    {"case_id": "cal-004", "assertion_id": "response-quality", "judge": "agent", "status": "fail", "reason": "Disagrees on response clarity."}
+  ]
+}

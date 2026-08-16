@@ -1,0 +1,11 @@
+{
+  "events": [
+    {
+      "payload": {
+        "kind": "text_delta",
+        "message_id": "judge-message",
+        "text": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The message accurately confirms the completed return.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/2/after\"]}"
+      }
+    }
+  ]
+}
