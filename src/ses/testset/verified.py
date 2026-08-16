@@ -37,12 +37,19 @@ from ses.shop import (
     state_diff,
 )
 from ses.shop.fixture import PINNED_CASE_FIXTURE
+from ses.testset.curation import (
+    CurationBundle,
+    CurationModel,
+    FixedCurationModel,
+    curate_sources,
+    invocation_cost,
+)
 
 VARIANT_VERSION = "ses-controlled-variant-v1"
 ORACLE_VERSION = "ses-shop-oracle-v1"
 REPLAY_VERSION = "ses-environment-replay-v1"
 CALIBRATION_VERSION = "ses-case-calibration-v1"
-QUALIFICATION_VERSION = "ses-case-qualification-v1"
+QUALIFICATION_VERSION = "ses-case-qualification-v2"
 
 
 class PrivateModel(BaseModel):
@@ -144,10 +151,17 @@ class VerifiedCase:
 class QualificationSummary:
     output: Path
     candidate_count: int
+    source_candidate_count: int
+    selected_source_count: int
     qualified_count: int
     rejected_count: int
     pending_count: int
     data_version: str | None
+    response_source: str
+    network_used: bool
+    live_provider_used: bool
+    input_tokens: int
+    output_tokens: int
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -244,6 +258,7 @@ def generate_controlled_variant(
     dimensions: VariantDimensions,
     *,
     base: ReturnCaseFixture = PINNED_CASE_FIXTURE,
+    public_request_template: str | None = None,
 ) -> ControlledVariant:
     """Map one candidate signal to a schema-supported deterministic fixture."""
 
@@ -268,6 +283,14 @@ def generate_controlled_variant(
     product_id = f"PROD-{digest[16:24].upper()}"
     customer_id = f"CUST-{digest[24:32].upper()}"
     delivery_at = base.task_now - timedelta(days=dimensions.days_since_delivery)
+    template = public_request_template or (
+        "The item in order {order_id} {reason}. "
+        "Please check the return policy and complete the return if allowed."
+    )
+    try:
+        user_prompt = template.format(order_id=order_id, reason=reason_text)
+    except (KeyError, ValueError) as exc:
+        raise ValueError("invalid public request template") from exc
     fixture = ReturnCaseFixture.model_validate(
         {
             **base.model_dump(mode="json"),
@@ -276,10 +299,7 @@ def generate_controlled_variant(
             "source_id": candidate.source_id,
             "transformation_version": VARIANT_VERSION,
             "task_id": f"ticket07-{short}",
-            "user_prompt": (
-                f"The item in order {order_id} {reason_text}. "
-                "Please check the return policy and complete the return if allowed."
-            ),
+            "user_prompt": user_prompt,
             "product": {
                 **base.product.model_dump(mode="json"),
                 "product_id": product_id,
@@ -589,6 +609,100 @@ def public_role_view(case: VerifiedCase, role: str) -> Mapping[str, object]:
     raise ValueError(f"unknown_role:{role}")
 
 
+def _persist_curation(
+    root: Path, bundle: CurationBundle
+) -> tuple[Path, Mapping[str, Mapping[str, object]]]:
+    """Persist private source evidence and a public-safe reference manifest."""
+
+    references: dict[str, Mapping[str, object]] = {}
+    manifest_sources: list[dict[str, object]] = []
+    for item in bundle.sources:
+        source_id = item.source.source_id
+        source_root = root / "private" / "curation" / _sha(source_id)[:20]
+        source_path = source_root / "source-evidence.json"
+        signals_path = source_root / "deterministic-signals.json"
+        triage_path = source_root / "model-triage.json"
+        _write_json(source_path, item.source.model_dump(mode="json"))
+        _write_json(signals_path, item.signals.model_dump(mode="json"))
+        _write_json(
+            triage_path,
+            {
+                "decision": item.triage.model_dump(mode="json"),
+                "invocation": item.triage_invocation.model_dump(mode="json"),
+            },
+        )
+        rubric_ref: Mapping[str, str] | None = None
+        if item.rubric_draft is not None and item.rubric_invocation is not None:
+            rubric_path = source_root / "rubric-draft.json"
+            _write_json(
+                rubric_path,
+                {
+                    "draft": item.rubric_draft.model_dump(mode="json"),
+                    "invocation": item.rubric_invocation.model_dump(mode="json"),
+                    "status": "model_draft_requires_human_activation",
+                },
+            )
+            rubric_ref = _reference(root, rubric_path)
+        item_refs: dict[str, object] = {
+            "source_evidence": _reference(root, source_path),
+            "deterministic_signals": _reference(root, signals_path),
+            "model_triage": _reference(root, triage_path),
+            "rubric_draft": rubric_ref,
+        }
+        references[source_id] = item_refs
+        manifest_sources.append(
+            {
+                "source_id": source_id,
+                "source_kind": item.source.source_kind,
+                "selected": item.selected,
+                "selection_reason": item.selection_reason,
+                "artifacts": item_refs,
+            }
+        )
+    input_tokens, output_tokens, cost, cost_currency = invocation_cost(bundle)
+    invocations = tuple(
+        invocation
+        for item in bundle.sources
+        for invocation in (item.triage_invocation, item.rubric_invocation)
+        if invocation is not None
+    )
+    response_sources = sorted({item.response_source.value for item in invocations})
+    manifest_path = root / "curation-manifest.json"
+    _write_json(
+        manifest_path,
+        {
+            "schema_version": "v1alpha1",
+            "record_type": "curation_manifest",
+            "curation_version": bundle.curation_version,
+            "source_candidate_count": len(bundle.sources),
+            "selected_source_count": sum(item.selected for item in bundle.sources),
+            "response_sources": response_sources,
+            "network_used": bundle.network_used,
+            "live_provider_used": bundle.live_provider_used,
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost_amount": str(cost),
+                "cost_currency": cost_currency,
+            },
+            "sources": manifest_sources,
+        },
+    )
+    return manifest_path, references
+
+
+def _response_source(bundle: CurationBundle) -> str:
+    values = {
+        invocation.response_source.value
+        for item in bundle.sources
+        for invocation in (item.triage_invocation, item.rubric_invocation)
+        if invocation is not None
+    }
+    if len(values) != 1:
+        return "mixed"
+    return next(iter(values))
+
+
 def qualify_cases(
     *,
     candidate_path: Path,
@@ -598,8 +712,11 @@ def qualify_cases(
     model_calibration_fixture: Path,
     output: Path,
     split: str = "develop",
+    source_evidence_path: Path | None = None,
+    curation_fixture_path: Path | None = None,
+    curation_model: CurationModel | None = None,
 ) -> QualificationSummary:
-    """Run candidate-to-catalog verification into one atomic output tree."""
+    """Run LLM-assisted candidate verification into one atomic output tree."""
 
     reject_protected_split_write(split)
     seeds = {item.candidate_id: item for item in load_candidate_seeds(candidate_path)}
@@ -616,6 +733,34 @@ def qualify_cases(
         shutil.rmtree(temp)
     temp.mkdir(parents=True)
     try:
+        project_root = Path(__file__).resolve().parents[3]
+        evidence_path = source_evidence_path or (
+            project_root
+            / "data"
+            / "upstream"
+            / "abcd"
+            / "fixture"
+            / "conversations.json"
+        )
+        active_curation_model = curation_model or FixedCurationModel.from_path(
+            curation_fixture_path
+            or project_root
+            / "data"
+            / "testset"
+            / "ticket07"
+            / "curation-responses.json"
+        )
+        source_ids = tuple(dict.fromkeys(seed.source_id for seed in seeds.values()))
+        curation = asyncio.run(
+            curate_sources(
+                source_ids=source_ids,
+                source_path=evidence_path,
+                model=active_curation_model,
+            )
+        )
+        curation_manifest_path, curation_refs = _persist_curation(temp, curation)
+        curated_by_source = curation.by_source_id
+
         fixture = load_calibration_fixture(model_calibration_fixture)
         model_report = asyncio.run(execute_fixed_calibration(fixture))
         model_report_path = temp / "private" / "judge-model-calibration.json"
@@ -625,9 +770,34 @@ def qualify_cases(
         verified: list[VerifiedCase] = []
         failures: list[dict[str, object]] = []
         for plan in plans:
+            candidate = seeds[plan.candidate_id]
+            curated = curated_by_source[candidate.source_id]
             variant = generate_controlled_variant(
-                seeds[plan.candidate_id], plan.dimensions
+                candidate,
+                plan.dimensions,
+                public_request_template=(
+                    curated.rubric_draft.public_request_template
+                    if curated.rubric_draft is not None
+                    else None
+                ),
             )
+            if not curated.selected:
+                failures.append(
+                    {
+                        "case_id": variant.fixture.case_id,
+                        "stage": QualificationStage.REJECTED.value,
+                        "reason_code": "source_not_mappable",
+                        "reason": curated.selection_reason,
+                        "pipeline_version": QUALIFICATION_VERSION,
+                        "input_artifacts": [
+                            value
+                            for value in curation_refs[candidate.source_id].values()
+                            if value is not None
+                        ],
+                        "output_artifacts": [],
+                    }
+                )
+                continue
             try:
                 verified.append(
                     _verify_case(
@@ -676,6 +846,10 @@ def qualify_cases(
         for case in verified:
             variant = case.variant
             case_id = variant.fixture.case_id
+            curated = curated_by_source[variant.candidate.source_id]
+            if curated.rubric_draft is None or curated.rubric_invocation is None:
+                raise ValueError(f"selected source has no rubric draft:{case_id}")
+            source_refs = curation_refs[variant.candidate.source_id]
             public_path = temp / "public" / "cases" / f"{case_id}.json"
             _write_json(public_path, _public_case(variant))
             fixture_path = (
@@ -703,6 +877,18 @@ def qualify_cases(
                     "reviewed_hash": case.reviewed_hash,
                     "public_intent": variant.fixture.user_prompt,
                     "source_candidate": variant.candidate.candidate_id,
+                    "source_evidence": curated.source.model_dump(mode="json"),
+                    "deterministic_signals": curated.signals.model_dump(mode="json"),
+                    "llm_triage": curated.triage.model_dump(mode="json"),
+                    "llm_triage_provenance": (
+                        curated.triage_invocation.model_dump(mode="json")
+                    ),
+                    "rubric_draft": curated.rubric_draft.model_dump(mode="json"),
+                    "rubric_draft_provenance": (
+                        curated.rubric_invocation.model_dump(mode="json")
+                    ),
+                    "rubric_draft_status": "advisory_not_activated",
+                    "review_scope": ("case_source_oracle_replay_and_judge_calibration"),
                     "variant_dimensions": variant.dimensions.model_dump(mode="json"),
                     "oracle_summary": {
                         "policy_version": variant.fixture.policy_version,
@@ -738,10 +924,19 @@ def qualify_cases(
                         ],
                         "policy_version": variant.fixture.policy_version,
                         "qualification_hash": case.reviewed_hash,
+                        "curation": {
+                            "source_id": variant.candidate.source_id,
+                            "artifacts": source_refs,
+                        },
+                        "rubric_draft": curated.rubric_draft.model_dump(mode="json"),
+                        "rubric_status": "model_draft_requires_human_activation",
                     }
                 )
                 reason_code = "all_checks_passed"
-                reason = "replay, Judge calibration, and human approval passed"
+                reason = (
+                    "source triage, replay, Judge calibration, and human approval "
+                    "passed"
+                )
             elif review.decision is ReviewStatus.REJECTED:
                 stage = QualificationStage.REJECTED
                 rejected += 1
@@ -762,6 +957,8 @@ def qualify_cases(
                     "input_artifacts": [
                         _reference(temp, public_path),
                         _reference(temp, fixture_path),
+                        _reference(temp, curation_manifest_path),
+                        *(value for value in source_refs.values() if value is not None),
                     ],
                     "output_artifacts": refs,
                     "pipeline_version": QUALIFICATION_VERSION,
@@ -781,6 +978,7 @@ def qualify_cases(
                 "record_type": "develop_catalog",
                 "qualification_version": QUALIFICATION_VERSION,
                 "policy_version": PINNED_CASE_FIXTURE.policy_version,
+                "curation_manifest": _reference(temp, curation_manifest_path),
                 "cases": sorted(catalog_cases, key=lambda item: str(item["case_id"])),
                 "qualification_manifest": _reference(temp, qualification_path),
             }
@@ -789,26 +987,41 @@ def qualify_cases(
                 temp / "develop-manifest.json",
                 {**catalog_body, "data_version": data_version},
             )
+        input_tokens, output_tokens, _, _ = invocation_cost(curation)
+        response_source = _response_source(curation)
+        summary_payload = {
+            "candidate_count": len(plans),
+            "source_candidate_count": len(curation.sources),
+            "selected_source_count": sum(item.selected for item in curation.sources),
+            "qualified_count": qualified,
+            "rejected_count": rejected + len(failures),
+            "pending_count": pending,
+            "data_version": data_version,
+            "curation_response_source": response_source,
+            "curation_input_tokens": input_tokens,
+            "curation_output_tokens": output_tokens,
+            "network_used": curation.network_used,
+            "live_provider_used": curation.live_provider_used,
+        }
         _write_json(
             temp / "summary.json",
-            {
-                "candidate_count": len(plans),
-                "qualified_count": qualified,
-                "rejected_count": rejected + len(failures),
-                "pending_count": pending,
-                "data_version": data_version,
-                "network_used": False,
-                "live_provider_used": False,
-            },
+            summary_payload,
         )
         _copy_tree_atomic(temp, output)
         return QualificationSummary(
             output=output,
             candidate_count=len(plans),
+            source_candidate_count=len(curation.sources),
+            selected_source_count=sum(item.selected for item in curation.sources),
             qualified_count=qualified,
             rejected_count=rejected + len(failures),
             pending_count=pending,
             data_version=data_version,
+            response_source=response_source,
+            network_used=curation.network_used,
+            live_provider_used=curation.live_provider_used,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
     except Exception:
         shutil.rmtree(temp, ignore_errors=True)

@@ -28,7 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
         "skill-demo", help="Compare a return case without and with a demo Skill."
     )
     commands.add_parser(
-        "qualify-cases", help="Verify candidates and build the develop catalog."
+        "qualify-cases",
+        help="Triage sources, verify cases, and build the develop catalog.",
     )
     commands.add_parser("baseline", help="Run the offline develop L1 baseline.")
     return parser

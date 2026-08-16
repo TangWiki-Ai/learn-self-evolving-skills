@@ -1,9 +1,16 @@
-"""Lesson 6 starter: implement Verify, Calibrate, and Split."""
+"""Lesson 6 starter: implement Curation, Verify, Calibrate, and Split."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+
+
+def curate_candidate_sources(
+    source_ids: Sequence[str], source_path: Path, response_fixture: Path
+) -> object:
+    del source_ids, source_path, response_fixture
+    raise NotImplementedError("Lesson 6: triage sources and draft a rubric")
 
 
 def verify_variant(candidate: object, dimensions: object) -> object:

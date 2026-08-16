@@ -1,0 +1,82 @@
+{
+  "schema_version": "v1alpha1",
+  "fixture_version": "ticket07-curation-fixed-v1",
+  "model_id": "ses/course-authored-curation-fixture",
+  "triage_prompt_version": "ses-source-triage-v1",
+  "rubric_prompt_version": "ses-rubric-draft-v1",
+  "responses": {
+    "abcd:6b8700ce67c6b37b062dd7a60abc76d7ef832a97:train:3592": {
+      "triage": {
+        "intent": "initiate_return",
+        "failure_type": "wrong_size_return",
+        "mappable": true,
+        "severity": "medium",
+        "evidence_spans": [
+          {
+            "turn_index": 0,
+            "speaker": "customer",
+            "text": "hi! i need to return an item, can you help me with that?"
+          },
+          {
+            "turn_index": 2,
+            "speaker": "customer",
+            "text": "i got the wrong size."
+          }
+        ],
+        "confidence": 0.99,
+        "reason": "The customer explicitly initiates an item return and supplies a return reason that the Shop environment can represent."
+      },
+      "rubric_draft": {
+        "public_request_template": "The item in order {order_id} {reason}. Please check the return policy and complete the return if allowed.",
+        "criteria": [
+          {
+            "criterion_id": "response-quality",
+            "criterion": "The final response accurately explains the return policy decision and observed operation outcome without contradicting tool evidence.",
+            "evidence_scope": [
+              "tool_timeline",
+              "key_messages"
+            ],
+            "required": true
+          }
+        ],
+        "reviewer_notes": "Confirm that the controlled variant preserves a customer-initiated return; let the deterministic policy engine supply all amounts and terminal state."
+      },
+      "triage_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0
+      },
+      "rubric_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0
+      }
+    },
+    "abcd:6b8700ce67c6b37b062dd7a60abc76d7ef832a97:train:9489": {
+      "triage": {
+        "intent": "check_refund_status",
+        "failure_type": "unsupported_refund_status",
+        "mappable": false,
+        "severity": "medium",
+        "evidence_spans": [
+          {
+            "turn_index": 1,
+            "speaker": "customer",
+            "text": "just wanted to check on the status of a refund"
+          },
+          {
+            "turn_index": 3,
+            "speaker": "customer",
+            "text": "how much long till it is refunded"
+          }
+        ],
+        "confidence": 0.99,
+        "reason": "The refund already exists and the customer asks for its progress; the Shop environment supports initiating a return, not refund-status lookup."
+      },
+      "rubric_draft": null,
+      "triage_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0
+      },
+      "rubric_usage": null
+    }
+  }
+}

@@ -151,8 +151,24 @@ def test_pipeline_preserves_pending_then_qualifies_fifteen_after_synthetic_revie
     pending = _run(output, reviews)
     assert pending.pending_count == 15
     assert pending.qualified_count == 0
+    assert pending.source_candidate_count == 2
+    assert pending.selected_source_count == 1
+    assert pending.response_source == "fixed_response"
+    assert pending.network_used is False
+    assert pending.live_provider_used is False
     assert not (output / "develop-manifest.json").exists()
+    curation = json.loads((output / "curation-manifest.json").read_text())
+    assert curation["source_candidate_count"] == 2
+    assert curation["selected_source_count"] == 1
+    assert curation["response_sources"] == ["fixed_response"]
     packet = json.loads((output / "review-packet.json").read_text())
+    assert {item["llm_triage"]["intent"] for item in packet} == {"initiate_return"}
+    assert {item["rubric_draft_status"] for item in packet} == {
+        "advisory_not_activated"
+    }
+    assert {item["source_evidence"]["source_kind"] for item in packet} == {
+        "benchmark_proxy"
+    }
     assert {item["judge_statuses"]["deliberate_correct"] for item in packet} == {"pass"}
     assert {item["judge_statuses"]["deliberate_incorrect"] for item in packet} == {
         "fail"

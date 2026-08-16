@@ -42,3 +42,17 @@ def test_catalog_rejects_data_version_drift(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="data_version"):
         load_develop_catalog(manifest_path)
+
+
+def test_catalog_rejects_tampered_curation_evidence(tmp_path: Path) -> None:
+    source = Path(__file__).parents[2] / "data" / "testset" / "ticket07" / "generated"
+    copied = tmp_path / "generated"
+    shutil.copytree(source, copied)
+    curation = json.loads((copied / "curation-manifest.json").read_text())
+    evidence_path = (
+        copied / curation["sources"][0]["artifacts"]["source_evidence"]["path"]
+    )
+    evidence_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="artifact checksum mismatch"):
+        load_develop_catalog(copied / "develop-manifest.json")

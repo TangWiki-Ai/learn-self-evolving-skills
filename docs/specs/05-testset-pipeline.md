@@ -34,8 +34,9 @@
 - Scrub 阶段规范文本、去除重复和无效记录、验证脱敏关系，并生成稳定 source record ID。它不重写对话意图。
 - Cluster 阶段使用给定的 embedding 和聚类封装，输出每条记录的 cluster、置信信息和代表样本，并用现有标签做外部自评。
 - Stratify 阶段综合意图覆盖、长尾风险、语义去重和 tau2 难度信号，产出候选清单而不是直接写入测试集。
-- Verify 阶段把候选映射到受支持的 shop policy 参数。无法映射到可执行环境的候选可以保留研究记录，但不能成为可评分 case。
+- Verify 先从结构化字段和对话内容提取低成本信号，再让锁定的小模型用严格 JSON 判断意图、失败类型、证据片段和环境可映射性。确定性能力门和模型判断都通过，候选才进入变体生成。无法映射到可执行环境的候选保留审计记录，但不能成为可评分 case。
 - Variant generator 只改变 schema 允许的政策维度，生成公开用户 intent、环境 seed 和 oracle 输入，不直接生成文本答案。
+- LLM 可以起草公开表达和依赖 `tool_timeline`、`key_messages` 的语义 rubric，但不能起草金额、终态或政策 gold。模型草案必须显示在人工审核 packet 中，并在人工明确激活前保持 advisory 状态。
 - Gold 只能由同版本政策引擎计算。每个变体保存 oracle 输入、政策版本和结果 hash。
 - Calibrate 执行三步“考卷先考自己”：标准操作环境重放对账、Judge 对故意正确和错误答卷的试判、人工抽读与结论记录。
 - 只有三步都通过的 case 才获得 qualified 状态。失败 case 保存原因，可修复后作为新版本重新验证。
@@ -43,7 +44,8 @@
 - selection 和 final 的 case ID、内容与协议在课程开始前锁定。任何修改都创建新的课程数据版本并使旧参考结果不可直接比较。
 - Creator 只能读取 creator 成功轨迹；Updater 只能读取 develop 失败证据；Agent 只读取当前消息、当前 Skill 和工具结果。
 - 数据目录提供机器可读 manifest，记录 split、可见角色、source lineage、schema、checksum、qualification 和锁定状态。
-- LLM 可以辅助表达变体，但其产物必须经过相同的 oracle、重放、Judge 和人工流程，不能凭生成来源直接入库。
+- 默认 CI 回放签入的固定模型响应；显式 live 模式才通过 ClaudeCLI 调用锁定 Provider，并记录模型、prompt、响应 hash、token、耗时和调用来源。两种模式共用同一解析器、schema 和确定性门。
+- LLM 可以辅助筛选、表达和 rubric 起草，但其产物必须经过相同的 oracle、重放、Judge 和人工流程，不能凭生成来源直接入库。
 
 ## Testing Decisions
 
@@ -57,6 +59,7 @@
 - Split 测试检查内容 hash 和语义来源两层互斥，禁止新题写入 selection、final 或 creator。
 - 权限测试从 Creator、Updater、Agent 和报告的视角读取数据，断言各自只能看到允许字段。
 - CLI 集成测试从候选记录运行到 qualified develop case，并验证失败阶段保留可读审计记录。
+- Curation 测试验证模型必须引用真实 source turn、确定性能力门可以否决模型误判、固定模式不读取 Key，以及 live 模式必须显式开启。
 
 ## Out of Scope
 

@@ -107,10 +107,12 @@
 
 **Blocked by:** 02 - Grade one return case from terminal state; 05 - Calibrate evidence-based AI judges; 06 - Mine candidate cases from ABCD and tau2-bench.
 
-**What it delivers:** A learner can generate controlled return-policy variants, calculate gold outcomes with the deterministic shop policy, replay and calibrate each candidate, and add only qualified cases to the develop split.
+**What it delivers:** A learner can use an LLM to triage source evidence and draft semantic rubrics, generate controlled return-policy variants, calculate gold outcomes with the deterministic shop policy, replay and calibrate each candidate, and add only qualified cases to the develop split.
 
 **Acceptance criteria:**
 
+- [ ] Fixed and explicit live curation modes share one strict JSON schema, evidence-binding check, and deterministic environment gate.
+- [ ] The LLM can propose wording and semantic rubrics but cannot supply amounts, terminal state, oracle data, or its own approval.
 - [ ] Variant generation changes supported policy dimensions without embedding fixed answers.
 - [ ] Gold outcomes come only from deterministic policy execution and match standard-operation replay.
 - [ ] Every accepted case passes environment replay, deliberate correct/incorrect judge checks, and recorded human review.

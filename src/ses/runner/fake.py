@@ -82,6 +82,33 @@ def _verify_reference(root: Path, value: object) -> Path:
     return path
 
 
+def _verify_curation_manifest(root: Path, path: Path) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("curation manifest must be an object")
+    sources = payload.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError("curation manifest sources must be nonempty")
+    selected = 0
+    for source in sources:
+        if not isinstance(source, Mapping):
+            raise ValueError("curation manifest source is invalid")
+        artifacts = source.get("artifacts")
+        if not isinstance(artifacts, Mapping):
+            raise ValueError("curation manifest artifacts are invalid")
+        for reference in artifacts.values():
+            if reference is not None:
+                _verify_reference(root, reference)
+        if source.get("selected") is True:
+            selected += 1
+            if artifacts.get("rubric_draft") is None:
+                raise ValueError("selected curation source requires a rubric draft")
+    if payload.get("source_candidate_count") != len(sources):
+        raise ValueError("curation source count does not match its manifest")
+    if payload.get("selected_source_count") != selected:
+        raise ValueError("curation selected count does not match its manifest")
+
+
 def load_develop_catalog(
     manifest_path: Path | None = None,
 ) -> Mapping[str, ExecutableDevelopCase]:
@@ -105,6 +132,8 @@ def load_develop_catalog(
         raise ValueError("develop manifest is incomplete")
     root = manifest_path.parent
     _verify_reference(root, payload.get("qualification_manifest"))
+    curation_path = _verify_reference(root, payload.get("curation_manifest"))
+    _verify_curation_manifest(root, curation_path)
     version_body = dict(payload)
     version_body.pop("data_version", None)
     computed_data_version = hashlib.sha256(

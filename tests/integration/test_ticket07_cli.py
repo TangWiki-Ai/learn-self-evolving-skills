@@ -54,7 +54,13 @@ def test_cli_runs_candidate_to_expanded_l1_fully_offline(tmp_path: Path) -> None
 
     pending = _run(*_qualification_args(output, reviews))
     assert pending.returncode == 0, pending.stderr
-    assert json.loads(pending.stdout)["pending_count"] == 15
+    pending_payload = json.loads(pending.stdout)
+    assert pending_payload["pending_count"] == 15
+    assert pending_payload["source_candidate_count"] == 2
+    assert pending_payload["selected_source_count"] == 1
+    assert pending_payload["curation_response_source"] == "fixed_response"
+    assert pending_payload["network_used"] is False
+    assert pending_payload["live_provider_used"] is False
     packet = json.loads((output / "review-packet.json").read_text())
     review_rows = [
         {
@@ -130,3 +136,33 @@ def test_cli_protected_split_failure_leaves_output_unchanged(tmp_path: Path) -> 
     assert completed.returncode == 1
     assert marker.read_text(encoding="utf-8") == "unchanged"
     assert list(output.iterdir()) == [marker]
+
+    live = _run(
+        *_qualification_args(output, reviews),
+        "--split",
+        "final",
+        "--curation-mode",
+        "live",
+    )
+    assert live.returncode == 1
+    assert "split_write_protected:final" in live.stderr
+    assert "SILICONFLOW_API_KEY" not in live.stderr
+    assert list(output.iterdir()) == [marker]
+
+
+def test_live_curation_is_explicit_and_requires_environment_credentials(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "live-output"
+    reviews = tmp_path / "reviews.jsonl"
+    reviews.write_text("", encoding="utf-8")
+
+    completed = _run(
+        *_qualification_args(output, reviews),
+        "--curation-mode",
+        "live",
+    )
+
+    assert completed.returncode == 1
+    assert "missing SILICONFLOW_API_KEY" in completed.stderr
+    assert not output.exists()
