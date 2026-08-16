@@ -16,13 +16,9 @@ from ses.contracts.primitives import (
 
 
 class CaseSplit(StrEnum):
-    """Dataset partitions with distinct visibility rules."""
+    """Executable-case partition supported by Issue #2."""
 
-    CREATOR = "creator"
     DEVELOP = "develop"
-    SELECTION = "selection"
-    FINAL = "final"
-    TRIGGER_EVAL = "trigger_eval"
 
 
 class CaseDefinition(VersionedRecord):

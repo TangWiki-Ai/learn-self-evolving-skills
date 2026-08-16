@@ -193,6 +193,9 @@ def test_artifact_reference_requires_lowercase_sha256(sha256: str) -> None:
         {"api_key": "not-a-real-value"},
         {"ANTHROPIC_API_KEY": "not-a-real-value"},
         {"accessToken": "not-a-real-value"},
+        {"request_headers": "not-a-real-value"},
+        {"selection_answer": "private"},
+        {"secret_key": "not-a-real-value"},
         {"nested": [{"Authorization": "not-a-real-value"}]},
         {"request-headers": {"x-api-key": "not-a-real-value"}},
         {"hidden_gold": {"answer": "private"}},
@@ -245,6 +248,33 @@ def test_usage_token_field_names_are_not_mistaken_for_credentials() -> None:
     )
 
     assert contract.payload == {"input_tokens": 1, "output_tokens": 2}
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "token_count",
+        "token_budget",
+        "input_token_count",
+        "gold_color",
+        "gold_price",
+        "gold_tier",
+        "authorization_status",
+        "authorization_required",
+    ],
+)
+def test_contract_payloads_allow_sensitive_lookalike_business_fields(
+    field_name: str,
+) -> None:
+    contract = ExampleContract.model_validate(
+        {
+            "run_id": "run-1",
+            "occurred_at": "2026-08-16T04:30:00Z",
+            "payload": {field_name: 1},
+        }
+    )
+
+    assert contract.payload[field_name] == 1
 
 
 def test_mutated_nested_payload_cannot_serialize_a_credential_field() -> None:

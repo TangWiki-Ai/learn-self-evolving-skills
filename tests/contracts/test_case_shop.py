@@ -79,6 +79,22 @@ def test_case_definition_round_trips_with_public_inputs_only() -> None:
     assert restored.split is CaseSplit.DEVELOP
 
 
+def test_case_split_only_exposes_the_issue_2_partition() -> None:
+    assert list(CaseSplit) == [CaseSplit.DEVELOP]
+
+
+@pytest.mark.parametrize(
+    "split",
+    ["creator", "selection", "final", "trigger_eval"],
+)
+def test_case_definition_rejects_future_partitions(split: str) -> None:
+    data = _case().model_dump(mode="json")
+    data["split"] = split
+
+    with pytest.raises(ValidationError):
+        CaseDefinition.model_validate(data)
+
+
 @pytest.mark.parametrize(
     "required_tools",
     [("preview_return", "preview_return"), ("",), ("   ",)],

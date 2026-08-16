@@ -7,47 +7,61 @@ import re
 import unicodedata
 from collections.abc import Mapping
 
-_FORBIDDEN_FIELD_NAMES = frozenset(
+# These combinations remain sensitive inside longer qualified field names.
+_SENSITIVE_FIELD_COMBINATIONS = frozenset(
     {
         "access_token",
         "api_key",
+        "api_token",
         "apikey",
         "auth_token",
-        "authorization",
-        "auth",
-        "authentication",
+        "authentication_token",
+        "authorization_header",
+        "authorization_token",
         "bearer_token",
         "client_secret",
-        "cookie",
-        "cookies",
-        "credential",
-        "credentials",
         "final_answer",
-        "gold",
-        "headers",
+        "final_gold",
+        "gold_answer",
+        "headers_map",
         "hidden_answer",
         "hidden_gold",
+        "http_headers",
         "id_token",
-        "password",
-        "passwd",
         "private_answer",
         "private_key",
+        "proxy_authorization",
         "reference_answer",
         "reference_trace",
         "reference_trajectory",
         "refresh_token",
         "request_headers",
-        "secret",
+        "response_headers",
         "secret_key",
-        "secrets",
         "selection_answer",
+        "selection_gold",
         "session_token",
         "set_cookie",
-        "token",
         "x_api_key",
-        "gold_answer",
     }
 )
+# Ambiguous single tokens are sensitive only when they are the complete name.
+_EXACT_SENSITIVE_FIELD_NAMES = _SENSITIVE_FIELD_COMBINATIONS | {
+    "auth",
+    "authentication",
+    "authorization",
+    "cookie",
+    "cookies",
+    "credential",
+    "credentials",
+    "gold",
+    "headers",
+    "password",
+    "passwd",
+    "secret",
+    "secrets",
+    "token",
+}
 _ACRONYM_BOUNDARY_PATTERN = re.compile(r"(?<=[A-Z])(?=[A-Z][a-z])")
 _CAMEL_CASE_PATTERN = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _FIELD_SEPARATOR_PATTERN = re.compile(r"[^a-z0-9]+")
@@ -62,9 +76,11 @@ def _normalized_field_name(value: str) -> str:
 
 def _is_forbidden_field_name(value: str) -> bool:
     normalized = _normalized_field_name(value)
+    if normalized in _EXACT_SENSITIVE_FIELD_NAMES:
+        return True
     padded = f"_{normalized}_"
     return any(
-        f"_{forbidden_phrase}_" in padded for forbidden_phrase in _FORBIDDEN_FIELD_NAMES
+        f"_{combination}_" in padded for combination in _SENSITIVE_FIELD_COMBINATIONS
     )
 
 
