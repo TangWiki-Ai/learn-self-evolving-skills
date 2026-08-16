@@ -1,0 +1,68 @@
+{
+  "artifact_type": "lesson_1_skill_demo_comparison",
+  "case_id": "state-bench-customer-support-2-return-defective-electronics",
+  "claim": "qualitative_demo_only",
+  "measured": false,
+  "notice": "This fixed offline comparison shows a qualitative difference; it does not prove stable improvement.",
+  "source": "offline FakeEngine fixture replay",
+  "skill": {
+    "reference": true,
+    "source": "reference_fallback",
+    "version": "reference-v1"
+  },
+  "runs": {
+    "without_skill": {
+      "outcome": "agent_fail",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to return the defective item."
+        },
+        {
+          "role": "assistant",
+          "content": "I will inspect the order and return policy first."
+        },
+        {
+          "role": "assistant",
+          "content": "I prepared the return, but I did not confirm it."
+        }
+      ],
+      "tool_calls": [
+        "get_order",
+        "get_policies",
+        "process_return (preview)"
+      ],
+      "state_result": {
+        "changed": false,
+        "summary": "No business state changed."
+      }
+    },
+    "with_skill": {
+      "outcome": "pass",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to return the defective item."
+        },
+        {
+          "role": "assistant",
+          "content": "I will inspect the order, review the return policy, and process the defective-item return."
+        },
+        {
+          "role": "assistant",
+          "content": "The return is complete and the refund was submitted to the original payment method."
+        }
+      ],
+      "tool_calls": [
+        "get_order",
+        "get_policies",
+        "process_return (preview)",
+        "process_return (confirm)"
+      ],
+      "state_result": {
+        "changed": true,
+        "summary": "Business state changed: 0 added, 0 removed, 7 changed."
+      }
+    }
+  }
+}

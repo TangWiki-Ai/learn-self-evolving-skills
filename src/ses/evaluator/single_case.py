@@ -54,6 +54,7 @@ from ses.evaluation import (
 from ses.foundation.workspace import WorkspaceFactory
 from ses.reporting import build_l1_result, l1_json_bytes
 from ses.shop import CASE_DEFINITION, PINNED_CASE_FIXTURE, CaseEnvironment, state_diff
+from ses.skills.installer import SkillInstallation, install_skill
 
 _RUN_ID_PATTERN = re.compile(r"^run-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _ITERATION_ID = "iteration-0"
@@ -367,6 +368,9 @@ def _run_pinned_case(
     output_root: Path,
     run_id: str,
     fixture: FakeFixture,
+    skill_source: Path | None = None,
+    skill_version: str | None = None,
+    skill_sha256: str | None = None,
 ) -> SingleCaseRun:
     run_dir = output_root.resolve() / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -375,6 +379,17 @@ def _run_pinned_case(
         case_id=CASE_DEFINITION.case_id,
         iteration_id=_ITERATION_ID,
     )
+    installation: SkillInstallation | None = None
+    if skill_source is not None:
+        installation = install_skill(
+            skill_source,
+            workspace.root / ".claude" / "skills" / "return-support-demo",
+            version=skill_version or "v0",
+        )
+        if skill_sha256 is not None and skill_sha256 != installation.sha256:
+            raise ValueError("candidate Skill hash changed before installation")
+    elif skill_version is not None or skill_sha256 is not None:
+        raise ValueError("Skill metadata requires a Skill source")
     request = EngineRequest(
         schema_version=SchemaVersion.V1ALPHA1,
         record_type=RecordType.ENGINE_REQUEST,
@@ -418,6 +433,8 @@ def _run_pinned_case(
         run_id=run_id,
         case_id=CASE_DEFINITION.case_id,
         iteration_id=_ITERATION_ID,
+        skill_version=None if installation is None else installation.version,
+        skill_sha256=None if installation is None else installation.sha256,
     )
 
     before_ref = _artifact_ref(run_dir, before_path)
@@ -490,14 +507,25 @@ def run_pinned_case(
     *,
     run_id: str | None = None,
     fixture: FakeFixture | None = None,
+    skill_source: Path | None = None,
+    skill_version: str | None = None,
+    skill_sha256: str | None = None,
 ) -> SingleCaseRun:
-    """Execute one fresh, offline, pinned case and persist immutable evidence."""
+    """Execute one fresh, offline, pinned case and persist immutable evidence.
+
+    A Skill source is optional. When supplied, the evaluator installs only its
+    allowlisted runtime files into this run's new workspace and records the
+    installed semantic identity in the Trace.
+    """
     selected_run_id = _validate_run_id(run_id or _new_run_id())
     try:
         return _run_pinned_case(
             output_root=output_root,
             run_id=selected_run_id,
             fixture=fixture or _load_default_fixture(),
+            skill_source=skill_source,
+            skill_version=skill_version,
+            skill_sha256=skill_sha256,
         )
     except SingleCaseRunError:
         raise
