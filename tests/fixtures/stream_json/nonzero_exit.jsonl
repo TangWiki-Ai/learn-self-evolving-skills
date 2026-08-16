@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"session-nonzero","uuid":"system-nonzero","timestamp":"2026-08-16T04:00:00Z"}
+{"type":"assistant","uuid":"assistant-nonzero","session_id":"session-nonzero","message":{"id":"message-nonzero","content":[{"type":"text","text":"The engine failed."}]},"timestamp":"2026-08-16T04:00:01Z"}
+{"type":"result","uuid":"result-nonzero","session_id":"session-nonzero","subtype":"success","usage":{"input_tokens":3,"output_tokens":2},"timestamp":"2026-08-16T04:00:02Z"}

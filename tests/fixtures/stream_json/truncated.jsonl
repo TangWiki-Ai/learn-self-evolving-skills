@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"session-truncated","uuid":"system-truncated","timestamp":"2026-08-16T04:00:00Z"}
+{"type":"assistant","uuid":"assistant-truncated","session_id":"session-truncated","message":{"id":"message-truncated","content":[{"type":"text","text":"The stream stopped before completion."}]},"timestamp":"2026-08-16T04:00:01Z"}
