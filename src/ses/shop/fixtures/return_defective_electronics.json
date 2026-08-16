@@ -1,0 +1,50 @@
+{
+  "fixture_id": "state-bench-5644b183-2-return-defective-electronics",
+  "case_id": "state-bench-customer-support-2-return-defective-electronics",
+  "source_id": "state-bench:customer_support:2-return_defective_electronics",
+  "source_commit": "5644b1838d96bc4483da29642d058ecaa6f80f7f",
+  "transformation_version": "ses-shop-return-defective-electronics-v2",
+  "policy_version": "state-bench-customer-support-return-v1",
+  "task_id": "2-return_defective_electronics",
+  "task_type": "return_item",
+  "task_now": "2026-06-12T10:00:00Z",
+  "user_prompt": "My laptop from order ORD-6006 has a defective screen — it flickers constantly. I'd like to return it.",
+  "required_tools": [
+    "get_order",
+    "get_policies",
+    "process_return"
+  ],
+  "product": {
+    "product_id": "PROD-2050",
+    "name": "ProBook Laptop 15-inch",
+    "category": "electronics",
+    "price": {
+      "amount_minor": 129900,
+      "currency": "USD"
+    },
+    "return_window_days": 15,
+    "restocking_fee_pct": 15
+  },
+  "order": {
+    "order_id": "ORD-6006",
+    "customer_id": "cust_004",
+    "status": "delivered",
+    "delivery_at": "2026-05-25T14:00:00Z",
+    "payment_method": "credit_card",
+    "subtotal": {
+      "amount_minor": 129900,
+      "currency": "USD"
+    }
+  },
+  "item": {
+    "item_id": "ITEM-9050",
+    "order_id": "ORD-6006",
+    "product_id": "PROD-2050",
+    "item_status": "delivered"
+  },
+  "customer": {
+    "customer_id": "cust_004",
+    "membership_tier": "silver",
+    "has_prime_shipping": false
+  }
+}

@@ -6,8 +6,10 @@ import argparse
 import json
 import sys
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 from ses.contracts import ToolResult, ToolResultStatus
+from ses.shop.artifacts import SnapshotArtifactWriter
 from ses.shop.environment import CASE_ID, CaseEnvironment, ShopRole
 
 
@@ -46,7 +48,11 @@ def _mcp_tool_result(tool_result: ToolResult) -> dict[str, object]:
     return result
 
 
-def _handle(environment: CaseEnvironment, message: Mapping[str, object]) -> None:
+def _handle(
+    environment: CaseEnvironment,
+    message: Mapping[str, object],
+    artifact_writer: SnapshotArtifactWriter | None,
+) -> None:
     request_id = message.get("id")
     method = message.get("method")
     params = message.get("params", {})
@@ -96,7 +102,10 @@ def _handle(environment: CaseEnvironment, message: Mapping[str, object]) -> None
                 },
             )
             return
-        _result(request_id, _mcp_tool_result(environment.execute(name, arguments)))
+        tool_result = environment.execute(name, arguments)
+        if artifact_writer is not None:
+            artifact_writer.write_after(environment.snapshot())
+        _result(request_id, _mcp_tool_result(tool_result))
         return
     if request_id is not None:
         _error(request_id, -32601, f"method not found: {method!r}")
@@ -110,12 +119,29 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=ShopRole.AGENT.value,
         choices=[role.value for role in ShopRole],
     )
+    parser.add_argument(
+        "--artifact-root",
+        type=Path,
+        help=(
+            "Trusted evaluator workspace. Writes only shop/before.json and "
+            "shop/after.json beneath this root."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     environment = CaseEnvironment(role=ShopRole(args.role))
+    artifact_writer = (
+        None
+        if args.artifact_root is None
+        else SnapshotArtifactWriter(args.artifact_root)
+    )
+    if artifact_writer is not None:
+        initial = environment.snapshot()
+        artifact_writer.write_before(initial)
+        artifact_writer.write_after(initial)
     try:
         for line in sys.stdin:
             if not line.strip():
@@ -124,7 +150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 message = json.loads(line)
                 if not isinstance(message, Mapping):
                     raise ValueError("message must be an object")
-                _handle(environment, message)
+                _handle(environment, message, artifact_writer)
             except (json.JSONDecodeError, ValueError) as exc:
                 _error(None, -32700, str(exc))
     finally:

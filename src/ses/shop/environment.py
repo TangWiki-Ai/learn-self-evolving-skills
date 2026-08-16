@@ -1,10 +1,4 @@
-"""Isolated, deterministic execution for one STATE-Bench return case.
-
-The implementation deliberately models only the facts and tools that the
-``2-return_defective_electronics`` case needs.  It does not reuse mutable
-module-level state, so every :class:`CaseEnvironment` starts from the same
-seed and can run alongside other instances safely.
-"""
+"""Isolated deterministic execution for one fixture-backed return case."""
 
 from __future__ import annotations
 
@@ -12,7 +6,6 @@ import copy
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Final, cast
 
@@ -20,7 +13,6 @@ from pydantic import JsonValue
 
 from ses.contracts import (
     CaseDefinition,
-    CaseSplit,
     Money,
     RecordType,
     SchemaVersion,
@@ -30,36 +22,13 @@ from ses.contracts import (
     ToolResult,
     ToolResultStatus,
 )
+from ses.shop.fixture import PINNED_CASE_FIXTURE, ReturnCaseFixture
+from ses.shop.policy import ReturnPolicyDecision, ReturnReason, compute_return_policy
 
-CASE_ID: Final = "state-bench-customer-support-2-return-defective-electronics"
-SOURCE_VERSION: Final = "5644b1838d96bc4483da29642d058ecaa6f80f7f"
-TRANSFORMATION_VERSION: Final = "ses-shop-return-defective-electronics-v1"
-FIXTURE_ID: Final = "state-bench-5644b183-2-return-defective-electronics"
-POLICY_VERSION: Final = "state-bench-customer-support-return-v1"
 TOOL_SCHEMA_VERSION: Final = "ses-shop-mcp-v1"
-_CURRENCY: Final = "USD"
-_SNAPSHOT_AT: Final = datetime(2026, 6, 12, 10, 0, tzinfo=UTC)
-_ORDER_ID: Final = "ORD-6006"
-_ITEM_ID: Final = "ITEM-9050"
-_PRODUCT_ID: Final = "PROD-2050"
-_REFUND_AMOUNT_MINOR: Final = 129_900
-
-
-CASE_DEFINITION: Final = CaseDefinition(
-    schema_version=SchemaVersion.V1ALPHA1,
-    record_type=RecordType.CASE_DEFINITION,
-    case_id=CASE_ID,
-    source_id="state-bench:customer_support:2-return_defective_electronics",
-    source_version=SOURCE_VERSION,
-    transformation_version=TRANSFORMATION_VERSION,
-    split=CaseSplit.DEVELOP,
-    user_prompt=(
-        "My laptop from order ORD-6006 has a defective screen — it flickers "
-        "constantly. I'd like to return it."
-    ),
-    fixture_id=FIXTURE_ID,
-    required_tools=("get_order", "get_policies", "process_return"),
-)
+CASE_DEFINITION: Final = PINNED_CASE_FIXTURE.case_definition()
+CASE_ID: Final = CASE_DEFINITION.case_id
+POLICY_VERSION: Final = PINNED_CASE_FIXTURE.policy_version
 
 
 class ShopRole(StrEnum):
@@ -72,13 +41,13 @@ class ShopRole(StrEnum):
 
 
 @dataclass
-class _Order:
-    status: str = "delivered"
+class _OrderState:
+    status: str
 
 
 @dataclass
-class _OrderItem:
-    item_status: str = "delivered"
+class _OrderItemState:
+    item_status: str
     return_reason: str | None = None
     refund_amount: Money | None = None
     refund_method: str | None = None
@@ -88,23 +57,15 @@ class _OrderItem:
 
 @dataclass
 class _State:
-    order: _Order
-    item: _OrderItem
+    order: _OrderState
+    item: _OrderItemState
 
 
-@dataclass(frozen=True)
-class _ReturnDecision:
-    """Internal, non-persisted result of the pinned case's policy oracle."""
-
-    refund_amount: Money
-    restocking_fee: Money
-    refund_method: str
-    free_return_shipping: bool
-    return_reason: str
-
-
-def _seed_state() -> _State:
-    return _State(order=_Order(), item=_OrderItem())
+def _seed_state(fixture: ReturnCaseFixture) -> _State:
+    return _State(
+        order=_OrderState(status=fixture.order.status),
+        item=_OrderItemState(item_status=fixture.item.item_status),
+    )
 
 
 def _money_json(money: Money) -> JsonValue:
@@ -185,14 +146,17 @@ def state_diff(before: ShopSnapshot, after: ShopSnapshot) -> StateDiff:
         removed,
         changed,
     )
-    if changed:
-        summary = "Return state changed for ORD-6006 / ITEM-9050."
+    if added or removed or changed:
+        summary = (
+            f"Business state changed: {len(added)} added, {len(removed)} removed, "
+            f"{len(changed)} changed."
+        )
     else:
         summary = "No business state changed."
     return StateDiff(
         schema_version=SchemaVersion.V1ALPHA1,
         record_type=RecordType.STATE_DIFF,
-        diff_id=f"{CASE_ID}:diff:{before.snapshot_id}:{after.snapshot_id}",
+        diff_id=f"{before.case_id}:diff:{before.snapshot_id}:{after.snapshot_id}",
         before_snapshot_id=before.snapshot_id,
         after_snapshot_id=after.snapshot_id,
         added=added,
@@ -225,35 +189,35 @@ def _tool_result_error(
     )
 
 
-def _return_policy(item: _OrderItem, reason: str) -> _ReturnDecision | ToolResult:
-    """Evaluate the only return path required by the pinned benchmark case."""
-    if item.item_status != "delivered":
-        return _tool_result_error(
-            "process_return",
-            "already_processed",
-            f"ITEM-9050 is already {item.item_status}.",
-        )
-    if reason != "defective":
-        return _tool_result_error(
-            "process_return",
-            "policy_denied",
-            "This pinned case accepts only the defective-item return path.",
-        )
-    return _ReturnDecision(
-        refund_amount=Money(amount_minor=_REFUND_AMOUNT_MINOR, currency=_CURRENCY),
-        restocking_fee=Money(amount_minor=0, currency=_CURRENCY),
-        refund_method="original_payment",
-        free_return_shipping=True,
-        return_reason="defective",
-    )
+def _decision_json(decision: ReturnPolicyDecision) -> dict[str, JsonValue]:
+    return {
+        "days_since_delivery": decision.days_since_delivery,
+        "effective_window_days": decision.effective_window_days,
+        "free_return_shipping": decision.free_return_shipping,
+        "paid_return_shipping_fee": _money_json(decision.paid_return_shipping_fee),
+        "policy_computed_amount": _money_json(decision.policy_computed_amount),
+        "refund_amount": _money_json(decision.refund_amount),
+        "refund_method": decision.refund_method,
+        "restocking_discount": _money_json(decision.restocking_discount),
+        "restocking_fee": _money_json(decision.restocking_fee),
+        "shipping_clawback": _money_json(decision.shipping_clawback),
+        "store_credit_only": decision.store_credit_only,
+    }
 
 
 class CaseEnvironment:
-    """Fresh, role-scoped shop state for the pinned STATE-Bench case."""
+    """Fresh, role-scoped shop state deep-cloned from a typed fixture."""
 
-    def __init__(self, role: ShopRole = ShopRole.AGENT) -> None:
+    def __init__(
+        self,
+        fixture: ReturnCaseFixture = PINNED_CASE_FIXTURE,
+        *,
+        role: ShopRole = ShopRole.AGENT,
+    ) -> None:
+        self._source_fixture = fixture.model_copy(deep=True)
+        self._fixture = self._source_fixture.model_copy(deep=True)
         self._role = role
-        self._state = _seed_state()
+        self._state = _seed_state(self._fixture)
         self._policy_reviewed = False
         self._previewed_items: set[str] = set()
         self._snapshot_sequence = 0
@@ -261,8 +225,8 @@ class CaseEnvironment:
 
     @property
     def case_definition(self) -> CaseDefinition:
-        """Return the public executable-case definition consumed by evaluators."""
-        return CASE_DEFINITION
+        """Return the public case definition derived from this fixture."""
+        return self._fixture.case_definition()
 
     @property
     def role(self) -> ShopRole:
@@ -270,9 +234,10 @@ class CaseEnvironment:
         return self._role
 
     def reset(self) -> ShopSnapshot:
-        """Restore the known seed and return its deterministic initial snapshot."""
+        """Deep-clone the source fixture and restore its initial state."""
         self._ensure_open()
-        self._state = _seed_state()
+        self._fixture = self._source_fixture.model_copy(deep=True)
+        self._state = _seed_state(self._fixture)
         self._policy_reviewed = False
         self._previewed_items.clear()
         self._snapshot_sequence = 0
@@ -282,15 +247,16 @@ class CaseEnvironment:
         """Capture a deterministic, sorted view of business state."""
         self._ensure_open()
         self._snapshot_sequence += 1
-        state = self._snapshot_state()
         return ShopSnapshot(
             schema_version=SchemaVersion.V1ALPHA1,
             record_type=RecordType.SHOP_SNAPSHOT,
-            snapshot_id=f"{CASE_ID}:snapshot:{self._snapshot_sequence:04d}",
-            case_id=CASE_ID,
-            captured_at=_SNAPSHOT_AT,
-            policy_version=POLICY_VERSION,
-            state=state,
+            snapshot_id=(
+                f"{self._fixture.case_id}:snapshot:{self._snapshot_sequence:04d}"
+            ),
+            case_id=self._fixture.case_id,
+            captured_at=self._fixture.task_now,
+            policy_version=self._fixture.policy_version,
+            state=self._snapshot_state(),
         )
 
     def execute(self, tool_name: str, arguments: object) -> ToolResult:
@@ -341,14 +307,15 @@ class CaseEnvironment:
             raise RuntimeError("The case environment is closed.")
 
     def _snapshot_state(self) -> dict[str, JsonValue]:
+        fixture = self._fixture
         item = self._state.item
         return {
             "order_items": {
-                _ITEM_ID: {
-                    "item_id": _ITEM_ID,
+                fixture.item.item_id: {
+                    "item_id": fixture.item.item_id,
                     "item_status": item.item_status,
-                    "order_id": _ORDER_ID,
-                    "product_id": _PRODUCT_ID,
+                    "order_id": fixture.order.order_id,
+                    "product_id": fixture.product.product_id,
                     "refund_amount": (
                         None
                         if item.refund_amount is None
@@ -365,12 +332,10 @@ class CaseEnvironment:
                 }
             },
             "orders": {
-                _ORDER_ID: {
-                    "order_id": _ORDER_ID,
+                fixture.order.order_id: {
+                    "order_id": fixture.order.order_id,
                     "status": self._state.order.status,
-                    "total_paid": _money_json(
-                        Money(amount_minor=_REFUND_AMOUNT_MINOR, currency=_CURRENCY)
-                    ),
+                    "total_paid": _money_json(fixture.order.subtotal),
                 }
             },
         }
@@ -384,21 +349,28 @@ class CaseEnvironment:
             return _tool_result_error(
                 "get_order", "invalid_input", "order_id must be a non-empty string."
             )
-        if order_id != _ORDER_ID:
+        if order_id != self._fixture.order.order_id:
             return _tool_result_error(
                 "get_order", "order_not_found", f"Order {order_id!r} does not exist."
             )
         state = self._snapshot_state()
         orders = cast(dict[str, dict[str, JsonValue]], state["orders"])
         order_items = cast(dict[str, dict[str, JsonValue]], state["order_items"])
+        item = order_items[self._fixture.item.item_id]
+        item["product"] = {
+            "category": self._fixture.product.category,
+            "name": self._fixture.product.name,
+            "price": _money_json(self._fixture.product.price),
+            "return_window_days": self._fixture.product.return_window_days,
+        }
         return _tool_result_success(
             "get_order",
             cast(
                 JsonValue,
                 {
-                    "order": orders[_ORDER_ID],
-                    "items": [order_items[_ITEM_ID]],
-                    "policy_version": POLICY_VERSION,
+                    "items": [item],
+                    "order": orders[self._fixture.order.order_id],
+                    "policy_version": self._fixture.policy_version,
                     "tool_schema_version": TOOL_SCHEMA_VERSION,
                 },
             ),
@@ -408,12 +380,11 @@ class CaseEnvironment:
         validation_error = _require_exact_keys(arguments, {"topic"}, {"topic"})
         if validation_error is not None:
             return _tool_result_error("get_policies", "invalid_input", validation_error)
-        topic = arguments["topic"]
-        if topic != "return":
+        if arguments["topic"] != "return":
             return _tool_result_error(
                 "get_policies",
                 "unsupported_topic",
-                "This pinned case exposes only the return policy.",
+                "This case exposes only the return policy.",
             )
         self._policy_reviewed = True
         return _tool_result_success(
@@ -421,20 +392,19 @@ class CaseEnvironment:
             cast(
                 JsonValue,
                 {
-                    "policy_version": POLICY_VERSION,
-                    "topic": "return",
+                    "policy_version": self._fixture.policy_version,
                     "rules": {
-                        "defective_items": "No return-window restriction.",
-                        "refund_method": "original_payment",
-                        "refund_amount": _money_json(
-                            Money(amount_minor=_REFUND_AMOUNT_MINOR, currency=_CURRENCY)
+                        "base_window_days": self._fixture.product.return_window_days,
+                        "fault_returns": (
+                            "Defective, wrong, and transit-damaged items have no "
+                            "return-window restriction, no restocking fee, and free "
+                            "return shipping."
                         ),
-                        "restocking_fee": _money_json(
-                            Money(amount_minor=0, currency=_CURRENCY)
-                        ),
-                        "free_return_shipping": True,
+                        "membership_tier": self._fixture.customer.membership_tier,
+                        "store_credit_grace_days": 15,
                     },
                     "tool_schema_version": TOOL_SCHEMA_VERSION,
+                    "topic": "return",
                 },
             ),
         )
@@ -452,13 +422,23 @@ class CaseEnvironment:
         item_id = arguments["item_id"]
         reason = arguments["reason"]
         confirm = arguments.get("confirm", False)
-        if not isinstance(item_id, str) or item_id != _ITEM_ID:
+        if not isinstance(item_id, str) or item_id != self._fixture.item.item_id:
             return _tool_result_error(
-                "process_return", "item_not_found", "ITEM-9050 is the only case item."
+                "process_return",
+                "item_not_found",
+                f"{self._fixture.item.item_id} is the only case item.",
             )
         if not isinstance(reason, str):
             return _tool_result_error(
                 "process_return", "invalid_input", "reason must be a string."
+            )
+        try:
+            parsed_reason = ReturnReason(reason)
+        except ValueError:
+            return _tool_result_error(
+                "process_return",
+                "invalid_input",
+                f"Unsupported return reason: {reason!r}.",
             )
         if not isinstance(confirm, bool):
             return _tool_result_error(
@@ -470,77 +450,84 @@ class CaseEnvironment:
                 "policy_review_required",
                 "Call get_policies with topic='return' before process_return.",
             )
+        if self._state.item.item_status != self._fixture.item.item_status:
+            return _tool_result_error(
+                "process_return",
+                "already_processed",
+                f"{item_id} is already {self._state.item.item_status}.",
+            )
 
-        decision = _return_policy(self._state.item, reason)
-        if isinstance(decision, ToolResult):
-            return decision
+        decision = compute_return_policy(self._fixture, parsed_reason)
+        if not decision.eligible:
+            return _tool_result_error(
+                "process_return",
+                "policy_denied",
+                f"Return rejected by policy: {decision.reason_code}.",
+            )
         if not confirm:
-            self._previewed_items.add(_ITEM_ID)
+            self._previewed_items.add(item_id)
             return _tool_result_success(
                 "process_return",
                 cast(
                     JsonValue,
                     {
-                        "free_return_shipping": decision.free_return_shipping,
-                        "item_id": _ITEM_ID,
-                        "policy_version": POLICY_VERSION,
-                        "refund_amount": _money_json(decision.refund_amount),
-                        "refund_method": decision.refund_method,
-                        "restocking_fee": _money_json(decision.restocking_fee),
+                        **_decision_json(decision),
+                        "item_id": item_id,
+                        "policy_version": self._fixture.policy_version,
                         "return_eligible": True,
-                        "return_reason": decision.return_reason,
+                        "return_reason": parsed_reason.value,
                         "status": "preview",
                         "tool_schema_version": TOOL_SCHEMA_VERSION,
                     },
                 ),
             )
 
-        if _ITEM_ID not in self._previewed_items:
+        if item_id not in self._previewed_items:
             return _tool_result_error(
                 "process_return",
                 "preview_required",
                 "Preview the return before confirming it.",
             )
         amount_minor = arguments.get("amount_minor")
-        if isinstance(amount_minor, bool) or not isinstance(amount_minor, int):
+        if (
+            isinstance(amount_minor, bool)
+            or not isinstance(amount_minor, int)
+            or amount_minor < 0
+        ):
             return _tool_result_error(
                 "process_return",
                 "invalid_input",
-                "amount_minor must be an integer when confirm is true.",
-            )
-        if amount_minor != decision.refund_amount.amount_minor:
-            return _tool_result_error(
-                "process_return",
-                "policy_amount_mismatch",
-                "amount_minor must equal the deterministic policy refund amount.",
+                "amount_minor must be a non-negative integer when confirm is true.",
             )
 
-        # All validation is complete. These assignments form the only state mutation.
+        # Validation is complete. Preserve upstream scoring semantics by writing
+        # the submitted amount verbatim; the State Judge compares it with the
+        # separately returned policy_computed_amount.
+        submitted_amount = Money(
+            amount_minor=amount_minor,
+            currency=self._fixture.product.price.currency,
+        )
         item = self._state.item
         item.item_status = "returned"
-        item.return_reason = decision.return_reason
-        item.refund_amount = decision.refund_amount
+        item.return_reason = parsed_reason.value
+        item.refund_amount = submitted_amount
         item.refund_method = decision.refund_method
         item.restocking_fee = decision.restocking_fee
         item.return_label_issued = decision.free_return_shipping
         self._state.order.status = "fully_returned"
-        self._previewed_items.discard(_ITEM_ID)
-        return _tool_result_success(
-            "process_return",
-            cast(
-                JsonValue,
-                {
-                    "item_id": _ITEM_ID,
-                    "policy_version": POLICY_VERSION,
-                    "refund_amount": _money_json(decision.refund_amount),
-                    "refund_method": decision.refund_method,
-                    "restocking_fee": _money_json(decision.restocking_fee),
-                    "return_label_issued": decision.free_return_shipping,
-                    "status": "returned",
-                    "tool_schema_version": TOOL_SCHEMA_VERSION,
-                },
-            ),
+        self._previewed_items.discard(item_id)
+        result_data = _decision_json(decision)
+        result_data["refund_amount"] = _money_json(submitted_amount)
+        result_data.update(
+            {
+                "item_id": item_id,
+                "policy_version": self._fixture.policy_version,
+                "return_label_issued": decision.free_return_shipping,
+                "status": "returned",
+                "tool_schema_version": TOOL_SCHEMA_VERSION,
+            }
         )
+        return _tool_result_success("process_return", cast(JsonValue, result_data))
 
 
 def _require_exact_keys(
@@ -566,7 +553,7 @@ def _tool_names() -> tuple[str, ...]:
 _TOOL_SCHEMAS: Final[tuple[dict[str, JsonValue], ...]] = (
     {
         "name": "get_order",
-        "description": "Retrieve the pinned order and its returnable item.",
+        "description": "Retrieve the pinned order, its item, and product details.",
         "inputSchema": {
             "type": "object",
             "properties": {"order_id": {"type": "string"}},
@@ -587,16 +574,19 @@ _TOOL_SCHEMAS: Final[tuple[dict[str, JsonValue], ...]] = (
     {
         "name": "process_return",
         "description": (
-            "Preview, then confirm the defective-item return. Confirm requires the "
-            "previewed amount_minor in USD minor units."
+            "Preview, then confirm a return. Confirm writes the supplied non-negative "
+            "amount_minor in USD minor units and also reports the policy amount."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "item_id": {"type": "string"},
-                "reason": {"type": "string", "enum": ["defective"]},
+                "reason": {
+                    "type": "string",
+                    "enum": [reason.value for reason in ReturnReason],
+                },
                 "confirm": {"type": "boolean"},
-                "amount_minor": {"type": "integer"},
+                "amount_minor": {"type": "integer", "minimum": 0},
             },
             "required": ["item_id", "reason"],
             "additionalProperties": False,

@@ -1,14 +1,29 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import JsonValue
 
-from ses.contracts import StateDiff, ToolResult, ToolResultStatus
-from ses.shop import CASE_DEFINITION, CaseEnvironment, ShopRole, state_diff
+from ses.contracts import (
+    Money,
+    RecordType,
+    SchemaVersion,
+    ShopSnapshot,
+    StateDiff,
+    ToolResult,
+    ToolResultStatus,
+)
+from ses.shop import (
+    CASE_DEFINITION,
+    CaseEnvironment,
+    ShopRole,
+    compute_return_policy,
+    load_case_fixture,
+    state_diff,
+)
 
 
 def _result_data(result: ToolResult) -> Mapping[str, object]:
@@ -62,15 +77,68 @@ def _complete_return(environment: CaseEnvironment) -> StateDiff:
 
 
 def test_case_fixture_records_the_pinned_upstream_case() -> None:
-    fixture_path = (
-        Path(__file__).parents[1] / "fixtures" / "shop" / "pinned_return_case.json"
-    )
-    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    fixture = load_case_fixture()
+    definition = fixture.case_definition()
 
-    assert fixture["case_id"] == CASE_DEFINITION.case_id
-    assert fixture["source"]["commit"] == CASE_DEFINITION.source_version
-    assert fixture["required_tools"] == list(CASE_DEFINITION.required_tools)
-    assert fixture["expected_return"]["amount_minor"] == 129_900
+    assert definition == CASE_DEFINITION
+    assert definition.fixture_id == fixture.fixture_id
+    assert definition.source_version == fixture.source_commit
+    assert definition.transformation_version == fixture.transformation_version
+    assert fixture.product.price.amount_minor == 129_900
+
+
+def test_policy_uses_fixture_fields_at_real_window_boundaries() -> None:
+    fixture = load_case_fixture()
+    window = fixture.product.return_window_days
+    delivery = fixture.order.delivery_at
+
+    at_boundary = fixture.model_copy(
+        update={"task_now": delivery + timedelta(days=window)}
+    )
+    after_boundary = fixture.model_copy(
+        update={"task_now": delivery + timedelta(days=window + 1)}
+    )
+    at_grace_end = fixture.model_copy(
+        update={"task_now": delivery + timedelta(days=window + 15)}
+    )
+    after_grace = fixture.model_copy(
+        update={"task_now": delivery + timedelta(days=window + 16)}
+    )
+
+    normal = compute_return_policy(at_boundary, "changed_mind")
+    grace = compute_return_policy(after_boundary, "changed_mind")
+    last_grace_day = compute_return_policy(at_grace_end, "changed_mind")
+    expired = compute_return_policy(after_grace, "changed_mind")
+
+    assert normal.eligible is True
+    assert normal.refund_method == "original_payment"
+    assert grace.eligible is True
+    assert grace.refund_method == "store_credit"
+    assert last_grace_day.eligible is True
+    assert expired.eligible is False
+
+
+def test_policy_reads_product_price_membership_and_reason() -> None:
+    fixture = load_case_fixture()
+    later = fixture.order.delivery_at + timedelta(
+        days=fixture.product.return_window_days + 15
+    )
+    silver = fixture.model_copy(update={"task_now": later})
+    gold_customer = fixture.customer.model_copy(update={"membership_tier": "gold"})
+    gold = fixture.model_copy(update={"task_now": later, "customer": gold_customer})
+    higher_price = fixture.product.model_copy(
+        update={"price": Money(amount_minor=149_900, currency="USD")}
+    )
+    repriced = fixture.model_copy(update={"product": higher_price})
+
+    silver_decision = compute_return_policy(silver, "changed_mind")
+    gold_decision = compute_return_policy(gold, "changed_mind")
+    defective = compute_return_policy(repriced, "defective")
+
+    assert silver_decision.refund_method == "store_credit"
+    assert gold_decision.refund_method == "original_payment"
+    assert defective.refund_amount.amount_minor == 149_900
+    assert defective.free_return_shipping is True
 
 
 def test_reset_recreates_a_stable_seed_snapshot() -> None:
@@ -159,6 +227,19 @@ def test_failed_writes_leave_the_business_snapshot_unchanged() -> None:
     environment.execute(
         "process_return", {"item_id": "ITEM-9050", "reason": "defective"}
     )
+    for invalid_amount in (-1, True, "129900"):
+        invalid = environment.execute(
+            "process_return",
+            {
+                "item_id": "ITEM-9050",
+                "reason": "defective",
+                "confirm": True,
+                "amount_minor": invalid_amount,
+            },
+        )
+        assert _error_code(invalid) == "invalid_input"
+        assert environment.snapshot().state == baseline.state
+
     wrong_amount = environment.execute(
         "process_return",
         {
@@ -168,8 +249,28 @@ def test_failed_writes_leave_the_business_snapshot_unchanged() -> None:
             "amount_minor": 129_899,
         },
     )
-    assert _error_code(wrong_amount) == "policy_amount_mismatch"
-    assert environment.snapshot().state == baseline.state
+    wrong_data = _result_data(wrong_amount)
+    wrong_state = environment.snapshot()
+    assert wrong_data["policy_computed_amount"] == {
+        "amount_minor": 129_900,
+        "currency": "USD",
+    }
+    assert _item(wrong_state.state)["refund_amount"] == {
+        "amount_minor": 129_899,
+        "currency": "USD",
+    }
+
+    retry = environment.execute(
+        "process_return",
+        {
+            "item_id": "ITEM-9050",
+            "reason": "defective",
+            "confirm": True,
+            "amount_minor": 129_900,
+        },
+    )
+    assert _error_code(retry) == "already_processed"
+    assert environment.snapshot().state == wrong_state.state
 
 
 def test_repeated_write_is_rejected_without_a_second_mutation() -> None:
@@ -231,6 +332,42 @@ def test_state_diff_is_stable_and_empty_when_business_state_does_not_change() ->
     assert empty.removed == {}
     assert empty.changed == {}
     assert empty.summary == "No business state changed."
+
+
+@pytest.mark.parametrize(
+    ("before_state", "after_state"),
+    [
+        ({}, {"new": "value"}),
+        ({"old": "value"}, {}),
+        ({"status": "old"}, {"status": "new"}),
+    ],
+)
+def test_state_diff_summary_describes_every_non_empty_bucket_and_uses_snapshot_case(
+    before_state: dict[str, JsonValue], after_state: dict[str, JsonValue]
+) -> None:
+    before = ShopSnapshot(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.SHOP_SNAPSHOT,
+        snapshot_id="foreign-before",
+        case_id="foreign-case",
+        captured_at=datetime(2026, 6, 12, 10, 0, tzinfo=UTC),
+        policy_version="policy-v1",
+        state=before_state,
+    )
+    after = ShopSnapshot(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.SHOP_SNAPSHOT,
+        snapshot_id="foreign-after",
+        case_id="foreign-case",
+        captured_at=datetime(2026, 6, 12, 10, 0, tzinfo=UTC),
+        policy_version="policy-v1",
+        state=after_state,
+    )
+
+    diff = state_diff(before, after)
+
+    assert diff.summary != "No business state changed."
+    assert diff.diff_id.startswith("foreign-case:diff:")
 
 
 def test_close_refuses_later_mutations_and_snapshots() -> None:

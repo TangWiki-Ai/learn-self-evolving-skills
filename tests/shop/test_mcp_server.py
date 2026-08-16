@@ -5,12 +5,21 @@ import subprocess
 import sys
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+
+from ses.contracts import ShopSnapshot
+from ses.shop.artifacts import SnapshotArtifactWriter
 
 
 class _McpClient:
-    def __init__(self, role: str = "agent") -> None:
+    def __init__(self, role: str = "agent", artifact_root: Path | None = None) -> None:
+        command = [sys.executable, "-m", "ses.shop.mcp_server", "--role", role]
+        if artifact_root is not None:
+            command.extend(["--artifact-root", str(artifact_root)])
         self._process = subprocess.Popen(
-            [sys.executable, "-m", "ses.shop.mcp_server", "--role", role],
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -38,15 +47,19 @@ class _McpClient:
         return decoded
 
     def close(self) -> None:
-        self._process.terminate()
-        _, stderr = self._process.communicate(timeout=10)
-        assert self._process.returncode is not None
+        assert self._process.stdin is not None
+        assert self._process.stderr is not None
+        self._process.stdin.close()
+        self._process.wait(timeout=10)
+        stderr = self._process.stderr.read()
         assert stderr == ""
 
 
 @contextmanager
-def _mcp_client(role: str = "agent") -> Generator[_McpClient, None, None]:
-    client = _McpClient(role)
+def _mcp_client(
+    role: str = "agent", artifact_root: Path | None = None
+) -> Generator[_McpClient, None, None]:
+    client = _McpClient(role, artifact_root)
     try:
         yield client
     finally:
@@ -88,7 +101,7 @@ def test_mcp_lists_and_calls_only_the_pinned_case_tools() -> None:
         ]
         return_schema = _mapping(tool_records[2]["inputSchema"])
         properties = _mapping(return_schema["properties"])
-        assert properties["amount_minor"] == {"type": "integer"}
+        assert properties["amount_minor"] == {"type": "integer", "minimum": 0}
 
         order = _structured(
             client.request(
@@ -129,12 +142,78 @@ def test_mcp_lists_and_calls_only_the_pinned_case_tools() -> None:
                 },
             )
         )
+        order_after = _structured(
+            client.request(
+                7,
+                "tools/call",
+                {"name": "get_order", "arguments": {"order_id": "ORD-6006"}},
+            )
+        )
 
         order_data = _mapping(order["data"])
         assert _mapping(order_data["order"])["order_id"] == "ORD-6006"
         assert policy["status"] == "success"
         assert _mapping(preview["data"])["status"] == "preview"
         assert _mapping(confirmed["data"])["status"] == "returned"
+        order_after_data = _mapping(order_after["data"])
+        assert _mapping(order_after_data["order"])["status"] == "fully_returned"
+        items_after = order_after_data["items"]
+        assert isinstance(items_after, list)
+        assert _mapping(items_after[0])["item_status"] == "returned"
+
+
+def test_mcp_writes_before_and_after_snapshots_from_the_same_process(
+    tmp_path: Path,
+) -> None:
+    with _mcp_client(artifact_root=tmp_path) as client:
+        client.request(1, "initialize", {"protocolVersion": "2025-06-18"})
+        client.request(
+            2,
+            "tools/call",
+            {"name": "get_policies", "arguments": {"topic": "return"}},
+        )
+        client.request(
+            3,
+            "tools/call",
+            {
+                "name": "process_return",
+                "arguments": {"item_id": "ITEM-9050", "reason": "defective"},
+            },
+        )
+        client.request(
+            4,
+            "tools/call",
+            {
+                "name": "process_return",
+                "arguments": {
+                    "item_id": "ITEM-9050",
+                    "reason": "defective",
+                    "confirm": True,
+                    "amount_minor": 129_900,
+                },
+            },
+        )
+
+    before = ShopSnapshot.model_validate_json(
+        (tmp_path / "shop" / "before.json").read_text(encoding="utf-8")
+    )
+    after = ShopSnapshot.model_validate_json(
+        (tmp_path / "shop" / "after.json").read_text(encoding="utf-8")
+    )
+
+    assert (
+        _mapping(_mapping(before.state["orders"])["ORD-6006"])["status"] == "delivered"
+    )
+    assert (
+        _mapping(_mapping(after.state["orders"])["ORD-6006"])["status"]
+        == "fully_returned"
+    )
+    assert list((tmp_path / "shop").glob("*.tmp")) == []
+
+
+def test_snapshot_artifact_writer_rejects_a_filesystem_root() -> None:
+    with pytest.raises(ValueError, match="filesystem root"):
+        SnapshotArtifactWriter(Path("/"))
 
 
 def test_mcp_enforces_role_permissions() -> None:
