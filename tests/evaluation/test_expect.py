@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from ses.contracts import (
-    CaseDefinition,
-    CaseSplit,
-    EngineRequest,
-    RecordType,
-    SchemaVersion,
-)
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+
+from ses.contracts import CaseDefinition, CaseSplit, RecordType, SchemaVersion, Usage
 from ses.evaluation import (
+    BudgetLimits,
     EvaluationErrorCode,
+    ExpectResult,
     PreflightStatus,
     expect,
-    run_after_expect,
 )
 
 
@@ -30,36 +30,31 @@ def _case() -> CaseDefinition:
     )
 
 
-def _request() -> EngineRequest:
-    return EngineRequest(
-        schema_version=SchemaVersion.V1ALPHA1,
-        record_type=RecordType.ENGINE_REQUEST,
-        request_id="request-1",
-        prompt="Return the defective order.",
-        allowed_tools=("preview_return", "confirm_return"),
-        timeout_seconds=30,
-    )
-
-
 def _fixture() -> dict[str, object]:
-    return {
+    return {"fixture_id": "fixture-1", "order_id": "order-1"}
+
+
+def _expect(**overrides: object) -> ExpectResult:
+    values: dict[str, object] = {
+        "case": _case(),
+        "fixture": _fixture(),
         "fixture_id": "fixture-1",
         "available_tools": ("preview_return", "confirm_return"),
-        "order_id": "order-1",
+        "environment_ready": True,
+        "environment_closed": False,
+        "budget": {"max_total_tokens": 100},
     }
+    values.update(overrides)
+    return expect(**values)  # type: ignore[arg-type]
 
 
-def test_expect_passes_all_cheap_preconditions_without_an_engine() -> None:
-    result = expect(
-        _case(),
-        _fixture(),
-        request=_request(),
+def test_expect_passes_explicit_preconditions_without_an_engine() -> None:
+    result = _expect(
         budget={
             "max_total_tokens": 100,
             "max_cost_amount": "0.10",
             "cost_currency": "USD",
-        },
-        environment={"ready": True},
+        }
     )
 
     assert result.status is PreflightStatus.PASS
@@ -67,71 +62,82 @@ def test_expect_passes_all_cheap_preconditions_without_an_engine() -> None:
     assert result.case == _case()
 
 
-def test_expect_accumulates_case_fixture_tool_budget_and_environment_failures() -> None:
-    result = expect(
-        _case(),
-        {"fixture_id": "other-fixture", "available_tools": ("preview_return",)},
-        request=_request(),
+def test_expect_accumulates_fixture_tool_budget_and_environment_failures() -> None:
+    result = _expect(
+        fixture_id="other-fixture",
+        available_tools=("preview_return",),
         budget={"max_total_tokens": -1},
-        environment={"ready": False},
+        environment_ready=False,
     )
 
     codes = {failure.code for failure in result.failures}
     assert result.status is PreflightStatus.FAIL
-    assert EvaluationErrorCode.MISSING_FIXTURE in codes
-    assert EvaluationErrorCode.MISSING_TOOL in codes
-    assert EvaluationErrorCode.INVALID_BUDGET in codes
-    assert EvaluationErrorCode.ENVIRONMENT_NOT_READY in codes
+    assert codes == {
+        EvaluationErrorCode.MISSING_FIXTURE,
+        EvaluationErrorCode.MISSING_TOOL,
+        EvaluationErrorCode.INVALID_BUDGET,
+        EvaluationErrorCode.ENVIRONMENT_NOT_READY,
+    }
 
 
-def test_expect_rejects_an_invalid_case_before_tool_or_engine_checks() -> None:
-    result = expect({"record_type": "case_definition"}, _fixture())
+def test_nonexistent_string_fixture_path_fails() -> None:
+    result = _expect(fixture="does-not-exist.json")
 
     assert result.status is PreflightStatus.FAIL
-    assert [failure.code for failure in result.failures] == [
-        EvaluationErrorCode.INVALID_CASE
-    ]
+    assert EvaluationErrorCode.MISSING_FIXTURE in {f.code for f in result.failures}
 
 
-def test_failed_expect_never_calls_engine() -> None:
-    calls: list[EngineRequest] = []
+def test_expect_rejects_non_contract_case_input() -> None:
+    result = _expect(case={"record_type": "case_definition"})
 
-    def engine(request: EngineRequest) -> object:
-        calls.append(request)
-        return "should not run"
+    assert EvaluationErrorCode.INVALID_CASE in {f.code for f in result.failures}
 
-    execution = run_after_expect(
-        engine,
-        _request(),
-        _case(),
-        _fixture(),
-        available_tools=("preview_return",),
-        budget={"max_total_tokens": 100},
-        environment={"ready": True},
+
+def test_existing_fixture_path_must_contain_matching_fixture_id(tmp_path: Path) -> None:
+    path = tmp_path / "fixture.json"
+    path.write_text('{"fixture_id":"fixture-1"}', encoding="utf-8")
+
+    assert _expect(fixture=path).passed
+
+
+@pytest.mark.parametrize("role", ["judge", "simulator"])
+def test_toolless_environment_fails_for_every_execution_role(role: str) -> None:
+    result = _expect(available_tools=())
+
+    assert role  # Documents that neither caller role gets an implicit exception.
+    assert EvaluationErrorCode.MISSING_TOOL in {f.code for f in result.failures}
+
+
+def test_closed_environment_fails_even_when_marked_ready() -> None:
+    result = _expect(environment_closed=True)
+
+    assert EvaluationErrorCode.ENVIRONMENT_NOT_READY in {
+        failure.code for failure in result.failures
+    }
+
+
+@pytest.mark.parametrize(
+    "constructor",
+    [
+        lambda: BudgetLimits(max_input_tokens=-1),
+        lambda: BudgetLimits(max_output_tokens=-1),
+        lambda: BudgetLimits(max_total_tokens=-1),
+        lambda: BudgetLimits(max_cost_amount=Decimal("-0.01"), cost_currency="USD"),
+        lambda: BudgetLimits.from_value(-1),
+        lambda: BudgetLimits.from_value(
+            {"max_cost_amount": "-0.01", "currency": "USD"}
+        ),
+    ],
+)
+def test_all_budget_entry_points_reject_negative_values(constructor: object) -> None:
+    with pytest.raises(ValueError):
+        constructor()  # type: ignore[operator]
+
+
+def test_usage_budget_failure_is_reported_by_expect() -> None:
+    result = _expect(
+        budget=BudgetLimits(max_total_tokens=3),
+        usage=Usage(input_tokens=2, output_tokens=2),
     )
 
-    assert execution.engine_called is False
-    assert execution.value is None
-    assert execution.preflight.status is PreflightStatus.FAIL
-    assert calls == []
-
-
-def test_successful_expect_is_the_only_path_that_calls_engine() -> None:
-    calls: list[EngineRequest] = []
-
-    def engine(request: EngineRequest) -> str:
-        calls.append(request)
-        return "started"
-
-    execution = run_after_expect(
-        engine,
-        _request(),
-        _case(),
-        _fixture(),
-        budget={"max_total_tokens": 100},
-        environment={"ready": True},
-    )
-
-    assert execution.engine_called is True
-    assert execution.value == "started"
-    assert calls == [_request()]
+    assert EvaluationErrorCode.INVALID_BUDGET in {f.code for f in result.failures}

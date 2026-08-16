@@ -1,4 +1,3 @@
-{"type":"system","subtype":"init","session_id":"session-unknown","uuid":"system-unknown","timestamp":"2026-08-16T04:00:00Z"}
-{"type":"progress","subtype":"heartbeat","uuid":"progress-1","detail":"ignored provider heartbeat","timestamp":"2026-08-16T04:00:01Z"}
-{"type":"assistant","uuid":"assistant-unknown","session_id":"session-unknown","message":{"id":"message-unknown","content":[{"type":"text","text":"Ready."}]},"timestamp":"2026-08-16T04:00:02Z"}
-{"type":"result","uuid":"result-unknown","session_id":"session-unknown","subtype":"success","usage":{"input_tokens":2,"output_tokens":1},"timestamp":"2026-08-16T04:00:03Z"}
+{"schema_version":"v1alpha1","record_type":"engine_event","event_id":"event-text","request_id":"request-1","sequence":0,"occurred_at":"2026-08-16T04:00:00Z","payload":{"kind":"text_delta","message_id":"message-1","text":"working"}}
+{"schema_version":"v1alpha1","record_type":"engine_event","event_id":"event-unknown","request_id":"request-1","sequence":1,"occurred_at":"2026-08-16T04:00:01Z","payload":{"kind":"unknown","source_type":"progress:heartbeat"}}
+{"schema_version":"v1alpha1","record_type":"engine_event","event_id":"event-completed","request_id":"request-1","sequence":2,"occurred_at":"2026-08-16T04:00:02Z","payload":{"kind":"completed","exit_status":"success","session_id":"session-unknown"}}

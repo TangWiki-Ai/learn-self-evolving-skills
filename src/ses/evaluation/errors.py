@@ -7,14 +7,8 @@ from enum import StrEnum
 
 
 class EvaluationErrorCode(StrEnum):
-    """Stable codes used by parser and preflight failures."""
+    """Stable codes used by trace construction and preflight failures."""
 
-    INVALID_JSON = "invalid_json"
-    INVALID_EVENT = "invalid_event"
-    MALFORMED_CRITICAL_EVENT = "malformed_critical_event"
-    TRUNCATED_STREAM = "truncated_stream"
-    TERMINAL_EVENT_NOT_LAST = "terminal_event_not_last"
-    NON_ZERO_EXIT = "non_zero_exit"
     INVALID_TRACE = "invalid_trace"
     INVALID_CASE = "invalid_case"
     MISSING_FIXTURE = "missing_fixture"
@@ -29,19 +23,14 @@ class EvaluationError:
 
     code: EvaluationErrorCode
     message: str
-    line_number: int | None = None
-    event_type: str | None = None
 
 
-class TraceParseError(ValueError):
-    """Raised by the explicit raising parser helper."""
+class TraceBuildError(ValueError):
+    """Raised when canonical events cannot form a valid Trace."""
 
     def __init__(self, error: EvaluationError) -> None:
         self.error = error
-        location = ""
-        if error.line_number is not None:
-            location = f" at line {error.line_number}"
-        super().__init__(f"{error.code.value}{location}: {error.message}")
+        super().__init__(f"{error.code.value}: {error.message}")
 
 
 class PreflightError(ValueError):

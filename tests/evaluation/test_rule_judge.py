@@ -3,19 +3,25 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from ses.contracts import (
     ArtifactRef,
     ArtifactRoot,
+    EngineEvent,
     EngineRequest,
+    GradeStatus,
     RecordType,
     SchemaVersion,
     Trace,
     artifact_json_bytes,
 )
 from ses.evaluation import (
+    Rule,
+    RuleKind,
+    build_trace,
     forbidden_call,
     judge_rules,
-    parse_stream_json,
     tool_arguments,
     tool_called,
     tool_count,
@@ -34,15 +40,17 @@ def _trace() -> Trace:
         allowed_tools=("preview_return", "confirm_return"),
         timeout_seconds=30,
     )
-    result = parse_stream_json(
-        FIXTURE.read_text(encoding="utf-8"),
+    events = tuple(
+        EngineEvent.model_validate_json(line)
+        for line in FIXTURE.read_text(encoding="utf-8").splitlines()
+    )
+    return build_trace(
+        events,
         request=request,
         run_id="run-1",
         case_id="case-1",
         iteration_id="iteration-0",
     )
-    assert result.trace is not None
-    return result.trace
 
 
 def _artifact(trace: Trace) -> ArtifactRef:
@@ -110,3 +118,37 @@ def test_rule_judge_requires_persisted_trace_evidence_for_decisions() -> None:
 
     assert assertions[0].status.value == "not_evaluated"
     assert assertions[0].evidence == ()
+
+
+def test_rule_mapping_rejects_conflicting_fields_without_dropping_them() -> None:
+    assertions = judge_rules(
+        _trace(),
+        (
+            {"kind": "tool_called", "tool_name": "preview_return", "order": []},
+            {
+                "kind": "tool_count",
+                "tool_name": "preview_return",
+                "count": 1,
+                "min_count": 1,
+            },
+            {"kind": "tool_order", "order": ["preview_return", 3]},
+        ),
+        evidence_artifact=_artifact(_trace()),
+    )
+
+    assert [assertion.status for assertion in assertions] == [
+        GradeStatus.ERROR,
+        GradeStatus.ERROR,
+        GradeStatus.ERROR,
+    ]
+
+
+def test_direct_rule_rejects_count_and_range_conflict() -> None:
+    with pytest.raises(ValueError, match="conflicts"):
+        Rule(
+            RuleKind.TOOL_COUNT,
+            "count-conflict",
+            tool_name="preview_return",
+            expected_count=1,
+            min_count=1,
+        )

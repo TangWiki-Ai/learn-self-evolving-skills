@@ -8,6 +8,7 @@ from ses.contracts import (
     ArtifactRoot,
     AssertionResult,
     CaseGrade,
+    EngineEvent,
     EngineRequest,
     GradeStatus,
     RecordType,
@@ -15,7 +16,7 @@ from ses.contracts import (
     Trace,
     artifact_json_bytes,
 )
-from ses.evaluation import aggregate_case_grade, judge_rules, parse_stream_json
+from ses.evaluation import aggregate_case_grade, build_trace, judge_rules
 from ses.evaluation.judges.rule import tool_called
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "stream_json" / "normal_flow.jsonl"
@@ -30,15 +31,17 @@ def _trace() -> Trace:
         allowed_tools=("preview_return", "confirm_return"),
         timeout_seconds=30,
     )
-    result = parse_stream_json(
-        FIXTURE.read_text(encoding="utf-8"),
+    events = tuple(
+        EngineEvent.model_validate_json(line)
+        for line in FIXTURE.read_text(encoding="utf-8").splitlines()
+    )
+    return build_trace(
+        events,
         request=request,
         run_id="run-1",
         case_id="case-1",
         iteration_id="iteration-0",
     )
-    assert result.trace is not None
-    return result.trace
 
 
 def _artifact(trace: Trace) -> ArtifactRef:

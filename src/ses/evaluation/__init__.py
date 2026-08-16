@@ -5,7 +5,7 @@ from ses.evaluation.errors import (
     EvaluationError,
     EvaluationErrorCode,
     PreflightError,
-    TraceParseError,
+    TraceBuildError,
 )
 from ses.evaluation.evidence import (
     escape_json_pointer_token,
@@ -18,12 +18,10 @@ from ses.evaluation.evidence import (
 )
 from ses.evaluation.expect import (
     BudgetLimits,
-    ExecutionAfterExpect,
     ExpectResult,
     PreflightStatus,
     check_expectations,
     expect,
-    run_after_expect,
 )
 from ses.evaluation.judges import (
     Rule,
@@ -40,13 +38,8 @@ from ses.evaluation.judges import (
 )
 from ses.evaluation.trace import (
     TraceMessage,
-    TraceParser,
-    TraceParseResult,
     TraceToolCall,
     build_trace,
-    parse_stream_json,
-    parse_stream_json_or_raise,
-    parse_trace,
     trace_exit_status,
     trace_from_events,
     trace_messages,
@@ -58,16 +51,13 @@ __all__ = [
     "BudgetLimits",
     "EvaluationError",
     "EvaluationErrorCode",
-    "ExecutionAfterExpect",
     "ExpectResult",
     "PreflightError",
     "PreflightStatus",
     "Rule",
     "RuleKind",
+    "TraceBuildError",
     "TraceMessage",
-    "TraceParseError",
-    "TraceParseResult",
-    "TraceParser",
     "TraceToolCall",
     "aggregate_case_grade",
     "aggregate_status",
@@ -80,11 +70,7 @@ __all__ = [
     "join_json_pointer",
     "judge_rules",
     "judge_state",
-    "parse_stream_json",
-    "parse_stream_json_or_raise",
-    "parse_trace",
     "rule_judge",
-    "run_after_expect",
     "snapshot_evidence",
     "state_diff_evidence",
     "state_judge",

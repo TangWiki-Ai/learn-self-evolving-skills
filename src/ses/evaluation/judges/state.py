@@ -22,7 +22,6 @@ from ses.contracts import (
 from ..evidence import (
     evidence_ref,
     join_json_pointer,
-    snapshot_evidence,
     state_diff_evidence,
 )
 
@@ -74,6 +73,27 @@ def _flatten(value: object, prefix: tuple[str, ...]) -> dict[tuple[str, ...], ob
             result.update(_flatten(child, (*prefix, str(index))))
         return result
     return {prefix: value}
+
+
+def _existing_snapshot_pointer(actual: ShopSnapshot, path: tuple[str, ...]) -> str:
+    """Return the deepest existing ancestor for a missing snapshot path."""
+
+    if path[0] != "state":
+        return join_json_pointer(*path)
+    current: object = actual.state
+    existing = ["state"]
+    for token in path[1:]:
+        if isinstance(current, Mapping) and token in current:
+            current = current[token]
+        elif isinstance(current, (list, tuple)) and token.isdigit():
+            index = int(token)
+            if index >= len(current):
+                break
+            current = current[index]
+        else:
+            break
+        existing.append(token)
+    return join_json_pointer(*existing)
 
 
 def _result(
@@ -152,20 +172,15 @@ def _state_snapshot_assertions(
                     f"actual={_display(actual_value)}, "
                     f"expected={_display(expected_value)}"
                 )
-            evidence = (
-                snapshot_evidence(evidence_artifact, *path[1:])
-                if path[0] == "state"
-                else evidence_ref(evidence_artifact, join_json_pointer(*path)),
+            pointer = (
+                _existing_snapshot_pointer(actual, path)
+                if expected_present and not actual_present
+                else join_json_pointer(*path)
             )
+            evidence = (evidence_ref(evidence_artifact, pointer),)
         results.append(
             _result(
-                assertion_id=(
-                    "state:root"
-                    if path == ("state",)
-                    else "state:" + "/".join(path[1:])
-                    if path[0] == "state"
-                    else "state:" + "/".join(path)
-                ),
+                assertion_id="state:" + join_json_pointer(*path),
                 required=required,
                 status=status,
                 reason=reason,
@@ -205,7 +220,26 @@ def _state_diff_assertions(
     actual_values = _diff_entries(actual)
     paths = sorted(set(expected_values) | set(actual_values))
     if not paths:
-        paths = [("added", "")]
+        if evidence_artifact is None:
+            return (
+                _result(
+                    assertion_id="state-diff:/added",
+                    required=required,
+                    status=GradeStatus.NOT_EVALUATED,
+                    reason="StateDiff evidence artifact was not provided",
+                    judge_version=judge_version,
+                ),
+            )
+        return (
+            _result(
+                assertion_id="state-diff:/added",
+                required=required,
+                status=GradeStatus.PASS,
+                reason="StateDiff contains no added, removed, or changed paths",
+                evidence=(evidence_ref(evidence_artifact, "/added"),),
+                judge_version=judge_version,
+            ),
+        )
     results: list[AssertionResult] = []
     for bucket, path in paths:
         expected_present = (bucket, path) in expected_values
@@ -240,13 +274,13 @@ def _state_diff_assertions(
                     f"expected={_display(expected_value)}"
                 )
             evidence = (
-                state_diff_evidence(evidence_artifact, bucket, path)
-                if path
-                else state_diff_evidence(evidence_artifact, bucket, ""),
+                evidence_ref(evidence_artifact, join_json_pointer(bucket))
+                if expected_present and not actual_present
+                else state_diff_evidence(evidence_artifact, bucket, path),
             )
         results.append(
             _result(
-                assertion_id=f"state-diff:{bucket}:{path or 'empty'}",
+                assertion_id="state-diff:" + join_json_pointer(bucket, path),
                 required=required,
                 status=status,
                 reason=reason,

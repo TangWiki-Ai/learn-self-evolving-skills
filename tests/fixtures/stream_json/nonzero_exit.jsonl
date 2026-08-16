@@ -1,3 +1,2 @@
-{"type":"system","subtype":"init","session_id":"session-nonzero","uuid":"system-nonzero","timestamp":"2026-08-16T04:00:00Z"}
-{"type":"assistant","uuid":"assistant-nonzero","session_id":"session-nonzero","message":{"id":"message-nonzero","content":[{"type":"text","text":"The engine failed."}]},"timestamp":"2026-08-16T04:00:01Z"}
-{"type":"result","uuid":"result-nonzero","session_id":"session-nonzero","subtype":"success","usage":{"input_tokens":3,"output_tokens":2},"timestamp":"2026-08-16T04:00:02Z"}
+{"schema_version":"v1alpha1","record_type":"engine_event","event_id":"event-error","request_id":"request-1","sequence":0,"occurred_at":"2026-08-16T04:00:00Z","payload":{"kind":"error","error_code":"process_exit","message":"engine process exited with status 17"}}
+{"schema_version":"v1alpha1","record_type":"engine_event","event_id":"event-completed","request_id":"request-1","sequence":1,"occurred_at":"2026-08-16T04:00:01Z","payload":{"kind":"completed","exit_status":"error","session_id":"session-error"}}

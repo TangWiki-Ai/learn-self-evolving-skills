@@ -54,24 +54,85 @@ class Rule:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "kind", RuleKind(self.kind))
+        if not isinstance(self.assertion_id, str) or not self.assertion_id.strip():
+            raise ValueError("assertion_id must be a non-empty string")
+        if not isinstance(self.required, bool):
+            raise ValueError("required must be boolean")
+        if self.tool_name is not None and (
+            not isinstance(self.tool_name, str) or not self.tool_name.strip()
+        ):
+            raise ValueError("tool_name must be a non-empty string")
+        if not isinstance(self.order, tuple) or not all(
+            isinstance(name, str) and bool(name.strip()) for name in self.order
+        ):
+            raise ValueError("order items must be non-empty strings")
         if self.expected_arguments is not None:
+            if not isinstance(self.expected_arguments, Mapping):
+                raise ValueError("expected_arguments must be a mapping")
             object.__setattr__(
                 self,
                 "expected_arguments",
                 MappingProxyType(dict(self.expected_arguments)),
             )
-        if self.expected_count is not None and self.expected_count < 0:
-            raise ValueError("expected_count must be nonnegative")
-        if self.min_count is not None and self.min_count < 0:
-            raise ValueError("min_count must be nonnegative")
-        if self.max_count is not None and self.max_count < 0:
-            raise ValueError("max_count must be nonnegative")
+        for name in ("expected_count", "min_count", "max_count"):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"{name} must be a nonnegative integer")
+        if self.expected_count is not None and (
+            self.min_count is not None or self.max_count is not None
+        ):
+            raise ValueError("expected_count conflicts with min_count/max_count")
         if (
             self.min_count is not None
             and self.max_count is not None
             and self.min_count > self.max_count
         ):
             raise ValueError("min_count must not exceed max_count")
+        kind = cast(RuleKind, self.kind)
+        if kind is RuleKind.TOOL_ORDER:
+            if not self.order:
+                raise ValueError("tool_order needs at least one tool")
+            if (
+                any(
+                    value is not None
+                    for value in (
+                        self.tool_name,
+                        self.expected_count,
+                        self.min_count,
+                        self.max_count,
+                        self.expected_arguments,
+                    )
+                )
+                or self.exact_arguments
+            ):
+                raise ValueError("tool_order contains conflicting fields")
+            return
+        if self.tool_name is None:
+            raise ValueError(f"{kind.value} requires tool_name")
+        if self.order or self.exact_order:
+            raise ValueError(f"{kind.value} contains conflicting order fields")
+        if kind is RuleKind.TOOL_COUNT:
+            if self.expected_arguments is not None or self.exact_arguments:
+                raise ValueError("tool_count contains conflicting argument fields")
+            if all(
+                value is None
+                for value in (self.expected_count, self.min_count, self.max_count)
+            ):
+                raise ValueError("tool_count needs a count limit")
+            return
+        if any(
+            value is not None
+            for value in (self.expected_count, self.min_count, self.max_count)
+        ):
+            raise ValueError(f"{kind.value} contains conflicting count fields")
+        if kind is RuleKind.TOOL_ARGUMENTS:
+            if self.expected_arguments is None:
+                raise ValueError("tool_arguments requires expected_arguments")
+            return
+        if self.expected_arguments is not None or self.exact_arguments:
+            raise ValueError(f"{kind.value} contains conflicting argument fields")
 
 
 RuleInput: TypeAlias = Rule | Mapping[str, object]
@@ -168,14 +229,25 @@ def _as_tool_name(value: object) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _one_alias(value: Mapping[str, object], names: tuple[str, ...]) -> object | None:
+    supplied = [(name, value[name]) for name in names if name in value]
+    if len(supplied) > 1:
+        raise ValueError(
+            f"conflicting rule fields: {', '.join(n for n, _ in supplied)}"
+        )
+    return supplied[0][1] if supplied else None
+
+
 def _coerce_rule(value: RuleInput | Sequence[str]) -> Rule:
     if isinstance(value, Rule):
         return value
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, Mapping)):
-        return tool_order(tuple(item for item in value if isinstance(item, str)))
+        if not all(isinstance(item, str) for item in value):
+            raise ValueError("tool_order items must be strings")
+        return tool_order(value)
     if not isinstance(value, Mapping):
         raise ValueError("rule must be a Rule or mapping")
-    raw_kind = value.get("kind", value.get("type"))
+    raw_kind = _one_alias(value, ("kind", "type"))
     if not isinstance(raw_kind, str):
         raise ValueError("rule is missing kind")
     aliases = {
@@ -189,13 +261,41 @@ def _coerce_rule(value: RuleInput | Sequence[str]) -> Rule:
         kind = RuleKind(aliases.get(raw_kind, raw_kind))
     except ValueError as exc:
         raise ValueError(f"unsupported rule kind: {raw_kind!r}") from exc
-    assertion_id = value.get("assertion_id", value.get("id"))
-    tool_name = _as_tool_name(
-        value.get("tool_name", value.get("tool", value.get("name")))
-    )
+    assertion_id = _one_alias(value, ("assertion_id", "id"))
+    if assertion_id is not None and (
+        not isinstance(assertion_id, str) or not assertion_id.strip()
+    ):
+        raise ValueError("assertion_id must be a non-empty string")
+    tool_name = _as_tool_name(_one_alias(value, ("tool_name", "tool", "name")))
     required = value.get("required", True)
     if not isinstance(required, bool):
         raise ValueError("rule required must be boolean")
+    common = {"kind", "type", "assertion_id", "id", "required"}
+    tool_keys = {"tool_name", "tool", "name"}
+    allowed_by_kind = {
+        RuleKind.TOOL_CALLED: common | tool_keys,
+        RuleKind.FORBIDDEN_CALL: common | tool_keys,
+        RuleKind.TOOL_COUNT: common
+        | tool_keys
+        | {
+            "expected_count",
+            "count",
+            "expected",
+            "min_count",
+            "minimum",
+            "max_count",
+            "maximum",
+        },
+        RuleKind.TOOL_ARGUMENTS: common
+        | tool_keys
+        | {"expected_arguments", "arguments", "params", "exact", "exact_arguments"},
+        RuleKind.TOOL_ORDER: common | {"order", "tools", "exact", "exact_order"},
+    }
+    unexpected = set(value) - allowed_by_kind[kind]
+    if unexpected:
+        raise ValueError(
+            "unexpected or conflicting rule fields: " + ", ".join(sorted(unexpected))
+        )
     if kind is RuleKind.TOOL_CALLED:
         if tool_name is None:
             raise ValueError("tool_called requires tool_name")
@@ -215,11 +315,11 @@ def _coerce_rule(value: RuleInput | Sequence[str]) -> Rule:
     if kind is RuleKind.TOOL_COUNT:
         if tool_name is None:
             raise ValueError("tool_count requires tool_name")
-        raw_count = value.get(
-            "expected_count", value.get("count", value.get("expected"))
-        )
-        min_count = value.get("min_count", value.get("minimum"))
-        max_count = value.get("max_count", value.get("maximum"))
+        raw_count = _one_alias(value, ("expected_count", "count", "expected"))
+        min_count = _one_alias(value, ("min_count", "minimum"))
+        max_count = _one_alias(value, ("max_count", "maximum"))
+        if raw_count is not None and (min_count is not None or max_count is not None):
+            raise ValueError("count conflicts with min_count/max_count")
         if raw_count is not None and (
             isinstance(raw_count, bool) or not isinstance(raw_count, int)
         ):
@@ -243,12 +343,11 @@ def _coerce_rule(value: RuleInput | Sequence[str]) -> Rule:
     if kind is RuleKind.TOOL_ARGUMENTS:
         if tool_name is None:
             raise ValueError("tool_arguments requires tool_name")
-        arguments = value.get(
-            "expected_arguments", value.get("arguments", value.get("params"))
-        )
+        arguments = _one_alias(value, ("expected_arguments", "arguments", "params"))
         if not isinstance(arguments, Mapping):
             raise ValueError("tool_arguments requires an arguments mapping")
-        exact = value.get("exact", value.get("exact_arguments", False))
+        exact_value = _one_alias(value, ("exact", "exact_arguments"))
+        exact = False if exact_value is None else exact_value
         if not isinstance(exact, bool):
             raise ValueError("exact_arguments must be boolean")
         return tool_arguments(
@@ -258,14 +357,17 @@ def _coerce_rule(value: RuleInput | Sequence[str]) -> Rule:
             assertion_id=assertion_id if isinstance(assertion_id, str) else None,
             required=required,
         )
-    order = value.get("order", value.get("tools"))
+    order = _one_alias(value, ("order", "tools"))
     if isinstance(order, str) or not isinstance(order, Sequence):
         raise ValueError("tool_order requires an ordered sequence")
-    exact = value.get("exact", value.get("exact_order", False))
+    if not all(isinstance(item, str) for item in order):
+        raise ValueError("tool_order items must be strings")
+    exact_value = _one_alias(value, ("exact", "exact_order"))
+    exact = False if exact_value is None else exact_value
     if not isinstance(exact, bool):
         raise ValueError("exact_order must be boolean")
     return tool_order(
-        tuple(item for item in order if isinstance(item, str)),
+        cast(Sequence[str], order),
         exact=exact,
         assertion_id=assertion_id if isinstance(assertion_id, str) else None,
         required=required,
@@ -491,10 +593,9 @@ def judge_rules(
                 )
             )
         except (TypeError, ValueError) as exc:
-            error_rule = Rule(
-                RuleKind.TOOL_CALLED,
-                f"rule-error:{index}",
-                required=True,
+            error_rule = tool_called(
+                "__invalid_rule__",
+                assertion_id=f"rule-error:{index}",
             )
             results.append(
                 _result(
