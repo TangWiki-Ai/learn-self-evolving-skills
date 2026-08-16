@@ -470,19 +470,24 @@ def _result(
 
 
 def _evidence(
-    artifact: ArtifactRef | None,
+    artifacts: tuple[ArtifactRef, ...],
     calls: Sequence[TraceToolCall],
+    artifact_by_call: Mapping[int, ArtifactRef],
 ) -> tuple[EvidenceRef, ...]:
-    if artifact is None:
+    if not artifacts:
         return ()
     if not calls:
-        return (timeline_evidence(artifact),)
-    seen: set[str] = set()
+        return tuple(timeline_evidence(artifact) for artifact in artifacts)
+    seen: set[tuple[str, str, str]] = set()
     result: list[EvidenceRef] = []
     for call in calls:
+        artifact = artifact_by_call.get(id(call))
+        if artifact is None:
+            continue
         ref = trace_event_evidence(artifact, call.event_index, "payload")
-        if ref.json_pointer not in seen:
-            seen.add(ref.json_pointer)
+        key = (ref.artifact.root.value, ref.artifact.path, ref.json_pointer)
+        if key not in seen:
+            seen.add(key)
             result.append(ref)
     return tuple(result)
 
@@ -491,7 +496,8 @@ def _evaluate_rule(
     rule: Rule,
     calls: tuple[TraceToolCall, ...],
     *,
-    evidence_artifact: ArtifactRef | None,
+    evidence_artifacts: tuple[ArtifactRef, ...],
+    artifact_by_call: Mapping[int, ArtifactRef],
     judge_version: str,
 ) -> AssertionResult:
     if rule.kind in {
@@ -584,7 +590,7 @@ def _evaluate_rule(
         reason = f"tool order actual={_display(names)}, expected={_display(rule.order)}"
         evidence_calls = calls
 
-    if evidence_artifact is None and status in {GradeStatus.PASS, GradeStatus.FAIL}:
+    if not evidence_artifacts and status in {GradeStatus.PASS, GradeStatus.FAIL}:
         return _result(
             rule,
             status=GradeStatus.NOT_EVALUATED,
@@ -596,21 +602,19 @@ def _evaluate_rule(
         rule,
         status=status,
         reason=reason,
-        evidence=_evidence(evidence_artifact, evidence_calls),
+        evidence=_evidence(evidence_artifacts, evidence_calls, artifact_by_call),
         judge_version=judge_version,
     )
 
 
-def judge_rules(
-    trace: Trace,
+def _judge_call_sequence(
+    calls: tuple[TraceToolCall, ...],
     rules: Iterable[RuleInput | Sequence[str]],
     *,
-    evidence_artifact: ArtifactRef | None = None,
-    judge_version: str = "rule-v1",
+    evidence_artifacts: tuple[ArtifactRef, ...],
+    artifact_by_call: Mapping[int, ArtifactRef],
+    judge_version: str,
 ) -> tuple[AssertionResult, ...]:
-    """Evaluate tool-call rules in trace order with one result per rule."""
-
-    calls = trace_tool_calls(trace)
     results: list[AssertionResult] = []
     seen_ids: set[str] = set()
 
@@ -634,7 +638,8 @@ def judge_rules(
                 _evaluate_rule(
                     rule,
                     calls,
-                    evidence_artifact=evidence_artifact,
+                    evidence_artifacts=evidence_artifacts,
+                    artifact_by_call=artifact_by_call,
                     judge_version=judge_version,
                 )
             )
@@ -653,6 +658,62 @@ def judge_rules(
                 )
             )
     return tuple(results)
+
+
+def judge_rules(
+    trace: Trace,
+    rules: Iterable[RuleInput | Sequence[str]],
+    *,
+    evidence_artifact: ArtifactRef | None = None,
+    judge_version: str = "rule-v1",
+) -> tuple[AssertionResult, ...]:
+    """Evaluate tool-call rules in one trace with one result per rule."""
+
+    calls = trace_tool_calls(trace)
+    artifacts = (evidence_artifact,) if evidence_artifact is not None else ()
+    artifact_by_call = (
+        {id(call): evidence_artifact for call in calls}
+        if evidence_artifact is not None
+        else {}
+    )
+    return _judge_call_sequence(
+        calls,
+        rules,
+        evidence_artifacts=artifacts,
+        artifact_by_call=artifact_by_call,
+        judge_version=judge_version,
+    )
+
+
+def judge_rules_across_traces(
+    traces: Sequence[Trace],
+    rules: Iterable[RuleInput | Sequence[str]],
+    *,
+    evidence_artifacts: Sequence[ArtifactRef],
+    judge_version: str = "rule-v1",
+) -> tuple[AssertionResult, ...]:
+    """Evaluate rules over a complete multi-turn trace sequence."""
+
+    canonical_traces = tuple(traces)
+    canonical_artifacts = tuple(evidence_artifacts)
+    if not canonical_traces:
+        raise ValueError("at least one trace is required")
+    if len(canonical_traces) != len(canonical_artifacts):
+        raise ValueError("each trace requires its matching evidence artifact")
+
+    calls: list[TraceToolCall] = []
+    artifact_by_call: dict[int, ArtifactRef] = {}
+    for trace, artifact in zip(canonical_traces, canonical_artifacts, strict=True):
+        trace_calls = trace_tool_calls(trace)
+        calls.extend(trace_calls)
+        artifact_by_call.update({id(call): artifact for call in trace_calls})
+    return _judge_call_sequence(
+        tuple(calls),
+        rules,
+        evidence_artifacts=canonical_artifacts,
+        artifact_by_call=artifact_by_call,
+        judge_version=judge_version,
+    )
 
 
 rule_judge = judge_rules

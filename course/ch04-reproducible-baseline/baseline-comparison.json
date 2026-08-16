@@ -1,0 +1,31 @@
+{
+  "schema_version": "v1alpha1",
+  "record_type": "lesson_baseline_comparison",
+  "outcome_source": {
+    "kind": "synthetic_fixture",
+    "measured": false,
+    "estimated": false,
+    "scope": "hand-authored offline records for the reporting exercise"
+  },
+  "live_provider_projection": {
+    "kind": "estimated",
+    "measured": false,
+    "estimated": true,
+    "scope": "illustrative only; no live provider run"
+  },
+  "records": [
+    {"case_id": "return-a", "iteration": 0, "status": "pass"},
+    {"case_id": "return-a", "iteration": 1, "status": "pass"},
+    {"case_id": "return-b", "iteration": 0, "status": "pass"},
+    {"case_id": "return-b", "iteration": 1, "status": "agent_fail"},
+    {"case_id": "return-c", "iteration": 0, "status": "agent_fail"},
+    {"case_id": "return-c", "iteration": 1, "status": "agent_fail"}
+  ],
+  "expected": {
+    "k": 2,
+    "passed_first": 2,
+    "sample_size": 3,
+    "pass_at_1": "0.6666666666666666",
+    "pass_power_k": "0.3333333333333333"
+  }
+}
