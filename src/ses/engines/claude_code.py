@@ -21,9 +21,20 @@ from ses.foundation.config import LockedModel
 from ses.foundation.credentials import (
     ProviderCredentials,
     build_claude_environment,
+    credential_values,
     redact,
 )
 from ses.foundation.workspace import CaseWorkspace
+
+_FILESYSTEM_TOOLS = (
+    "Bash",
+    "Edit",
+    "Glob",
+    "Grep",
+    "NotebookEdit",
+    "Read",
+    "Write",
+)
 
 
 class ClaudeCodeEngine:
@@ -44,6 +55,11 @@ class ClaudeCodeEngine:
         self._workspace = workspace
         self._executable = executable
         self._source_environment = dict(os.environ if environ is None else environ)
+        self._secrets = tuple(
+            dict.fromkeys(
+                (*credential_values(self._source_environment), credentials.api_key)
+            )
+        )
         self._system_prompt = system_prompt
         self._running: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
@@ -51,6 +67,12 @@ class ClaudeCodeEngine:
 
     def build_command(self, request: EngineRequest) -> list[str]:
         """Build an argv array; credentials never enter this value."""
+        forbidden = set(request.allowed_tools) & set(_FILESYSTEM_TOOLS)
+        if forbidden:
+            raise ValueError(
+                "case engine cannot enable filesystem tools: "
+                + ", ".join(sorted(forbidden))
+            )
         command = [
             self._executable,
             "--bare",
@@ -60,6 +82,8 @@ class ClaudeCodeEngine:
             "--verbose",
             "--permission-mode",
             "dontAsk",
+            "--disallowedTools",
+            ",".join(_FILESYSTEM_TOOLS),
         ]
         if request.resume_session_id is not None:
             command.extend(("--resume", request.resume_session_id))
@@ -100,15 +124,16 @@ class ClaudeCodeEngine:
         return True
 
     async def stream(self, request: EngineRequest) -> AsyncIterator[EngineEvent]:
-        command = self.build_command(request)
-        environment = self.build_environment()
-        parser = ClaudeStreamParser(secrets=(self._credentials.api_key,))
+        parser = ClaudeStreamParser(secrets=self._secrets)
         sequence = 0
-        terminal = False
+        pending_completed: CompletedPayload | None = None
+        stream_failed = False
         process: asyncio.subprocess.Process | None = None
         stderr_task: asyncio.Task[bytes] | None = None
 
         try:
+            command = self.build_command(request)
+            environment = self.build_environment()
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=self._workspace.root,
@@ -143,22 +168,19 @@ class ClaudeCodeEngine:
                             sequence=sequence,
                             payload=ErrorPayload(
                                 error_code="malformed_stream",
-                                message=redact(str(exc), (self._credentials.api_key,)),
+                                message=redact(str(exc), self._secrets),
                             ),
                         )
                         sequence += 1
-                        terminal = True
-                        yield make_event(
-                            request_id=request.request_id,
-                            sequence=sequence,
-                            payload=CompletedPayload(
-                                exit_status=EngineExitStatus.ERROR
-                            ),
+                        stream_failed = True
+                        pending_completed = CompletedPayload(
+                            exit_status=EngineExitStatus.ERROR
                         )
                         break
                     for payload in payloads:
                         if isinstance(payload, CompletedPayload):
-                            terminal = True
+                            pending_completed = payload
+                            continue
                         yield make_event(
                             request_id=request.request_id,
                             sequence=sequence,
@@ -167,33 +189,64 @@ class ClaudeCodeEngine:
                         sequence += 1
                 return_code = await process.wait()
 
-            if not terminal:
-                cancelled = request.request_id in self._cancelled
-                if cancelled:
-                    status = EngineExitStatus.CANCELLED
-                elif return_code != 0:
-                    status = EngineExitStatus.ERROR
-                else:
-                    status = EngineExitStatus.ERROR
-                if not cancelled:
-                    detail = await self._stderr_detail(stderr_task)
-                    code = "process_exit" if return_code != 0 else "missing_result"
-                    message = (
-                        f"claude exited with code {return_code}: {detail}"
-                        if return_code != 0
-                        else "claude stream ended without a result event"
-                    )
-                    yield make_event(
-                        request_id=request.request_id,
-                        sequence=sequence,
-                        payload=ErrorPayload(error_code=code, message=message),
-                    )
-                    sequence += 1
+            # A clean Claude parent exit does not prove MCP children exited. Reap the
+            # entire process group before exposing the terminal event.
+            await self._stop_process(process)
+            cancelled = request.request_id in self._cancelled
+            if cancelled:
                 yield make_event(
                     request_id=request.request_id,
                     sequence=sequence,
                     payload=CompletedPayload(
-                        exit_status=status,
+                        exit_status=EngineExitStatus.CANCELLED,
+                        session_id=parser.session_id,
+                    ),
+                )
+            elif stream_failed:
+                assert pending_completed is not None
+                yield make_event(
+                    request_id=request.request_id,
+                    sequence=sequence,
+                    payload=pending_completed,
+                )
+            elif return_code != 0:
+                detail = await self._stderr_detail(stderr_task)
+                yield make_event(
+                    request_id=request.request_id,
+                    sequence=sequence,
+                    payload=ErrorPayload(
+                        error_code="process_exit",
+                        message=f"claude exited with code {return_code}: {detail}",
+                    ),
+                )
+                yield make_event(
+                    request_id=request.request_id,
+                    sequence=sequence + 1,
+                    payload=CompletedPayload(
+                        exit_status=EngineExitStatus.ERROR,
+                        session_id=parser.session_id,
+                    ),
+                )
+            elif pending_completed is not None:
+                yield make_event(
+                    request_id=request.request_id,
+                    sequence=sequence,
+                    payload=pending_completed,
+                )
+            else:
+                yield make_event(
+                    request_id=request.request_id,
+                    sequence=sequence,
+                    payload=ErrorPayload(
+                        error_code="missing_result",
+                        message="claude stream ended without a result event",
+                    ),
+                )
+                yield make_event(
+                    request_id=request.request_id,
+                    sequence=sequence + 1,
+                    payload=CompletedPayload(
+                        exit_status=EngineExitStatus.ERROR,
                         session_id=parser.session_id,
                     ),
                 )
@@ -216,13 +269,16 @@ class ClaudeCodeEngine:
                     session_id=parser.session_id,
                 ),
             )
-        except OSError as exc:
-            detail = redact(str(exc), (self._credentials.api_key,))
+        except (OSError, ValueError) as exc:
+            detail = redact(str(exc), self._secrets)
+            error_code = (
+                "unsafe_request" if isinstance(exc, ValueError) else "process_start"
+            )
             yield make_event(
                 request_id=request.request_id,
                 sequence=sequence,
                 payload=ErrorPayload(
-                    error_code="process_start",
+                    error_code=error_code,
                     message=f"cannot start claude: {detail}",
                 ),
             )
@@ -236,7 +292,7 @@ class ClaudeCodeEngine:
                 await self._stop_process(process)
             raise
         finally:
-            if process is not None and process.returncode is None:
+            if process is not None:
                 await self._stop_process(process)
             if stderr_task is not None and not stderr_task.done():
                 stderr_task.cancel()
@@ -251,29 +307,33 @@ class ClaudeCodeEngine:
         except (OSError, asyncio.CancelledError):
             return "no error detail"
         detail = raw.decode("utf-8", errors="replace").strip() or "no error detail"
-        return redact(detail, (self._credentials.api_key,)).replace("\n", " ")[:600]
+        return redact(detail, self._secrets).replace("\n", " ")[:600]
 
     @staticmethod
     async def _stop_process(process: asyncio.subprocess.Process) -> None:
-        if process.returncode is not None:
-            return
-        try:
-            if sys.platform != "win32":
+        if sys.platform != "win32":
+            try:
                 os.killpg(process.pid, signal.SIGTERM)
-            else:
-                process.terminate()
-        except ProcessLookupError:
-            return
-        try:
-            await asyncio.wait_for(process.wait(), timeout=1)
-            return
-        except TimeoutError:
-            pass
-        try:
-            if sys.platform != "win32":
+            except ProcessLookupError:
+                pass
+            if process.returncode is None:
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=0.2)
+                except TimeoutError:
+                    pass
+            await asyncio.sleep(0.05)
+            try:
                 os.killpg(process.pid, signal.SIGKILL)
-            else:
+            except ProcessLookupError:
+                pass
+            if process.returncode is None:
                 process.kill()
-        except ProcessLookupError:
+                await process.wait()
             return
-        await process.wait()
+        if process.returncode is None:
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=0.2)
+            except TimeoutError:
+                process.kill()
+                await process.wait()

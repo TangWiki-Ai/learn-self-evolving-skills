@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,11 +19,14 @@ from urllib.parse import urlparse
 
 from ses.contracts import (
     CompletedPayload,
+    EngineEvent,
     EngineEventKind,
     EngineExitStatus,
     EngineRequest,
     RecordType,
     SchemaVersion,
+    ToolCallPayload,
+    ToolResultPayload,
 )
 from ses.engines.claude_code import ClaudeCodeEngine
 from ses.foundation.config import (
@@ -36,6 +40,7 @@ from ses.foundation.config import (
 from ses.foundation.credentials import (
     ProviderCredentials,
     build_claude_environment,
+    credential_values,
     read_siliconflow_credentials,
 )
 from ses.foundation.credentials import redact as redact
@@ -98,9 +103,12 @@ def check_claude(executable: str = "claude") -> str:
     return f"{resolved} ({version[0] if version else 'version unknown'})"
 
 
-def check_claude_isolation() -> CheckResult:
+def check_claude_isolation(
+    environ: Mapping[str, str] | None = None,
+) -> CheckResult:
     """Report shell provider state without reading personal Claude files."""
-    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    source = os.environ if environ is None else environ
+    base_url = source.get("ANTHROPIC_BASE_URL")
     if not base_url:
         detail = "不读取个人 settings、Skill 或 memory; 运行使用 --bare 和临时配置。"
         return CheckResult("PASS", "Claude isolation", detail)
@@ -109,13 +117,14 @@ def check_claude_isolation() -> CheckResult:
     return CheckResult("WARN", "Claude isolation", detail)
 
 
-def _run_check(name: str, check: Any) -> CheckResult:
+def _run_check(name: str, check: Any, *, secrets: Sequence[str] = ()) -> CheckResult:
     try:
         return CheckResult("PASS", name, str(check()))
     except SmokeError as exc:
-        return CheckResult("FAIL", name, str(exc))
+        return CheckResult("FAIL", name, redact(str(exc), secrets))
     except Exception as exc:  # Keep user diagnostics actionable.
-        return CheckResult("FAIL", name, f"未预期错误: {type(exc).__name__}: {exc}")
+        detail = redact(str(exc), secrets)
+        return CheckResult("FAIL", name, f"未预期错误: {type(exc).__name__}: {detail}")
 
 
 def _load_runtime(
@@ -128,7 +137,7 @@ def _load_runtime(
             CheckResult(
                 "SKIP",
                 "Configuration",
-                "未提供 --config; Phase 0 兼容模式使用锁定的主模型默认值。",
+                "未提供 --config; offline 检查不会选择或运行模型。",
             ),
         )
     try:
@@ -212,7 +221,7 @@ async def _live_model_and_mcp(
     environ: Mapping[str, str],
 ) -> tuple[CheckResult, CheckResult]:
     server = Path(__file__).with_name("phase0_mcp.py")
-    workspace = WorkspaceFactory(project_root / ".ses" / "doctor-workspaces").create(
+    workspace = WorkspaceFactory().create(
         run_id="doctor",
         case_id="phase0",
         iteration_id="live",
@@ -246,14 +255,10 @@ async def _live_model_and_mcp(
         )
         events = [event async for event in engine.stream(request)]
     finally:
-        shutil.rmtree(workspace.root)
+        shutil.rmtree(workspace.cleanup_root or workspace.root)
     has_model = any(
         event.payload.kind in {EngineEventKind.TEXT_DELTA, EngineEventKind.TOOL_CALL}
         for event in events
-    )
-    has_call = any(event.payload.kind is EngineEventKind.TOOL_CALL for event in events)
-    has_result = any(
-        event.payload.kind is EngineEventKind.TOOL_RESULT for event in events
     )
     completed = events[-1].payload if events else None
     success = (
@@ -266,14 +271,46 @@ async def _live_model_and_mcp(
         "Model",
         f"{host} / {model.model_id} / {len(events)} canonical events",
     )
-    mcp_result = CheckResult(
-        "PASS" if has_call and has_result and success else "FAIL",
-        "MCP",
-        "tool call/result verified"
-        if has_call and has_result
-        else "missing tool call/result",
-    )
+    mcp_result = validate_mcp_exchange(events)
+    if not success and mcp_result.status == "PASS":
+        mcp_result = CheckResult("FAIL", "MCP", "engine did not complete successfully")
     return model_result, mcp_result
+
+
+def validate_mcp_exchange(events: Sequence[EngineEvent]) -> CheckResult:
+    """Verify one exact ping call and its successful correlated pong result."""
+    calls = [
+        event.payload for event in events if isinstance(event.payload, ToolCallPayload)
+    ]
+    results = [
+        event.payload
+        for event in events
+        if isinstance(event.payload, ToolResultPayload)
+    ]
+    if len(calls) != 1 or len(results) != 1:
+        return CheckResult("FAIL", "MCP", "expected exactly one tool call and result")
+    call = calls[0]
+    result = results[0]
+    if call.tool_name != MCP_TOOL_NAME:
+        return CheckResult("FAIL", "MCP", "unexpected tool name")
+    if dict(call.arguments) != {"value": PING_VALUE}:
+        return CheckResult("FAIL", "MCP", "unexpected ping arguments")
+    if result.tool_call_id != call.tool_call_id:
+        return CheckResult("FAIL", "MCP", "tool result does not match the call")
+    if result.is_error:
+        return CheckResult("FAIL", "MCP", "ping tool returned is_error=true")
+    content = result.content
+    exact_pong = content == PING_RESULT
+    if isinstance(content, tuple) and len(content) == 1:
+        block = content[0]
+        exact_pong = (
+            isinstance(block, Mapping)
+            and block.get("type") == "text"
+            and block.get("text") == PING_RESULT
+        )
+    if not exact_pong:
+        return CheckResult("FAIL", "MCP", "ping result content did not match")
+    return CheckResult("PASS", "MCP", "exact correlated phase0 pong verified")
 
 
 def run_doctor(
@@ -286,14 +323,20 @@ def run_doctor(
 ) -> list[CheckResult]:
     """Run checks in local tools, config, data, model, MCP order."""
     source_environment = os.environ if environ is None else environ
+    secrets = credential_values(source_environment)
     config, lock, config_result = _load_runtime(project_root, config_path)
     executable = config.claude_executable if config is not None else "claude"
+    claude_result = _run_check(
+        "Claude Code", lambda: check_claude(executable), secrets=secrets
+    )
     results = [
-        _run_check("Python", check_python),
-        _run_check("Claude Code", lambda: check_claude(executable)),
-        check_claude_isolation(),
+        _run_check("Python", check_python, secrets=secrets),
+        claude_result,
+        check_claude_isolation(source_environment),
         config_result,
-        _run_check("Data", lambda: check_local_data(project_root, config)),
+        _run_check(
+            "Data", lambda: check_local_data(project_root, config), secrets=secrets
+        ),
     ]
     if not live:
         results.extend(
@@ -303,11 +346,39 @@ def run_doctor(
             )
         )
         return results
-    if config_result.status == "FAIL":
+    if config is None or lock is None:
         results.extend(
             (
-                CheckResult("SKIP", "Model", "配置无效, 未启动模型。"),
-                CheckResult("SKIP", "MCP", "配置无效, 未启动 MCP。"),
+                CheckResult(
+                    "FAIL", "Model", "live 检查需要严格 config 和 model lock。"
+                ),
+                CheckResult("SKIP", "MCP", "缺少 config/model lock。"),
+            )
+        )
+        return results
+    if claude_result.status == "FAIL":
+        results.extend(
+            (
+                CheckResult("FAIL", "Model", "Claude Code 本地检查失败。"),
+                CheckResult("SKIP", "MCP", "Claude Code 不可用。"),
+            )
+        )
+        return results
+    if (
+        re.search(
+            rf"(?<!\d){re.escape(lock.engine_version)}(?!\d)", claude_result.detail
+        )
+        is None
+    ):
+        results.extend(
+            (
+                CheckResult(
+                    "FAIL",
+                    "Model",
+                    f"Claude Code version mismatch: lock={lock.engine_version}; "
+                    f"observed={claude_result.detail}",
+                ),
+                CheckResult("SKIP", "MCP", "Claude Code 版本与 lock 不一致。"),
             )
         )
         return results
@@ -321,11 +392,7 @@ def run_doctor(
             )
         )
         return results
-    model = (
-        lock.roles[ModelRole.MAIN]
-        if lock is not None
-        else LockedModel(model_id=DEFAULT_MODEL, base_url=SILICONFLOW_BASE_URL)
-    )
+    model = lock.roles[ModelRole.MAIN]
     try:
         model_result, mcp_result = asyncio.run(
             _live_model_and_mcp(
@@ -338,7 +405,7 @@ def run_doctor(
             )
         )
     except Exception as exc:  # Keep live failures actionable and secret-free.
-        detail = redact(str(exc), (credentials.api_key,))
+        detail = redact(str(exc), (*secrets, credentials.api_key))
         model_result = CheckResult("FAIL", "Model", f"live check failed: {detail}")
         mcp_result = CheckResult("SKIP", "MCP", "模型检查未完成。")
     results.extend((model_result, mcp_result))

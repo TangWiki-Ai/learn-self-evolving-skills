@@ -51,6 +51,7 @@ class FakeFixture(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     events: tuple[FakeStep, ...] = ()
+    session_id: str = Field(default="fake-session-1", min_length=1)
     exit_code: int = 0
     timeout: bool = False
     malformed_event: bool = False
@@ -125,6 +126,7 @@ class FakeEngine:
     async def stream(self, request: EngineRequest) -> AsyncIterator[EngineEvent]:
         sequence = 0
         terminal = False
+        session_id = request.resume_session_id or self._fixture.session_id
         self._active.add(request.request_id)
         try:
             for step in self._fixture.events:
@@ -132,11 +134,15 @@ class FakeEngine:
                     await asyncio.sleep(step.delay_seconds)
                 if request.request_id in self._cancelled:
                     break
-                terminal = isinstance(step.payload, CompletedPayload)
+                payload = step.payload
+                if isinstance(payload, CompletedPayload):
+                    terminal = True
+                    if payload.exit_status is EngineExitStatus.SUCCESS:
+                        payload = payload.model_copy(update={"session_id": session_id})
                 yield make_event(
                     request_id=request.request_id,
                     sequence=sequence,
-                    payload=step.payload,
+                    payload=payload,
                 )
                 sequence += 1
             if request.request_id in self._cancelled:
@@ -205,7 +211,10 @@ class FakeEngine:
                 yield make_event(
                     request_id=request.request_id,
                     sequence=sequence,
-                    payload=CompletedPayload(exit_status=EngineExitStatus.SUCCESS),
+                    payload=CompletedPayload(
+                        exit_status=EngineExitStatus.SUCCESS,
+                        session_id=session_id,
+                    ),
                 )
         finally:
             self._active.discard(request.request_id)

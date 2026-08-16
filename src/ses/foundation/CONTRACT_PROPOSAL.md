@@ -11,12 +11,15 @@ not add substitute models to `ses.contracts`.
 
 - Fields: `schema_version: Literal["v1alpha1"]`,
   `record_type: Literal["runtime_config"]`, `models_lock: RelativeArtifactPath`,
-  `data_manifest: RelativeArtifactPath`, `workspace_root: RelativeArtifactPath`,
+  `data_manifest: RelativeArtifactPath`,
+  `workspace_root: RelativeArtifactPath | None`,
   `claude_executable: NonEmptyStr`.
 - Producer: Foundation Runtime.
 - Consumers: Engine factory, Evaluator, CLI.
 - Invariants: frozen, unknown fields rejected, project paths are relative and cannot
-  traverse parents, and credential/provider-secret fields are forbidden.
+  traverse parents, and credential/provider-secret fields are forbidden. A null
+  workspace root selects a fresh system-temporary boundary outside the repository;
+  repository-local workspaces require an explicit opt-in.
 
 ### `ModelLock`
 

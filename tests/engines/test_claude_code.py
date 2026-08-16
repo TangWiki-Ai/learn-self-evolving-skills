@@ -34,7 +34,12 @@ def _request(*, timeout: float = 2, resume: str | None = None) -> EngineRequest:
     )
 
 
-def _engine(tmp_path: Path, executable: str) -> ClaudeCodeEngine:
+def _engine(
+    tmp_path: Path,
+    executable: str,
+    *,
+    environ: dict[str, str] | None = None,
+) -> ClaudeCodeEngine:
     workspace = WorkspaceFactory(tmp_path / "workspaces").create(
         run_id="run-1",
         case_id="case-1",
@@ -49,7 +54,7 @@ def _engine(tmp_path: Path, executable: str) -> ClaudeCodeEngine:
         credentials=ProviderCredentials(api_key="exact-process-secret"),
         workspace=workspace,
         executable=executable,
-        environ={"PATH": os.environ.get("PATH", "")},
+        environ=environ or {"PATH": os.environ.get("PATH", "")},
         system_prompt="Use only the allowed shop tools.",
     )
 
@@ -82,10 +87,14 @@ def test_command_is_an_array_with_bare_stream_json_resume_and_no_key(
     ]
     assert command[command.index("--resume") + 1] == "session-previous"
     assert command[command.index("--allowedTools") + 1] == "get_order,return_item"
+    disallowed = command[command.index("--disallowedTools") + 1].split(",")
+    assert {"Bash", "Read", "Write", "Edit", "Glob", "Grep"} <= set(disallowed)
     assert command[-1] == "Handle the return."
     assert "exact-process-secret" not in "\0".join(command)
     assert environment["ANTHROPIC_API_KEY"] == "exact-process-secret"
-    assert environment["CLAUDE_CONFIG_DIR"].endswith(".claude-isolated")
+    assert environment["CLAUDE_CONFIG_DIR"].endswith("claude-config")
+    assert environment["HOME"] == str(engine._workspace.cleanup_root)
+    assert environment["HOME"] != str(Path.home())
 
 
 def test_subprocess_stream_is_normalized_and_secret_is_redacted(tmp_path: Path) -> None:
@@ -187,17 +196,30 @@ def test_nonzero_exit_is_redacted_and_canonical(tmp_path: Path) -> None:
         executable,
         """
 import sys
-sys.stderr.write("Authorization: Bearer exact-process-secret")
+sys.stderr.write("Authorization: Bearer exact-process-secret ordinary-github-secret")
 raise SystemExit(9)
 """,
     )
 
-    events = asyncio.run(_collect(_engine(tmp_path, str(executable)), _request()))
+    events = asyncio.run(
+        _collect(
+            _engine(
+                tmp_path,
+                str(executable),
+                environ={
+                    "PATH": os.environ.get("PATH", ""),
+                    "GITHUB_TOKEN": "ordinary-github-secret",
+                },
+            ),
+            _request(),
+        )
+    )
 
     assert isinstance(events[-2].payload, ErrorPayload)
     assert isinstance(events[-1].payload, CompletedPayload)
     assert events[-2].payload.error_code == "process_exit"
     assert "exact-process-secret" not in events[-2].payload.message
+    assert "ordinary-github-secret" not in events[-2].payload.message
     assert events[-1].payload.exit_status is EngineExitStatus.ERROR
 
 
@@ -210,3 +232,103 @@ def test_process_start_failure_is_canonical(tmp_path: Path) -> None:
     assert isinstance(events[-1].payload, CompletedPayload)
     assert events[-2].payload.error_code == "process_start"
     assert events[-1].payload.exit_status is EngineExitStatus.ERROR
+
+
+def test_filesystem_tool_request_is_rejected_as_canonical_error(tmp_path: Path) -> None:
+    request = _request().model_copy(update={"allowed_tools": ("Read",)})
+
+    events = asyncio.run(
+        _collect(_engine(tmp_path, str(tmp_path / "unused-claude")), request)
+    )
+
+    assert isinstance(events[-2].payload, ErrorPayload)
+    assert isinstance(events[-1].payload, CompletedPayload)
+    assert events[-2].payload.error_code == "unsafe_request"
+    assert events[-1].payload.exit_status is EngineExitStatus.ERROR
+
+
+def test_success_result_followed_by_nonzero_exit_emits_one_failed_completion(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "result-then-fail"
+    _write_executable(
+        executable,
+        """
+import json
+print(json.dumps({"type":"result","subtype":"success","is_error":False,"session_id":"session-1"}), flush=True)
+raise SystemExit(7)
+""",
+    )
+
+    events = asyncio.run(_collect(_engine(tmp_path, str(executable)), _request()))
+    completed = [
+        event.payload for event in events if isinstance(event.payload, CompletedPayload)
+    ]
+
+    assert len(completed) == 1
+    assert completed[0].exit_status is EngineExitStatus.ERROR
+    assert any(
+        isinstance(event.payload, ErrorPayload)
+        and event.payload.error_code == "process_exit"
+        for event in events
+    )
+
+
+def test_success_result_followed_by_hang_emits_one_timeout_completion(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "result-then-hang"
+    _write_executable(
+        executable,
+        """
+import json
+import time
+print(json.dumps({"type":"result","subtype":"success","is_error":False,"session_id":"session-1"}), flush=True)
+time.sleep(30)
+""",
+    )
+
+    events = asyncio.run(
+        _collect(_engine(tmp_path, str(executable)), _request(timeout=0.3))
+    )
+    completed = [
+        event.payload for event in events if isinstance(event.payload, CompletedPayload)
+    ]
+
+    assert len(completed) == 1
+    assert completed[0].exit_status is EngineExitStatus.TIMEOUT
+
+
+def test_cleanup_kills_mcp_child_after_claude_parent_exits(tmp_path: Path) -> None:
+    executable = tmp_path / "orphaning-claude"
+    _write_executable(
+        executable,
+        """
+import json
+import subprocess
+import sys
+from pathlib import Path
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(30)"],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+Path("mcp-child.pid").write_text(str(child.pid))
+print(json.dumps({"type":"result","subtype":"success","is_error":False,"session_id":"session-1"}), flush=True)
+""",
+    )
+    engine = _engine(tmp_path, str(executable))
+
+    events = asyncio.run(_collect(engine, _request()))
+    child_pid = int((engine._workspace.root / "mcp-child.pid").read_text())
+
+    assert isinstance(events[-1].payload, CompletedPayload)
+    assert events[-1].payload.exit_status is EngineExitStatus.SUCCESS
+    try:
+        os.kill(child_pid, 0)
+    except ProcessLookupError:
+        pass
+    else:
+        os.kill(child_pid, signal.SIGKILL)
+        raise AssertionError("MCP child survived Claude process cleanup")

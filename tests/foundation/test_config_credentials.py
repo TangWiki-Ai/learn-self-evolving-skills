@@ -4,16 +4,20 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from ses.foundation.config import (
     ConfigurationError,
     ModelRole,
+    RuntimeConfig,
     load_model_lock,
     load_runtime_config,
 )
 from ses.foundation.credentials import (
     CredentialError,
     build_claude_environment,
+    credential_values,
+    is_sensitive_name,
     read_siliconflow_credentials,
     redact,
     redact_data,
@@ -59,6 +63,12 @@ def test_config_and_models_lock_are_strict_and_credential_free(tmp_path: Path) -
     assert "key" not in lock.model_dump_json().casefold()
     with pytest.raises(TypeError):
         lock.roles[ModelRole.MAIN] = role  # type: ignore[index]
+
+
+def test_runtime_config_defaults_to_system_temporary_workspaces() -> None:
+    config = RuntimeConfig(schema_version="v1alpha1")
+
+    assert config.workspace_root is None
 
 
 @pytest.mark.parametrize(
@@ -122,6 +132,12 @@ def test_claude_environment_removes_global_provider_state(tmp_path: Path) -> Non
             "ANTHROPIC_BASE_URL": "https://old.invalid/",
             "CLAUDE_CODE_USE_VERTEX": "1",
             "SILICONFLOW_API_KEY": "new-secret",
+            "OPENAI_API_KEY": "openai-secret",
+            "AWS_SECRET_ACCESS_KEY": "aws-secret",
+            "GITHUB_TOKEN": "github-secret",
+            "SHOP_API_KEY": "shop-secret",
+            "UNRELATED_VALUE": "must-not-inherit",
+            "LANG": "en_US.UTF-8",
         },
         credentials,
         base_url="https://api.siliconflow.cn/",
@@ -136,6 +152,31 @@ def test_claude_environment_removes_global_provider_state(tmp_path: Path) -> Non
     assert "ANTHROPIC_AUTH_TOKEN" not in child
     assert "CLAUDE_CODE_USE_VERTEX" not in child
     assert "SILICONFLOW_API_KEY" not in child
+    assert "OPENAI_API_KEY" not in child
+    assert "AWS_SECRET_ACCESS_KEY" not in child
+    assert "GITHUB_TOKEN" not in child
+    assert "SHOP_API_KEY" not in child
+    assert "UNRELATED_VALUE" not in child
+    assert child["LANG"] == "en_US.UTF-8"
+    assert child["HOME"] == str(tmp_path.parent)
+
+
+def test_sensitive_name_detection_and_value_collection_share_one_policy() -> None:
+    environment = {
+        "OPENAI_API_KEY": "ordinary-openai-secret",
+        "AWS_SESSION_TOKEN": "ordinary-aws-secret",
+        "GH_TOKEN": "ordinary-github-secret",
+        "SHOP_PASSWORD": "ordinary-shop-secret",
+        "PATH": "/usr/bin",
+    }
+
+    assert all(is_sensitive_name(name) for name in environment if name != "PATH")
+    assert set(credential_values(environment)) == {
+        "ordinary-openai-secret",
+        "ordinary-aws-secret",
+        "ordinary-github-secret",
+        "ordinary-shop-secret",
+    }
 
 
 def test_redaction_covers_nested_fields_headers_and_known_values() -> None:
@@ -153,3 +194,38 @@ def test_redaction_covers_nested_fields_headers_and_known_values() -> None:
     assert "another-value" not in rendered
     assert "sk-example123456789" not in rendered
     assert redact("x-api-key=abc", ()) == "x-api-key=[REDACTED]"
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"schema_version": "v1alpha1", "password": "plain-string-secret"},
+        {
+            "schema_version": "v1alpha1",
+            "nested": {"credentials": {"value": "nested-plain-secret"}},
+        },
+    ],
+)
+def test_config_validation_errors_never_include_input_values(
+    tmp_path: Path, document: object
+) -> None:
+    path = tmp_path / "ses.json"
+    _write_json(path, document)
+
+    with pytest.raises(ConfigurationError) as captured:
+        load_runtime_config(path)
+
+    message = str(captured.value)
+    assert "plain-string-secret" not in message
+    assert "nested-plain-secret" not in message
+    assert "input_value" not in message
+
+
+def test_direct_pydantic_error_hides_plain_string_input() -> None:
+    with pytest.raises(ValidationError) as captured:
+        RuntimeConfig.model_validate(
+            {"schema_version": "v1alpha1", "password": "direct-plain-secret"}
+        )
+
+    assert "direct-plain-secret" not in str(captured.value)
+    assert "input_value" not in str(captured.value)

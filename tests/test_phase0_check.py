@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -144,6 +146,41 @@ class McpServerTests(unittest.TestCase):
             responses[2]["result"]["content"][0]["text"],
             phase0_check.PING_RESULT,
         )
+
+
+class CleanCheckoutTests(unittest.TestCase):
+    def test_phase0_script_bootstraps_src_layout_without_installing_package(
+        self,
+    ) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / "checkout"
+            (checkout / "scripts").mkdir(parents=True)
+            shutil.copytree(ROOT / "src", checkout / "src")
+            shutil.copy2(
+                ROOT / "scripts" / "phase0_check.py",
+                checkout / "scripts" / "phase0_check.py",
+            )
+            environment = {"PATH": os.environ.get("PATH", "")}
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    str(checkout / "scripts" / "phase0_check.py"),
+                    "--help",
+                ],
+                cwd=checkout,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("usage: ses doctor", completed.stdout)
 
 
 if __name__ == "__main__":

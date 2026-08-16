@@ -9,20 +9,17 @@ from pathlib import Path
 from typing import TypeVar
 
 SILICONFLOW_KEY_ENV = "SILICONFLOW_API_KEY"
-_PROVIDER_ENV_NAMES = frozenset(
+_SAFE_ENV_NAMES = frozenset(
     {
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_CUSTOM_HEADERS",
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL",
-        "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_FOUNDRY",
-        "CLAUDE_CODE_USE_VERTEX",
-        SILICONFLOW_KEY_ENV,
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "NODE_EXTRA_CA_CERTS",
+        "PATH",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TMPDIR",
+        "TZ",
     }
 )
 _KEY_PATTERN = re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{8,}")
@@ -31,8 +28,8 @@ _HEADER_PATTERN = re.compile(
     r"anthropic-api-key|api[_-]?key)\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+"
 )
 _SENSITIVE_NAME_PATTERN = re.compile(
-    r"(?i)(?:api[_-]?key|authorization|credential|password|secret|cookie|"
-    r"(?:access|auth|bearer|id|refresh|session)[_-]?token)$"
+    r"(?:^|_)(?:api_?key|authorization|auth|credential|credentials|password|"
+    r"passwd|secret|secrets|cookie|cookies|token|tokens|private_?key)($|_)"
 )
 
 
@@ -66,6 +63,29 @@ def read_siliconflow_credentials(
     return ProviderCredentials(api_key=value)
 
 
+def _normalize_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
+
+
+def is_sensitive_name(value: str) -> bool:
+    """Use one policy for environment names and structured fields."""
+    normalized = _normalize_name(value)
+    if normalized in {"input_tokens", "output_tokens"}:
+        return False
+    return _SENSITIVE_NAME_PATTERN.search(normalized) is not None
+
+
+def credential_values(environ: Mapping[str, str]) -> tuple[str, ...]:
+    """Collect known secret values for exception and output redaction."""
+    return tuple(
+        dict.fromkeys(
+            value
+            for name, value in environ.items()
+            if is_sensitive_name(name) and value
+        )
+    )
+
+
 def build_claude_environment(
     source: Mapping[str, str],
     credentials: ProviderCredentials,
@@ -75,9 +95,7 @@ def build_claude_environment(
     config_dir: Path,
 ) -> dict[str, str]:
     """Build an isolated child environment without retaining global providers."""
-    child = {
-        key: value for key, value in source.items() if key not in _PROVIDER_ENV_NAMES
-    }
+    child = {key: source[key] for key in _SAFE_ENV_NAMES if key in source}
     child.update(
         {
             "ANTHROPIC_API_KEY": credentials.api_key,
@@ -87,6 +105,7 @@ def build_claude_environment(
             "ANTHROPIC_DEFAULT_SONNET_MODEL": model_id,
             "ANTHROPIC_DEFAULT_OPUS_MODEL": model_id,
             "CLAUDE_CONFIG_DIR": str(config_dir),
+            "HOME": str(config_dir.parent),
         }
     )
     return child
@@ -111,8 +130,8 @@ def redact_data(value: T, secrets: Sequence[str] = ()) -> T:
     if isinstance(value, Mapping):
         cleaned: dict[object, object] = {}
         for key, child in value.items():
-            if isinstance(key, str) and _SENSITIVE_NAME_PATTERN.search(key):
-                cleaned[key] = "[REDACTED]"
+            if isinstance(key, str) and is_sensitive_name(key):
+                cleaned[f"redacted_field_{len(cleaned)}"] = "[REDACTED]"
             else:
                 cleaned[key] = redact_data(child, secrets)
         return cleaned  # type: ignore[return-value]

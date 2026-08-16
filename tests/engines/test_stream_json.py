@@ -115,3 +115,30 @@ def test_parser_emits_structured_error_before_failed_completion() -> None:
     assert isinstance(payloads[-1], CompletedPayload)
     assert payloads[-2].error_code == "error_max_turns"
     assert payloads[-1].exit_status is EngineExitStatus.ERROR
+
+
+def test_parser_removes_nested_sensitive_field_names_and_values() -> None:
+    payload = ClaudeStreamParser().parse_line(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "id": "message-1",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "tool-1",
+                            "name": "shop",
+                            "input": {
+                                "nested": {"SHOP_API_KEY": "nested-plain-secret"}
+                            },
+                        }
+                    ],
+                },
+            }
+        )
+    )[0]
+
+    rendered = payload.model_dump_json()
+    assert "SHOP_API_KEY" not in rendered
+    assert "nested-plain-secret" not in rendered

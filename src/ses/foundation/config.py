@@ -14,6 +14,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictStr,
+    ValidationError,
     field_serializer,
     field_validator,
 )
@@ -26,7 +27,12 @@ class ConfigurationError(ValueError):
 class StrictModel(BaseModel):
     """Base for immutable configuration models."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        strict=True,
+        hide_input_in_errors=True,
+    )
 
 
 class ModelRole(StrEnum):
@@ -105,16 +111,23 @@ class RuntimeConfig(StrictModel):
     schema_version: StrictStr = Field(pattern=r"^v1alpha1$")
     models_lock: StrictStr = "models.lock.json"
     data_manifest: StrictStr = "data/upstream/manifest.json"
-    workspace_root: StrictStr = ".ses/workspaces"
+    workspace_root: StrictStr | None = None
     claude_executable: StrictStr = "claude"
 
-    @field_validator("models_lock", "data_manifest", "workspace_root")
+    @field_validator("models_lock", "data_manifest")
     @classmethod
     def _relative_project_path(cls, value: str) -> str:
         path = Path(value)
         if path.is_absolute() or ".." in path.parts or not value.strip():
             raise ValueError("project paths must be non-empty relative paths")
         return path.as_posix()
+
+    @field_validator("workspace_root")
+    @classmethod
+    def _optional_workspace_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return cls._relative_project_path(value)
 
     @field_validator("claude_executable")
     @classmethod
@@ -139,9 +152,9 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     """Load a runtime file with strict schema and unknown-field rejection."""
     try:
         return RuntimeConfig.model_validate(_load_json(path))
-    except ValueError as exc:
+    except ValidationError as exc:
         raise ConfigurationError(
-            f"invalid runtime configuration {path}: {exc}"
+            f"invalid runtime configuration {path}: {_validation_summary(exc)}"
         ) from exc
 
 
@@ -149,5 +162,16 @@ def load_model_lock(path: Path) -> ModelLock:
     """Load all concrete model identifiers from one immutable lock file."""
     try:
         return ModelLock.model_validate(_load_json(path))
-    except ValueError as exc:
-        raise ConfigurationError(f"invalid models lock {path}: {exc}") from exc
+    except ValidationError as exc:
+        raise ConfigurationError(
+            f"invalid models lock {path}: {_validation_summary(exc)}"
+        ) from exc
+
+
+def _validation_summary(error: ValidationError) -> str:
+    """Format validation failures without Pydantic raw input values."""
+    parts: list[str] = []
+    for item in error.errors(include_input=False, include_url=False):
+        location = ".".join(str(part) for part in item["loc"]) or "$"
+        parts.append(f"{location}: {item['msg']}")
+    return "; ".join(parts)

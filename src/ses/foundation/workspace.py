@@ -10,6 +10,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ses.foundation.credentials import is_sensitive_name
+
 _CREDENTIAL_NAMES = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -29,6 +31,7 @@ class CaseWorkspace:
     root: Path
     claude_config_dir: Path
     mcp_config: Path | None = None
+    cleanup_root: Path | None = None
 
 
 def _safe_relative_path(value: str) -> Path:
@@ -41,9 +44,10 @@ def _safe_relative_path(value: str) -> Path:
 class WorkspaceFactory:
     """Create unique case directories by copying only explicit inputs."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path | None = None) -> None:
         self._root = root
-        self._root.mkdir(parents=True, exist_ok=True)
+        if self._root is not None:
+            self._root.mkdir(parents=True, exist_ok=True)
 
     def create(
         self,
@@ -57,8 +61,16 @@ class WorkspaceFactory:
     ) -> CaseWorkspace:
         identity = "\0".join((run_id, case_id, iteration_id)).encode()
         prefix = "case-" + hashlib.sha256(identity).hexdigest()[:12] + "-"
-        root = Path(tempfile.mkdtemp(prefix=prefix, dir=self._root))
-        config_dir = root / ".claude-isolated"
+        boundary = Path(
+            tempfile.mkdtemp(
+                prefix=prefix,
+                dir=self._root,
+            )
+        )
+        boundary.chmod(0o700)
+        root = boundary / "workspace"
+        root.mkdir(mode=0o700)
+        config_dir = boundary / "claude-config"
         config_dir.mkdir(mode=0o700)
 
         for source, destination in files:
@@ -82,7 +94,10 @@ class WorkspaceFactory:
                 encoding="utf-8",
             )
         return CaseWorkspace(
-            root=root, claude_config_dir=config_dir, mcp_config=mcp_path
+            root=root,
+            claude_config_dir=config_dir,
+            mcp_config=mcp_path,
+            cleanup_root=boundary,
         )
 
     @staticmethod
@@ -121,7 +136,7 @@ class WorkspaceFactory:
             ):
                 raise WorkspaceError("MCP env must map strings to strings")
             clean_env = {
-                key: value for key, value in env.items() if key not in _CREDENTIAL_NAMES
+                key: value for key, value in env.items() if not is_sensitive_name(key)
             }
             clean_env.update({key: "" for key in _CREDENTIAL_NAMES})
             scrubbed[name] = {

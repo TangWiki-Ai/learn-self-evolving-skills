@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Compatibility entrypoint for the package-owned doctor."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 from ses.foundation.doctor import (
     ABCD_COMMIT,
     DEFAULT_MODEL,

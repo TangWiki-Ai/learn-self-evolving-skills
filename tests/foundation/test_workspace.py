@@ -1,11 +1,47 @@
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from ses.foundation.workspace import WorkspaceError, WorkspaceFactory
+
+
+def test_default_workspace_is_outside_repo_and_cases_do_not_share_a_parent(
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "gold.json").write_text("hidden gold", encoding="utf-8")
+    personal_claude = tmp_path / "home" / ".claude"
+    personal_claude.mkdir(parents=True)
+    (personal_claude / "settings.json").write_text("private", encoding="utf-8")
+
+    first = WorkspaceFactory().create(
+        run_id="run", case_id="case-1", iteration_id="iteration"
+    )
+    second = WorkspaceFactory().create(
+        run_id="run", case_id="case-2", iteration_id="iteration"
+    )
+    assert first.cleanup_root is not None
+    assert second.cleanup_root is not None
+    first_cleanup = first.cleanup_root
+    second_cleanup = second.cleanup_root
+    request.addfinalizer(lambda: shutil.rmtree(first_cleanup, ignore_errors=True))
+    request.addfinalizer(lambda: shutil.rmtree(second_cleanup, ignore_errors=True))
+
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    assert temp_root in first.root.resolve().parents
+    assert repository.resolve() not in first.root.resolve().parents
+    assert Path.cwd().resolve() not in first.root.resolve().parents
+    assert first.root.parent != second.root.parent
+    assert not (first.root / "../gold.json").resolve().is_file()
+    assert not (first.root / f"../{second.cleanup_root.name}").resolve().exists()
+    assert not (first.root / "../.claude/settings.json").resolve().is_file()
 
 
 def test_each_case_gets_unique_allowlist_only_workspace(tmp_path: Path) -> None:
@@ -52,6 +88,7 @@ def test_mcp_config_cannot_receive_credentials(tmp_path: Path) -> None:
                 "env": {
                     "SHOP_FIXTURE": "case.json",
                     "SILICONFLOW_API_KEY": "must-not-survive",
+                    "SHOP_API_KEY": "shop-secret-must-not-survive",
                 },
             }
         },
@@ -62,6 +99,8 @@ def test_mcp_config_cannot_receive_credentials(tmp_path: Path) -> None:
     config = json.loads(rendered)
     env = config["mcpServers"]["shop"]["env"]
     assert "must-not-survive" not in rendered
+    assert "shop-secret-must-not-survive" not in rendered
+    assert "SHOP_API_KEY" not in env
     assert env["SILICONFLOW_API_KEY"] == ""
     assert env["ANTHROPIC_API_KEY"] == ""
     assert env["SHOP_FIXTURE"] == "case.json"

@@ -14,6 +14,8 @@ from ses.contracts import (
     ErrorPayload,
     RecordType,
     SchemaVersion,
+    Trace,
+    UsagePayload,
 )
 from ses.engines.fake import (
     FakeEngine,
@@ -54,6 +56,7 @@ def test_fake_replays_text_tools_usage_and_terminal_event() -> None:
     ]
     assert isinstance(events[-1].payload, CompletedPayload)
     assert events[-1].payload.exit_status is EngineExitStatus.SUCCESS
+    assert events[-1].payload.session_id == "fake-session-1"
 
 
 @pytest.mark.parametrize(
@@ -125,3 +128,32 @@ def test_fake_fixture_rejects_unknown_and_malformed_fields(tmp_path: Path) -> No
 def test_fake_fixture_rejects_conflicting_terminal_modes() -> None:
     with pytest.raises(ValueError, match="mutually exclusive"):
         FakeFixture(timeout=True, exit_code=1)
+
+
+def test_fake_events_form_a_canonical_trace() -> None:
+    request = _request()
+    events = asyncio.run(
+        _collect(FakeEngine(load_fake_fixture(FIXTURES / "success.json")))
+    )
+    usage = next(
+        event.payload.usage
+        for event in events
+        if isinstance(event.payload, UsagePayload)
+    )
+
+    trace = Trace(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.TRACE,
+        trace_id="trace-1",
+        run_id="run-1",
+        case_id="case-1",
+        iteration_id="iteration-1",
+        session_id="fake-session-1",
+        request=request,
+        events=tuple(events),
+        usage=usage,
+        exit_status=EngineExitStatus.SUCCESS,
+    )
+
+    assert trace.events == tuple(events)
+    assert trace.session_id == "fake-session-1"
