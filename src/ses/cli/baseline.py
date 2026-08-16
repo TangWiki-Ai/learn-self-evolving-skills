@@ -39,6 +39,11 @@ def _new_run_id() -> str:
     return f"run-baseline-{timestamp}-{uuid.uuid4().hex[:8]}"
 
 
+def _safe_error(exc: Exception) -> str:
+    message = str(exc)
+    return type(exc).__name__ if "/" in message or "\\" in message else message
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the standalone parser without touching credentials or the network."""
     parser = argparse.ArgumentParser(
@@ -61,13 +66,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--skill-hash", default=_EMPTY_SKILL_HASH)
     parser.add_argument("--protocol-version", default="ses-runner-v1")
+    parser.add_argument(
+        "--catalog-manifest",
+        type=Path,
+        help="Qualified develop manifest; defaults to the canonical Ticket 07 catalog.",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the offline baseline and return 2 only for a clean budget stop."""
     args = build_parser().parse_args(argv)
-    catalog = load_develop_catalog()
+    try:
+        catalog = load_develop_catalog(args.catalog_manifest)
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"baseline_error: {_safe_error(exc)}", file=sys.stderr)
+        return 1
     case_ids = tuple(args.cases or catalog)
     unknown = sorted(set(case_ids) - set(catalog))
     if unknown:
@@ -106,7 +120,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         html_path = args.html or completed.run_dir / "l1.html"
         write_l1_html(completed.events_path, html_path)
     except (OSError, TypeError, ValueError) as exc:
-        print(f"baseline_error: {exc}", file=sys.stderr)
+        print(f"baseline_error: {_safe_error(exc)}", file=sys.stderr)
         return 1
     payload = {
         "run_id": completed.run_id,

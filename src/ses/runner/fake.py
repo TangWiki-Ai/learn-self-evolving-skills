@@ -9,7 +9,6 @@ import os
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-from importlib.resources import as_file, files
 from pathlib import Path
 from typing import cast
 
@@ -35,7 +34,7 @@ from ses.contracts import (
 )
 from ses.contracts.runner import RunArtifacts, RunnerStatus
 from ses.engines.base import Engine
-from ses.engines.fake import FakeEngine, FakeFixture, FakeStep, load_fake_fixture
+from ses.engines.fake import FakeEngine, FakeFixture, FakeStep
 from ses.evaluation import (
     aggregate_case_grade,
     judge_rules_across_traces,
@@ -49,7 +48,7 @@ from ses.evaluation import (
 from ses.evaluator.multi_turn import MultiTurnEvaluator, MultiTurnOutcome
 from ses.foundation.workspace import WorkspaceFactory
 from ses.runner.baseline import CaseEvaluation, EvaluationContext
-from ses.shop import PINNED_CASE_FIXTURE, CaseEnvironment, ReturnCaseFixture, state_diff
+from ses.shop import CaseEnvironment, ReturnCaseFixture, state_diff
 from ses.simulation import FakeSimulator, UserIntent
 
 
@@ -59,35 +58,106 @@ class ExecutableDevelopCase:
 
     fixture: ReturnCaseFixture
     expected_actions: tuple[tuple[str, Mapping[str, JsonValue]], ...]
+    qualification_hash: str
+    manifest_data_version: str
 
 
-def _expected_actions(
-    fixture: ReturnCaseFixture,
-) -> tuple[tuple[str, Mapping[str, JsonValue]], ...]:
-    return (
-        ("get_order", {"order_id": fixture.order.order_id}),
-        ("get_policies", {"topic": "return"}),
-        (
-            "process_return",
-            {"item_id": fixture.item.item_id, "reason": "defective"},
-        ),
-        (
-            "process_return",
-            {
-                "item_id": fixture.item.item_id,
-                "reason": "defective",
-                "confirm": True,
-                "amount_minor": fixture.product.price.amount_minor,
-            },
-        ),
+def _verify_reference(root: Path, value: object) -> Path:
+    if not isinstance(value, Mapping):
+        raise ValueError("develop catalog artifact reference is invalid")
+    relative = value.get("path")
+    expected = value.get("sha256")
+    if not isinstance(relative, str) or not isinstance(expected, str):
+        raise ValueError("develop catalog artifact reference is incomplete")
+    reference = ArtifactRef(
+        root=ArtifactRoot.RUN,
+        path=relative,
+        sha256=expected,
     )
+    resolved_root = root.resolve()
+    path = (root / reference.path).resolve()
+    if not path.is_relative_to(resolved_root):
+        raise ValueError("develop catalog artifact escapes its manifest root")
+    reference.verify_bytes(path.read_bytes())
+    return path
 
 
-def load_develop_catalog() -> Mapping[str, ExecutableDevelopCase]:
-    """Load every currently executable develop case from the Shop package."""
-    fixture = PINNED_CASE_FIXTURE.model_copy(deep=True)
-    case = ExecutableDevelopCase(fixture, _expected_actions(fixture))
-    return {fixture.case_id: case}
+def load_develop_catalog(
+    manifest_path: Path | None = None,
+) -> Mapping[str, ExecutableDevelopCase]:
+    """Load qualified executable cases from the versioned develop manifest."""
+
+    if manifest_path is None:
+        manifest_path = (
+            Path(__file__).resolve().parents[3]
+            / "data"
+            / "testset"
+            / "ticket07"
+            / "generated"
+            / "develop-manifest.json"
+        )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("develop manifest must be an object")
+    cases = payload.get("cases")
+    data_version = payload.get("data_version")
+    if not isinstance(cases, list) or not isinstance(data_version, str):
+        raise ValueError("develop manifest is incomplete")
+    root = manifest_path.parent
+    _verify_reference(root, payload.get("qualification_manifest"))
+    version_body = dict(payload)
+    version_body.pop("data_version", None)
+    computed_data_version = hashlib.sha256(
+        json.dumps(
+            version_body,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if computed_data_version != data_version:
+        raise ValueError("develop manifest data_version does not match its content")
+    catalog: dict[str, ExecutableDevelopCase] = {}
+    for row in cases:
+        if not isinstance(row, Mapping):
+            raise ValueError("develop manifest case is invalid")
+        case_id = row.get("case_id")
+        actions = row.get("expected_actions")
+        qualification_hash = row.get("qualification_hash")
+        if (
+            not isinstance(case_id, str)
+            or not isinstance(actions, list)
+            or not isinstance(qualification_hash, str)
+        ):
+            raise ValueError("develop manifest case is incomplete")
+        fixture_path = _verify_reference(root, row.get("fixture"))
+        fixture = ReturnCaseFixture.model_validate_json(
+            fixture_path.read_text(encoding="utf-8")
+        )
+        if fixture.case_id != case_id:
+            raise ValueError("develop fixture identity does not match manifest")
+        parsed_actions: list[tuple[str, Mapping[str, JsonValue]]] = []
+        for action in actions:
+            if not isinstance(action, Mapping):
+                raise ValueError("develop expected action is invalid")
+            tool_name = action.get("tool_name")
+            arguments = action.get("arguments")
+            if not isinstance(tool_name, str) or not isinstance(arguments, Mapping):
+                raise ValueError("develop expected action is incomplete")
+            parsed_actions.append(
+                (tool_name, cast(Mapping[str, JsonValue], dict(arguments)))
+            )
+        if case_id in catalog:
+            raise ValueError("develop manifest case IDs must be unique")
+        catalog[case_id] = ExecutableDevelopCase(
+            fixture=fixture,
+            expected_actions=tuple(parsed_actions),
+            qualification_hash=qualification_hash,
+            manifest_data_version=data_version,
+        )
+    if len(catalog) < 15:
+        raise ValueError("qualified develop catalog must contain at least 15 cases")
+    return catalog
 
 
 def develop_catalog_sha256(
@@ -103,6 +173,8 @@ def develop_catalog_sha256(
                 {"tool_name": tool_name, "arguments": dict(arguments)}
                 for tool_name, arguments in case.expected_actions
             ],
+            "qualification_hash": case.qualification_hash,
+            "manifest_data_version": case.manifest_data_version,
         }
         for case_id, case in sorted(catalog.items())
     ]
@@ -184,10 +256,51 @@ class _ShopBoundEngine:
         return await self._engine.cancel(request_id)
 
 
-def _load_action_fixture() -> FakeFixture:
-    resource = files("ses.evaluator").joinpath("fixtures/pinned_return_success.json")
-    with as_file(resource) as path:
-        return load_fake_fixture(path)
+def _action_fixture(case: ExecutableDevelopCase) -> FakeFixture:
+    steps: list[FakeStep] = [
+        FakeStep(
+            payload=TextDeltaPayload(
+                message_id="message-1",
+                text="I will inspect the order, review policy, and process the return.",
+            )
+        )
+    ]
+    for index, (tool_name, arguments) in enumerate(case.expected_actions):
+        tool_call_id = f"tool-{index:02d}-{tool_name}"
+        steps.extend(
+            (
+                FakeStep(
+                    payload=ToolCallPayload(
+                        message_id="message-1",
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                    )
+                ),
+                FakeStep(
+                    payload=ToolResultPayload(
+                        tool_call_id=tool_call_id,
+                        content={"fixture_placeholder": True},
+                        is_error=False,
+                    )
+                ),
+            )
+        )
+    steps.extend(
+        (
+            FakeStep(
+                payload=TextDeltaPayload(
+                    message_id="message-2", text="The return operation is complete."
+                )
+            ),
+            FakeStep(
+                payload=UsagePayload(usage=Usage(input_tokens=137, output_tokens=61))
+            ),
+        )
+    )
+    return FakeFixture(
+        session_id=f"session-{case.fixture.case_id}", events=tuple(steps)
+    )
 
 
 def _artifact_ref(run_dir: Path, path: Path) -> ArtifactRef:
@@ -300,7 +413,7 @@ class DevelopCatalogEvaluator:
                 )
             )
             engine = _ShopBoundEngine(
-                _SequencedFakeEngine(_load_action_fixture()), environment
+                _SequencedFakeEngine(_action_fixture(case)), environment
             )
             multi = await MultiTurnEvaluator(
                 engine,

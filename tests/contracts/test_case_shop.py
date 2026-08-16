@@ -79,15 +79,19 @@ def test_case_definition_round_trips_with_public_inputs_only() -> None:
     assert restored.split is CaseSplit.DEVELOP
 
 
-def test_case_split_only_exposes_the_issue_2_partition() -> None:
-    assert list(CaseSplit) == [CaseSplit.DEVELOP]
+def test_case_split_exposes_only_the_partitions_persisted_through_issue_7() -> None:
+    assert list(CaseSplit) == [
+        CaseSplit.DEVELOP,
+        CaseSplit.SELECTION,
+        CaseSplit.FINAL,
+    ]
 
 
 @pytest.mark.parametrize(
     "split",
-    ["creator", "selection", "final", "trigger_eval"],
+    ["creator", "trigger_eval"],
 )
-def test_case_definition_rejects_future_partitions(split: str) -> None:
+def test_case_definition_rejects_unimplemented_partitions(split: str) -> None:
     data = _case().model_dump(mode="json")
     data["split"] = split
 

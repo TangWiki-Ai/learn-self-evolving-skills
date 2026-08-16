@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.cli import doctor, skill_demo
+from ses.cli import baseline, doctor, qualify_cases, skill_demo
 from ses.evaluator import SingleCaseRunError, run_pinned_case
 from ses.foundation.credentials import credential_values, redact
 from ses.reporting import l1_json_bytes, load_l1_result, render_l1_text
@@ -27,6 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "skill-demo", help="Compare a return case without and with a demo Skill."
     )
+    commands.add_parser(
+        "qualify-cases", help="Verify candidates and build the develop catalog."
+    )
+    commands.add_parser("baseline", help="Run the offline develop L1 baseline.")
     return parser
 
 
@@ -103,6 +107,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _inspect_main(command_args)
     if command == "skill-demo":
         return skill_demo.main(command_args)
+    if command == "qualify-cases":
+        return qualify_cases.main(command_args)
+    if command == "baseline":
+        return baseline.main(command_args)
     build_parser().parse_args(values)
     return 2
 

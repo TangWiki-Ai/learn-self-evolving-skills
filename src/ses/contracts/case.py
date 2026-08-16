@@ -16,9 +16,11 @@ from ses.contracts.primitives import (
 
 
 class CaseSplit(StrEnum):
-    """Executable-case partition supported by Issue #2."""
+    """Persisted executable-case partitions used through Issue #7."""
 
     DEVELOP = "develop"
+    SELECTION = "selection"
+    FINAL = "final"
 
 
 class CaseDefinition(VersionedRecord):

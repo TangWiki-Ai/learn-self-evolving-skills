@@ -8,8 +8,8 @@ from pathlib import Path
 
 from ses.runner import develop_catalog_sha256, load_develop_catalog
 
-CASE_ID = "state-bench-customer-support-2-return-defective-electronics"
 ROOT = Path(__file__).parents[2]
+CASE_ID = next(iter(load_develop_catalog()))
 
 
 def _run(output_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -53,8 +53,8 @@ def test_python_module_runs_repeated_offline_baseline_and_renders_html(
     payload = json.loads(completed.stdout)
     assert payload["run_id"] == "run-cli-baseline"
     assert payload["metrics"] == {
-        "sample_size": 1,
-        "iteration_sample_size": 2,
+        "sample_size": 15,
+        "iteration_sample_size": 30,
         "pass_at_1": 1.0,
         "pass_power_k": 1.0,
         "k": 2,
@@ -77,6 +77,8 @@ def test_cli_runs_catalog_case_through_multiturn_judges_and_links_artifacts(
         tmp_path,
         "--run-id",
         "run-cli-pipeline",
+        "--case",
+        CASE_ID,
         "--json",
     )
 
@@ -143,7 +145,14 @@ def test_public_l1_artifacts_do_not_leak_private_fields_credentials_or_local_pat
 def test_resume_is_idempotent_and_explicit_rerun_appends_a_new_iteration(
     tmp_path: Path,
 ) -> None:
-    first = _run(tmp_path, "--run-id", "run-cli-resume", "--json")
+    first = _run(
+        tmp_path,
+        "--run-id",
+        "run-cli-resume",
+        "--case",
+        CASE_ID,
+        "--json",
+    )
     assert first.returncode == 0, first.stderr
     events_path = tmp_path / "run-cli-resume" / "events.jsonl"
     prefix = events_path.read_bytes()
@@ -153,6 +162,8 @@ def test_resume_is_idempotent_and_explicit_rerun_appends_a_new_iteration(
         "--run-id",
         "run-cli-resume",
         "--resume",
+        "--case",
+        CASE_ID,
         "--json",
     )
     assert resumed.returncode == 0, resumed.stderr
@@ -163,6 +174,8 @@ def test_resume_is_idempotent_and_explicit_rerun_appends_a_new_iteration(
         "--run-id",
         "run-cli-resume",
         "--resume",
+        "--case",
+        CASE_ID,
         "--rerun",
         CASE_ID,
         "--json",

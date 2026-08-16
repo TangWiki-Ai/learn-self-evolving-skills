@@ -26,6 +26,7 @@
 - Shop-owned `ToolResult` 不保存 Engine transport ID；`EngineEvent.ToolResultPayload.tool_call_id` 独占调用关联。Shop JSON 拒绝二进制浮点，业务金额使用 `Money` wire shape。
 - Judge 在构造 `EvidenceRef` 前，由调用方先持久化 source record 并注入 `ArtifactRef`。这项顺序属于 Evaluator/Runner orchestration，不属于 Judge 或 artifact contract。
 - Contracts 只保存跨 seam 的事实。Provider 原始 payload、Shop 内部对象和 Judge 业务逻辑留在生产者模块。
+- `CaseSplit` 只包含 Ticket 07 已经持久化并执行写保护的 `develop`、`selection` 和 `final`。`selection`、`final` 可用于验证锁定 manifest，但 qualification 入口只允许写 `develop`。
 
 ## Change process
 
@@ -34,4 +35,4 @@
 3. 消费者 rebase 后适配；适配完成前不合并 contract 变更。
 4. 只有所有 producer/consumer 同步更新后，才能在当前 alpha 版本增加字段。已发布 artifact 的不兼容变更创建新 schema version 和显式迁移器；已持久化字段不原地改义。
 
-Issue #2 之外的字段不要提前加入。领域 lane 发现缺口时，在 handoff 中记录 proposal，而不是创建第二套 model。
+当前 Ticket 之外的字段不要提前加入。领域 lane 发现缺口时，在 handoff 中记录 proposal，而不是创建第二套 model。
