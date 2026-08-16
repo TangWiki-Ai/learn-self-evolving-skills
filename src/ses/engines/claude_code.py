@@ -65,6 +65,18 @@ class ClaudeCodeEngine:
         self._cancelled: set[str] = set()
         self._lock = asyncio.Lock()
 
+    @property
+    def model(self) -> LockedModel:
+        """Return the immutable model binding used to build every command."""
+
+        return self._model
+
+    @property
+    def workspace(self) -> CaseWorkspace:
+        """Return the workspace in which every request executes."""
+
+        return self._workspace
+
     def build_command(self, request: EngineRequest) -> list[str]:
         """Build an argv array; credentials never enter this value."""
         forbidden = set(request.allowed_tools) & set(_FILESYSTEM_TOOLS)

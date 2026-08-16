@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 
 from pydantic import JsonValue, model_validator
 
@@ -28,11 +30,16 @@ from ses.contracts import (
     ToolCallPayload,
 )
 from ses.engines.base import Engine
+from ses.engines.claude_code import ClaudeCodeEngine
+from ses.engines.fake import FakeEngine
 from ses.evaluation.evidence_extractor import (
     EvidenceBundle,
     evidence_json_bytes,
     evidence_sha256,
 )
+from ses.foundation.config import LockedModel
+from ses.foundation.credentials import ProviderCredentials
+from ses.foundation.workspace import CaseWorkspace, WorkspaceFactory
 
 RUBRIC_PROMPT_VERSION = "rubric-prompt-v2"
 MODEL_PROTOCOL_VERSION = "llm-assertion-json-v2"
@@ -66,12 +73,20 @@ class Rubric(ContractModel):
     criterion: str
 
 
+class JudgeResponseSource(StrEnum):
+    """How the response consumed by a Judge was actually obtained."""
+
+    LIVE_ENGINE = "live_engine"
+    FIXED_RESPONSE = "fixed_response"
+
+
 class JudgeModelConfig(ContractModel):
-    """Locked model identity and inference settings that affect judgment."""
+    """Engine-attested response identity and settings that affect judgment."""
 
     model_id: str
     model_lock_version: str
     model_parameters: Mapping[str, JsonValue]
+    response_source: JudgeResponseSource
 
     @property
     def sha256(self) -> Sha256Digest:
@@ -114,6 +129,7 @@ class JudgeProtocolMetadata(ContractModel):
     evidence_sha256: Sha256Digest
     judge_model_id: str
     model_lock_version: str
+    response_source: JudgeResponseSource
     model_config_sha256: Sha256Digest
     model_protocol_version: str
     model_protocol_sha256: Sha256Digest
@@ -145,6 +161,131 @@ def _sha256_json(value: object) -> Sha256Digest:
             value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
     ).hexdigest()
+
+
+class BoundJudgeEngine:
+    """An exact Engine paired with provenance derived from its execution source."""
+
+    __slots__ = ("_engine", "_model", "_workspace")
+    _engine: Engine
+    _model: JudgeModelConfig
+    _workspace: CaseWorkspace | None
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise TypeError("use BoundJudgeEngine.from_fake or .production")
+
+    @classmethod
+    def _create(
+        cls,
+        *,
+        engine: Engine,
+        workspace: CaseWorkspace | None,
+    ) -> BoundJudgeEngine:
+        if workspace is not None:
+            if workspace.mcp_config is not None:
+                raise ValueError("Judge workspace must not contain MCP configuration")
+            if any(workspace.root.iterdir()):
+                raise ValueError("Judge workspace must start empty")
+        if type(engine) is FakeEngine:
+            digest = _sha256_json(engine.fixture.model_dump(mode="json"))
+            model = JudgeModelConfig(
+                model_id="ses/fixed-response-fixture",
+                model_lock_version=f"fake-fixture:sha256:{digest}",
+                model_parameters={},
+                response_source=JudgeResponseSource.FIXED_RESPONSE,
+            )
+        elif type(engine) is ClaudeCodeEngine:
+            if workspace is None or engine.workspace != workspace:
+                raise ValueError("Claude Judge must use its bound workspace")
+            digest = _sha256_json(engine.model.model_dump(mode="json"))
+            model = JudgeModelConfig(
+                model_id=engine.model.model_id,
+                model_lock_version=f"locked-model:sha256:{digest}",
+                model_parameters={},
+                response_source=JudgeResponseSource.LIVE_ENGINE,
+            )
+        else:
+            raise TypeError("Judge Engine must be created by a supported factory")
+        instance = object.__new__(cls)
+        instance._engine = engine
+        instance._model = model
+        instance._workspace = workspace
+        return instance
+
+    @classmethod
+    def from_fake(cls, engine: FakeEngine) -> BoundJudgeEngine:
+        """Bind a replay to a provenance identity derived from its exact fixture."""
+
+        return cls._from_fake_in_workspace(engine, workspace=None)
+
+    @classmethod
+    def _from_fake_in_workspace(
+        cls,
+        engine: FakeEngine,
+        *,
+        workspace: CaseWorkspace | None,
+    ) -> BoundJudgeEngine:
+        if type(engine) is not FakeEngine:
+            raise TypeError("fixed Judge responses require an exact FakeEngine")
+        return cls._create(
+            engine=engine,
+            workspace=workspace,
+        )
+
+    @classmethod
+    def production(
+        cls,
+        *,
+        model: LockedModel,
+        credentials: ProviderCredentials,
+        workspace_factory: WorkspaceFactory | None = None,
+        executable: str = "claude",
+        environ: Mapping[str, str] | None = None,
+        system_prompt: str | None = None,
+        run_id: str = "llm-judge",
+        case_id: str = "read-only-evidence",
+        iteration_id: str = "0",
+    ) -> BoundJudgeEngine:
+        """Create a live Claude Judge and derive provenance from its locked model."""
+
+        factory = workspace_factory or WorkspaceFactory()
+        workspace = factory.create(
+            run_id=run_id,
+            case_id=case_id,
+            iteration_id=iteration_id,
+        )
+        engine = ClaudeCodeEngine(
+            model=model,
+            credentials=credentials,
+            workspace=workspace,
+            executable=executable,
+            environ=environ,
+            system_prompt=system_prompt,
+        )
+        return cls._create(
+            engine=engine,
+            workspace=workspace,
+        )
+
+    @property
+    def engine(self) -> Engine:
+        return self._engine
+
+    @property
+    def model(self) -> JudgeModelConfig:
+        return self._model
+
+    @property
+    def workspace(self) -> CaseWorkspace | None:
+        return self._workspace
+
+    def close(self) -> None:
+        """Remove only the workspace minted by the Judge factory."""
+
+        cleanup_root = self._workspace.cleanup_root if self._workspace else None
+        if cleanup_root is not None and cleanup_root.exists():
+            shutil.rmtree(cleanup_root)
 
 
 def _rubric_sha256(rubric: Rubric) -> Sha256Digest:
@@ -192,6 +333,7 @@ def _metadata(
         "evidence_sha256": evidence_sha256(evidence),
         "judge_model_id": model.model_id,
         "model_lock_version": model.model_lock_version,
+        "response_source": model.response_source.value,
         "model_config_sha256": model.sha256,
         "model_protocol_version": model_protocol_version,
         "model_protocol_sha256": model_protocol_sha256,
@@ -207,6 +349,7 @@ def _metadata(
         evidence_sha256=values["evidence_sha256"],
         judge_model_id=model.model_id,
         model_lock_version=model.model_lock_version,
+        response_source=model.response_source,
         model_config_sha256=values["model_config_sha256"],
         model_protocol_version=model_protocol_version,
         model_protocol_sha256=model_protocol_sha256,
@@ -359,17 +502,14 @@ def _artifact_matches(evidence: EvidenceBundle, artifact: ArtifactRef) -> bool:
     return artifact.sha256 == hashlib.sha256(evidence_json_bytes(evidence)).hexdigest()
 
 
-async def judge_llm(
-    engine: Engine,
+async def _judge_llm(
+    engine: BoundJudgeEngine,
     *,
     rubric: Rubric,
     evidence: EvidenceBundle,
     evidence_artifact: ArtifactRef,
-    model: JudgeModelConfig,
     timeout_seconds: float = 30,
 ) -> ModelJudgeRun:
-    """Rate one rubric in a single model pass with no retries or tools."""
-
     prompt = _render_llm_prompt(rubric=rubric, evidence=evidence)
     metadata = _metadata(
         judge=JudgeKind.LLM,
@@ -377,7 +517,7 @@ async def judge_llm(
         prompt=prompt,
         rubric=rubric,
         evidence=evidence,
-        model=model,
+        model=engine.model,
         model_protocol_version=MODEL_PROTOCOL_VERSION,
         model_protocol_sha256=MODEL_PROTOCOL_SHA256,
     )
@@ -395,7 +535,7 @@ async def judge_llm(
             request=request,
             reason="evidence artifact checksum does not match the supplied evidence",
         )
-    output = await _collect_engine_output(engine, request)
+    output = await _collect_engine_output(engine.engine, request)
     if output.error is not None:
         return _error_run(
             rubric=rubric,
@@ -442,3 +582,27 @@ async def judge_llm(
         request=request,
         raw_response=output.text,
     )
+
+
+async def judge_llm(
+    engine: BoundJudgeEngine,
+    *,
+    rubric: Rubric,
+    evidence: EvidenceBundle,
+    evidence_artifact: ArtifactRef,
+    timeout_seconds: float = 30,
+) -> ModelJudgeRun:
+    """Rate one rubric through an Engine with source-bound provenance."""
+
+    if type(engine) is not BoundJudgeEngine:
+        raise TypeError("LLM Judge requires a BoundJudgeEngine")
+    try:
+        return await _judge_llm(
+            engine,
+            rubric=rubric,
+            evidence=evidence,
+            evidence_artifact=evidence_artifact,
+            timeout_seconds=timeout_seconds,
+        )
+    finally:
+        engine.close()

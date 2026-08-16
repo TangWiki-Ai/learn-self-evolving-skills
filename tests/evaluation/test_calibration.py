@@ -23,6 +23,8 @@ def test_fixed_calibration_set_is_explicitly_human_reviewed() -> None:
     fixture = load_calibration_fixture(FIXTURE)
 
     assert fixture.dataset_id == "lesson-03-human-review-v2"
+    assert fixture.record_type.value == "calibration_fixture"
+    assert fixture.response_source == "course_authored_fixed_response"
     assert fixture.live_model_measured is False
     assert fixture.cases
     assert {case.label.review_status for case in fixture.cases} == {"human_reviewed"}
@@ -60,6 +62,9 @@ def test_calibration_reports_confusion_matrices_disagreements_and_actual_agreeme
     assert all(item.raw_fixed_response.startswith("{") for item in report.measurements)
     assert all(len(item.evidence_sha256) == 64 for item in report.measurements)
     assert all(len(item.protocol_sha256) == 64 for item in report.measurements)
+    assert {item.response_source.value for item in report.measurements} == {
+        "fixed_response"
+    }
 
 
 def test_calibration_requires_both_raw_fixed_responses() -> None:
@@ -91,6 +96,14 @@ def test_fixture_rejects_unreviewed_human_labels() -> None:
 
     with pytest.raises(ValueError):
         CalibrationFixture.model_validate(data)
+
+
+def test_fixture_loader_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    path = tmp_path / "duplicate.json"
+    path.write_text('{"dataset_id":"first","dataset_id":"second"}')
+
+    with pytest.raises(ValueError, match="duplicate key 'dataset_id'"):
+        load_calibration_fixture(path)
 
 
 def test_cli_executes_both_judges_before_measuring(

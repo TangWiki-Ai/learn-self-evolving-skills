@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from ses.contracts import (
     ArtifactRef,
@@ -25,17 +26,12 @@ from ses.evaluation.evidence_extractor import (
     evidence_json_bytes,
     extract_evidence,
 )
-from ses.evaluation.judges.agent import AgentJudgeEngine, judge_agent
-from ses.evaluation.judges.llm import JudgeModelConfig, Rubric
+from ses.evaluation.judges.agent import AgentDecision, AgentJudgeEngine, judge_agent
+from ses.evaluation.judges.llm import JudgeResponseSource, Rubric
 from ses.foundation.workspace import WorkspaceFactory
 from ses.shop import CaseEnvironment
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
-MODEL = JudgeModelConfig(
-    model_id="Qwen/Qwen3.6-35B-A3B",
-    model_lock_version="v1alpha1:843b2fc6",
-    model_parameters={"temperature": 0, "top_p": 1},
-)
 
 
 def _inputs() -> tuple[Rubric, EvidenceBundle, ArtifactRef]:
@@ -110,7 +106,6 @@ def test_agent_judge_receives_only_inline_read_only_evidence(
             rubric=rubric,
             evidence=evidence,
             evidence_artifact=artifact,
-            model=MODEL,
         )
     )
 
@@ -122,6 +117,7 @@ def test_agent_judge_receives_only_inline_read_only_evidence(
     assert "reference_trace" not in run.request.prompt
     assert "skill_source" not in run.request.prompt
     assert run.protocol.prompt_version == "evidence-agent-prompt-v2"
+    assert run.protocol.response_source is JudgeResponseSource.FIXED_RESPONSE
 
 
 def test_agent_judge_rejects_a_shop_write_tool_attempt() -> None:
@@ -137,7 +133,6 @@ def test_agent_judge_rejects_a_shop_write_tool_attempt() -> None:
             rubric=rubric,
             evidence=evidence,
             evidence_artifact=artifact,
-            model=MODEL,
         )
     )
 
@@ -157,7 +152,6 @@ def test_agent_judge_marks_malformed_output_as_judge_error() -> None:
             rubric=rubric,
             evidence=evidence,
             evidence_artifact=artifact,
-            model=MODEL,
         )
     )
 
@@ -176,12 +170,11 @@ def test_agent_judge_rejects_an_unattested_case_engine() -> None:
                 rubric=rubric,
                 evidence=evidence,
                 evidence_artifact=artifact,
-                model=MODEL,
             )
         )
 
 
-def test_agent_judge_wrapper_rejects_a_case_mcp_workspace(tmp_path: Path) -> None:
+def test_agent_judge_constructor_has_no_attestation_bypass(tmp_path: Path) -> None:
     raw_engine = FakeEngine(load_fake_fixture(FIXTURES / "judges" / "agent_pass.json"))
     case_workspace = WorkspaceFactory(tmp_path).create(
         run_id="case-run",
@@ -192,8 +185,8 @@ def test_agent_judge_wrapper_rejects_a_case_mcp_workspace(tmp_path: Path) -> Non
         },
     )
 
-    with pytest.raises(ValueError, match="must not contain MCP"):
-        AgentJudgeEngine(raw_engine, case_workspace, _validated=True)
+    with pytest.raises(TypeError, match=r"from_fake or \.production"):
+        AgentJudgeEngine(raw_engine, case_workspace)
 
 
 def test_tool_attempt_cannot_change_shop_snapshot() -> None:
@@ -212,7 +205,6 @@ def test_tool_attempt_cannot_change_shop_snapshot() -> None:
             rubric=rubric,
             evidence=evidence,
             evidence_artifact=artifact,
-            model=MODEL,
         )
     )
     after = shop.snapshot()
@@ -220,3 +212,14 @@ def test_tool_attempt_cannot_change_shop_snapshot() -> None:
 
     assert run.assertion.status is GradeStatus.ERROR
     assert before.model_copy(update={"snapshot_id": after.snapshot_id}) == after
+
+
+def test_agent_decision_requires_evidence_for_every_completed_check() -> None:
+    with pytest.raises(ValidationError, match="matching references"):
+        AgentDecision(
+            assertion_id="response-quality",
+            status=GradeStatus.PASS,
+            reason="Checked state and message.",
+            completed_checks=("state_diff_facts", "key_messages"),
+            evidence_references=("/key_messages/0/text",),
+        )

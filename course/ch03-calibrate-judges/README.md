@@ -34,8 +34,8 @@ solution/ 提供对应实现。Starter 不包含答案。
 1. 只比较应当相等的金额关系。确认金额、政策计算退款、最终退款和状态退款应一致；费用和折扣单独记录。
 2. 限制 evidence reference，只允许 state_diff_facts、tool_timeline、amount_reconciliation 和 key_messages。
 3. 为两个 Judge 设计不同、可验证的输出协议。
-4. 记录模型 ID、模型锁版本和模型配置 hash。任何模型变化都必须改变 protocol hash。
-5. 运行固定离线响应，而不是在 fixture 中直接填写 llm_status 或 agent_status。
+4. 记录实际响应来源。固定响应绑定 fixture hash；live 响应绑定执行器实际使用的 locked model。来源变化必须改变 protocol hash。
+5. 运行课程编写的固定离线响应，而不是在 fixture 中直接填写 llm_status 或 agent_status，也不能把这些响应冒充成某个 live 模型的输出。
 6. 只有两个固定协议真实执行后，才允许 agreement artifact 写 measured=true。
 
 ## 测试
@@ -46,12 +46,12 @@ solution/ 提供对应实现。Starter 不包含答案。
 
 ## 对照产物
 
-agreement-experiment.json 保存 4 条人工复核记录的实测结果：
+agreement-experiment.json 保存 4 条人工复核记录的固定协议测量结果：
 
 - Rubric LLM Judge：2 / 4 = 0.50
 - Evidence Agent Judge：3 / 4 = 0.75
 
-artifact 同时保存人工标签版本、原始固定响应、evidence hash，以及 rubric、prompt、extractor、模型配置和协议 hash。它明确写明 live_model_measured=false。这些数字只描述当前固定数据与协议，不能代表 live 模型准确率。
+artifact 同时保存人工标签版本、课程编写的固定响应、evidence hash，以及 rubric、prompt、extractor、响应来源和协议 hash。它明确写明 response_source=course_authored_fixed_response、live_model_measured=false。这些数字只描述当前固定数据与协议，不能代表 live 模型准确率。
 
 ## 拓展阅读
 

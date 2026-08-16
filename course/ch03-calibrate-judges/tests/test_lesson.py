@@ -76,6 +76,7 @@ def test_checked_in_agreement_artifact_is_protocol_traceable() -> None:
     assert artifact["measured"] is True
     assert artifact["fixed_offline_protocol_executed"] is True
     assert artifact["live_model_measured"] is False
+    assert artifact["response_source"] == "course_authored_fixed_response"
     assert artifact["human_label_version"] == "human-labels-v1"
     assert len(artifact["measurements"]) == 8
     required = {
@@ -86,6 +87,7 @@ def test_checked_in_agreement_artifact_is_protocol_traceable() -> None:
         "extractor_sha256",
         "judge_model_id",
         "model_lock_version",
+        "response_source",
         "model_config_sha256",
         "model_protocol_sha256",
         "protocol_sha256",

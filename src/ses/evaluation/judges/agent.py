@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from collections.abc import Mapping
 from typing import Literal
 
@@ -12,7 +11,6 @@ from pydantic import JsonValue, model_validator
 
 from ses.contracts import ArtifactRef, ContractModel, GradeStatus, JudgeKind
 from ses.engines.base import Engine
-from ses.engines.claude_code import ClaudeCodeEngine
 from ses.engines.fake import FakeEngine
 from ses.evaluation.evidence_extractor import EvidenceBundle, evidence_json_bytes
 from ses.foundation.config import LockedModel
@@ -20,6 +18,7 @@ from ses.foundation.credentials import ProviderCredentials
 from ses.foundation.workspace import CaseWorkspace, WorkspaceFactory
 
 from .llm import (
+    BoundJudgeEngine,
     JudgeModelConfig,
     ModelJudgeRun,
     Rubric,
@@ -33,10 +32,11 @@ from .llm import (
 )
 
 AGENT_PROMPT_VERSION = "evidence-agent-prompt-v2"
-AGENT_MODEL_PROTOCOL_VERSION = "agent-evidence-plan-json-v1"
+AGENT_MODEL_PROTOCOL_VERSION = "agent-evidence-plan-json-v2"
 _AGENT_MODEL_PROTOCOL = (
-    "ses.evaluation.agent-judge/agent-evidence-plan-json-v1|"
+    "ses.evaluation.agent-judge/agent-evidence-plan-json-v2|"
     "inspect-sections-before-conclusion|completed_checks:section[]|"
+    "completed-checks:matching-evidence-reference-required-for-pass-fail|"
     "assertion_id:string|status:pass,fail,not_evaluated|"
     "reason:string|evidence_references:allowed-evidence-json-pointer[]|"
     "zero-tools:dedicated-workspace:strict-json:no-retry"
@@ -76,31 +76,45 @@ class AgentDecision(ContractModel):
         if self.status in {GradeStatus.PASS, GradeStatus.FAIL}:
             if not self.evidence_references:
                 raise ValueError("pass and fail require evidence references")
-            if set(self.completed_checks) == {"key_messages"}:
+            checked = set(self.completed_checks)
+            if not checked - {"key_messages"}:
                 raise ValueError(
                     "agent pass and fail require a deterministic evidence check"
+                )
+            referenced = {
+                section
+                for section in checked
+                if any(
+                    pointer == f"/{section}" or pointer.startswith(f"/{section}/")
+                    for pointer in self.evidence_references
+                )
+            }
+            missing = checked - referenced
+            if missing:
+                raise ValueError(
+                    "completed evidence checks require matching references: "
+                    + ", ".join(sorted(missing))
                 )
         return self
 
 
 class AgentJudgeEngine:
-    """An engine minted only with a fresh workspace that has no MCP config."""
+    """A source-bound Judge Engine minted with a fresh zero-capability workspace."""
 
-    def __init__(
-        self,
-        engine: Engine,
-        workspace: CaseWorkspace,
-        *,
-        _validated: bool = False,
-    ) -> None:
-        if not _validated:
-            raise TypeError("use AgentJudgeEngine.from_fake or .production")
-        if workspace.mcp_config is not None:
-            raise ValueError("Agent Judge workspace must not contain MCP configuration")
-        if any(workspace.root.iterdir()):
-            raise ValueError("Agent Judge workspace must start empty")
-        self.engine = engine
-        self.workspace = workspace
+    __slots__ = ("_binding",)
+    _binding: BoundJudgeEngine
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise TypeError("use AgentJudgeEngine.from_fake or .production")
+
+    @classmethod
+    def _create(cls, binding: BoundJudgeEngine) -> AgentJudgeEngine:
+        if type(binding) is not BoundJudgeEngine or binding.workspace is None:
+            raise TypeError("Agent Judge requires a workspace-bound Judge Engine")
+        instance = object.__new__(cls)
+        instance._binding = binding
+        return instance
 
     @classmethod
     def from_fake(
@@ -117,7 +131,9 @@ class AgentJudgeEngine:
             case_id="fixed-response",
             iteration_id="0",
         )
-        return cls(engine, workspace, _validated=True)
+        return cls._create(
+            BoundJudgeEngine._from_fake_in_workspace(engine, workspace=workspace)
+        )
 
     @classmethod
     def production(
@@ -131,31 +147,40 @@ class AgentJudgeEngine:
     ) -> AgentJudgeEngine:
         """Build Claude Code internally so a case engine can never be supplied."""
 
-        factory = workspace_factory or WorkspaceFactory()
-        workspace = factory.create(
-            run_id="agent-judge",
-            case_id="read-only-evidence",
-            iteration_id="0",
-        )
-        engine = ClaudeCodeEngine(
+        binding = BoundJudgeEngine.production(
             model=model,
             credentials=credentials,
-            workspace=workspace,
+            workspace_factory=workspace_factory,
             executable=executable,
             environ=environ,
             system_prompt=(
                 "You are an evidence judge. You have no tools. Read only the "
                 "evidence in the user prompt and return the requested JSON."
             ),
+            run_id="agent-judge",
+            case_id="read-only-evidence",
+            iteration_id="0",
         )
-        return cls(engine, workspace, _validated=True)
+        return cls._create(binding)
+
+    @property
+    def engine(self) -> Engine:
+        return self._binding.engine
+
+    @property
+    def model(self) -> JudgeModelConfig:
+        return self._binding.model
+
+    @property
+    def workspace(self) -> CaseWorkspace:
+        workspace = self._binding.workspace
+        assert workspace is not None
+        return workspace
 
     def close(self) -> None:
         """Remove only the factory-created temporary boundary."""
 
-        cleanup_root = self.workspace.cleanup_root
-        if cleanup_root is not None and cleanup_root.exists():
-            shutil.rmtree(cleanup_root)
+        self._binding.close()
 
 
 def _render_agent_prompt(*, rubric: Rubric, evidence: EvidenceBundle) -> str:
@@ -185,12 +210,11 @@ async def judge_agent(
     rubric: Rubric,
     evidence: EvidenceBundle,
     evidence_artifact: ArtifactRef,
-    model: JudgeModelConfig,
     timeout_seconds: float = 30,
 ) -> ModelJudgeRun:
     """Run the evidence-planning protocol in a dedicated no-MCP workspace."""
 
-    if not isinstance(engine, AgentJudgeEngine):
+    if type(engine) is not AgentJudgeEngine:
         raise TypeError("Agent Judge requires a dedicated AgentJudgeEngine")
     prompt = _render_agent_prompt(rubric=rubric, evidence=evidence)
     metadata = _metadata(
@@ -199,7 +223,7 @@ async def judge_agent(
         prompt=prompt,
         rubric=rubric,
         evidence=evidence,
-        model=model,
+        model=engine.model,
         model_protocol_version=AGENT_MODEL_PROTOCOL_VERSION,
         model_protocol_sha256=AGENT_MODEL_PROTOCOL_SHA256,
     )

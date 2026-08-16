@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from pathlib import Path
@@ -31,8 +32,9 @@ from ses.evaluation.evidence_extractor import (
 )
 from ses.evaluation.judges.agent import AgentJudgeEngine, judge_agent
 from ses.evaluation.judges.llm import (
-    JudgeModelConfig,
+    BoundJudgeEngine,
     JudgeProtocolMetadata,
+    JudgeResponseSource,
     Rubric,
     judge_llm,
 )
@@ -94,16 +96,17 @@ class CalibrationCase(ContractModel):
         return self
 
 
-class CalibrationFixture(ContractModel):
+class CalibrationFixture(VersionedRecord):
     """Human-reviewed cases and raw responses for the fixed offline protocol."""
 
+    record_type: Literal[RecordType.CALIBRATION_FIXTURE]
     dataset_id: str
     dataset_version: str
     human_label_version: str
     source: str
     measurement_context: str
+    response_source: Literal["course_authored_fixed_response"]
     live_model_measured: Literal[False]
-    model: JudgeModelConfig
     cases: tuple[CalibrationCase, ...]
 
     @model_validator(mode="after")
@@ -169,6 +172,7 @@ class CalibrationMeasurement(ContractModel):
     extractor_sha256: Sha256Digest
     judge_model_id: str
     model_lock_version: str
+    response_source: JudgeResponseSource
     model_config_sha256: Sha256Digest
     model_protocol_sha256: Sha256Digest
     protocol_sha256: Sha256Digest
@@ -183,6 +187,7 @@ class CalibrationReport(VersionedRecord):
     human_label_version: str
     source: str
     measurement_context: str
+    response_source: Literal["course_authored_fixed_response"]
     measured: Literal[True] = True
     fixed_offline_protocol_executed: Literal[True] = True
     live_model_measured: Literal[False] = False
@@ -196,9 +201,24 @@ def load_calibration_fixture(path: Path) -> CalibrationFixture:
     """Load fixed inputs and raw responses without environment or network access."""
 
     try:
-        return CalibrationFixture.model_validate_json(path.read_text(encoding="utf-8"))
+        payload = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
     except OSError as exc:
-        raise ValueError(f"cannot read calibration fixture {path}: {exc}") from exc
+        raise ValueError(f"cannot read calibration fixture {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"calibration fixture is not valid JSON: {path}") from exc
+    return CalibrationFixture.model_validate(payload)
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"calibration fixture contains duplicate key {key!r}")
+        result[key] = value
+    return result
 
 
 def observations_from_assertions(
@@ -327,6 +347,7 @@ def _measurement(
         extractor_sha256=protocol.extractor_sha256,
         judge_model_id=protocol.judge_model_id,
         model_lock_version=protocol.model_lock_version,
+        response_source=protocol.response_source,
         model_config_sha256=protocol.model_config_sha256,
         model_protocol_sha256=protocol.model_protocol_sha256,
         protocol_sha256=protocol.protocol_sha256,
@@ -343,18 +364,16 @@ async def execute_fixed_calibration(
     for case in fixture.cases:
         artifact = _artifact(case)
         llm_run = await judge_llm(
-            _fake_engine(case.fixed_responses.llm),
+            BoundJudgeEngine.from_fake(_fake_engine(case.fixed_responses.llm)),
             rubric=case.rubric,
             evidence=case.evidence,
             evidence_artifact=artifact,
-            model=fixture.model,
         )
         agent_run = await judge_agent(
             AgentJudgeEngine.from_fake(_fake_engine(case.fixed_responses.agent)),
             rubric=case.rubric,
             evidence=case.evidence,
             evidence_artifact=artifact,
-            model=fixture.model,
         )
         for judge, run, raw_response in (
             (JudgeKind.LLM, llm_run, case.fixed_responses.llm),
@@ -383,6 +402,7 @@ async def execute_fixed_calibration(
         human_label_version=fixture.human_label_version,
         source=fixture.source,
         measurement_context=fixture.measurement_context,
+        response_source=fixture.response_source,
         sample_size=len(fixture.cases),
         judges=reports,
         disagreements=disagreements,

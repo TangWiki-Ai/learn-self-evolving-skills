@@ -1,15 +1,13 @@
 {
+  "schema_version": "v1alpha1",
+  "record_type": "calibration_fixture",
   "dataset_id": "lesson-03-human-review-v2",
   "dataset_version": "2.0.0",
   "human_label_version": "human-labels-v1",
   "source": "Course-authored return scenarios derived from the pinned Issue #2 flow.",
-  "measurement_context": "Both Judge implementations executed their fixed offline protocols over raw responses; no live model was called.",
+  "measurement_context": "Both Judge implementations parsed course-authored fixed responses; no live model was called.",
+  "response_source": "course_authored_fixed_response",
   "live_model_measured": false,
-  "model": {
-    "model_id": "Qwen/Qwen3.6-35B-A3B",
-    "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472",
-    "model_parameters": {"temperature": 0, "top_p": 1}
-  },
   "cases": [
     {
       "case_id": "cal-001",

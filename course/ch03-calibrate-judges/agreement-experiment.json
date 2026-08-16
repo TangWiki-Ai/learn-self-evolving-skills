@@ -5,60 +5,256 @@
   "dataset_version": "2.0.0",
   "human_label_version": "human-labels-v1",
   "source": "Course-authored return scenarios derived from the pinned Issue #2 flow.",
-  "measurement_context": "Both Judge implementations executed their fixed offline protocols over raw responses; no live model was called.",
+  "measurement_context": "Both Judge implementations parsed course-authored fixed responses; no live model was called.",
+  "response_source": "course_authored_fixed_response",
   "measured": true,
   "fixed_offline_protocol_executed": true,
   "live_model_measured": false,
   "sample_size": 4,
   "judges": [
-    {"judge": "llm", "agreements": 2, "total": 4, "agreement": "0.5", "confusion_matrix": {"pass": {"pass": 1, "fail": 1, "not_evaluated": 0, "error": 0}, "fail": {"pass": 0, "fail": 1, "not_evaluated": 0, "error": 0}, "not_evaluated": {"pass": 1, "fail": 0, "not_evaluated": 0, "error": 0}, "error": {"pass": 0, "fail": 0, "not_evaluated": 0, "error": 0}}},
-    {"judge": "agent", "agreements": 3, "total": 4, "agreement": "0.75", "confusion_matrix": {"pass": {"pass": 1, "fail": 1, "not_evaluated": 0, "error": 0}, "fail": {"pass": 0, "fail": 1, "not_evaluated": 0, "error": 0}, "not_evaluated": {"pass": 0, "fail": 0, "not_evaluated": 1, "error": 0}, "error": {"pass": 0, "fail": 0, "not_evaluated": 0, "error": 0}}}
+    {
+      "judge": "llm",
+      "agreements": 2,
+      "total": 4,
+      "agreement": "0.5",
+      "confusion_matrix": {
+        "pass": {
+          "pass": 1,
+          "fail": 1,
+          "not_evaluated": 0,
+          "error": 0
+        },
+        "fail": {
+          "pass": 0,
+          "fail": 1,
+          "not_evaluated": 0,
+          "error": 0
+        },
+        "not_evaluated": {
+          "pass": 1,
+          "fail": 0,
+          "not_evaluated": 0,
+          "error": 0
+        },
+        "error": {
+          "pass": 0,
+          "fail": 0,
+          "not_evaluated": 0,
+          "error": 0
+        }
+      }
+    },
+    {
+      "judge": "agent",
+      "agreements": 3,
+      "total": 4,
+      "agreement": "0.75",
+      "confusion_matrix": {
+        "pass": {
+          "pass": 1,
+          "fail": 1,
+          "not_evaluated": 0,
+          "error": 0
+        },
+        "fail": {
+          "pass": 0,
+          "fail": 1,
+          "not_evaluated": 0,
+          "error": 0
+        },
+        "not_evaluated": {
+          "pass": 0,
+          "fail": 0,
+          "not_evaluated": 1,
+          "error": 0
+        },
+        "error": {
+          "pass": 0,
+          "fail": 0,
+          "not_evaluated": 0,
+          "error": 0
+        }
+      }
+    }
   ],
   "disagreements": [
-    {"case_id": "cal-003", "assertion_id": "response-quality", "judge": "llm", "human_status": "not_evaluated", "judge_status": "pass", "judge_reason": "The state shows completion."},
-    {"case_id": "cal-004", "assertion_id": "response-quality", "judge": "llm", "human_status": "pass", "judge_status": "fail", "judge_reason": "The wording is too vague."},
-    {"case_id": "cal-004", "assertion_id": "response-quality", "judge": "agent", "human_status": "pass", "judge_status": "fail", "judge_reason": "The wording does not name the return explicitly."}
+    {
+      "case_id": "cal-003",
+      "assertion_id": "response-quality",
+      "judge": "llm",
+      "human_status": "not_evaluated",
+      "judge_status": "pass",
+      "judge_reason": "The state shows completion."
+    },
+    {
+      "case_id": "cal-004",
+      "assertion_id": "response-quality",
+      "judge": "llm",
+      "human_status": "pass",
+      "judge_status": "fail",
+      "judge_reason": "The wording is too vague."
+    },
+    {
+      "case_id": "cal-004",
+      "assertion_id": "response-quality",
+      "judge": "agent",
+      "human_status": "pass",
+      "judge_status": "fail",
+      "judge_reason": "The wording does not name the return explicitly."
+    }
   ],
   "measurements": [
     {
-      "case_id": "cal-001", "assertion_id": "response-quality", "judge": "llm", "human_label_version": "human-labels-v1", "human_status": "pass", "judge_status": "pass",
+      "case_id": "cal-001",
+      "assertion_id": "response-quality",
+      "judge": "llm",
+      "human_label_version": "human-labels-v1",
+      "human_status": "pass",
+      "judge_status": "pass",
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The response matches the completed state.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
-      "evidence_sha256": "80bc78e47967f80a6440dd59fd6828b582e2c05f173494130fefee4736e76d46", "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448", "prompt_sha256": "3b0b140b809bf6159b56dea44a86e96a324bbc64e569fd69e48c85160c399273", "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3", "judge_model_id": "Qwen/Qwen3.6-35B-A3B", "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472", "model_config_sha256": "e6ab9c8cc46d505dfb52018256b868aa97c88335a7f67fa444ced28ff6395136", "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08", "protocol_sha256": "2e1adfe83f97dd844b5334bad6a213acb9f98615c2a5b96e8692f03c97b35abf"
+      "evidence_sha256": "80bc78e47967f80a6440dd59fd6828b582e2c05f173494130fefee4736e76d46",
+      "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
+      "prompt_sha256": "3b0b140b809bf6159b56dea44a86e96a324bbc64e569fd69e48c85160c399273",
+      "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+      "judge_model_id": "ses/fixed-response-fixture",
+      "model_lock_version": "fake-fixture:sha256:f47e65bb8514990d2615a5d74544ee8a3705b8a9b63cf748222b34152334fb37",
+      "response_source": "fixed_response",
+      "model_config_sha256": "f73406a5592ba971c50ff50ff25bca8b1a4a2ac471c5ef2fec420e4dd1b332fd",
+      "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08",
+      "protocol_sha256": "37a38d92f87bb2a81680efa1f7ef21d7f005f00ec160b54e55df1769541083e4"
     },
     {
-      "case_id": "cal-001", "assertion_id": "response-quality", "judge": "agent", "human_label_version": "human-labels-v1", "human_status": "pass", "judge_status": "pass",
+      "case_id": "cal-001",
+      "assertion_id": "response-quality",
+      "judge": "agent",
+      "human_label_version": "human-labels-v1",
+      "human_status": "pass",
+      "judge_status": "pass",
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The message and deterministic state agree.\",\"completed_checks\":[\"state_diff_facts\",\"key_messages\"],\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
-      "evidence_sha256": "80bc78e47967f80a6440dd59fd6828b582e2c05f173494130fefee4736e76d46", "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448", "prompt_sha256": "d69315c9832b5bbd1a0d0c865dbb82f9ffd2a98ff553acac037d5ccb2fa53ec9", "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3", "judge_model_id": "Qwen/Qwen3.6-35B-A3B", "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472", "model_config_sha256": "e6ab9c8cc46d505dfb52018256b868aa97c88335a7f67fa444ced28ff6395136", "model_protocol_sha256": "4e745c13f00ae75a5015592dde5af41b38ed6b1e3ab21cf3fe603a7e969f95c1", "protocol_sha256": "9250b8129ad263d88f64bddffa3f13d220f5be202141c9633654abbc5208c369"
+      "evidence_sha256": "80bc78e47967f80a6440dd59fd6828b582e2c05f173494130fefee4736e76d46",
+      "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
+      "prompt_sha256": "d69315c9832b5bbd1a0d0c865dbb82f9ffd2a98ff553acac037d5ccb2fa53ec9",
+      "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+      "judge_model_id": "ses/fixed-response-fixture",
+      "model_lock_version": "fake-fixture:sha256:8a96ba21349770e34619f8d3ddb9b699f593fbcca16a8e45247d7287f8e44cfe",
+      "response_source": "fixed_response",
+      "model_config_sha256": "02803ba4b7da097102722c896e5ae8910ad63258a8b9d95feef5a8777a7c344c",
+      "model_protocol_sha256": "1070b969a69f76bfab42791df06ad64872bbcae555a00e7045755c830eaf34b4",
+      "protocol_sha256": "39bd6ef95fcd50fa273c64022eb2c17ed0f70e102992b379125642b753e95e28"
     },
     {
-      "case_id": "cal-002", "assertion_id": "response-quality", "judge": "llm", "human_label_version": "human-labels-v1", "human_status": "fail", "judge_status": "fail",
+      "case_id": "cal-002",
+      "assertion_id": "response-quality",
+      "judge": "llm",
+      "human_label_version": "human-labels-v1",
+      "human_status": "fail",
+      "judge_status": "fail",
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The response conflicts with the completed state.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
-      "evidence_sha256": "851d4f73309e633c316ce5adb0bd14dc87d48c6deace388a89badee7f734b6cb", "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448", "prompt_sha256": "bee02088a30f16063b813966f64cb2efab82c44fbb10e6cab1fafc6e2603fafe", "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3", "judge_model_id": "Qwen/Qwen3.6-35B-A3B", "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472", "model_config_sha256": "e6ab9c8cc46d505dfb52018256b868aa97c88335a7f67fa444ced28ff6395136", "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08", "protocol_sha256": "0fb4a19d19464edfba8c78b5529afb0f225d611e8f6309bc308d1599f5a39508"
+      "evidence_sha256": "851d4f73309e633c316ce5adb0bd14dc87d48c6deace388a89badee7f734b6cb",
+      "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
+      "prompt_sha256": "bee02088a30f16063b813966f64cb2efab82c44fbb10e6cab1fafc6e2603fafe",
+      "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+      "judge_model_id": "ses/fixed-response-fixture",
+      "model_lock_version": "fake-fixture:sha256:3a20a8369a4a8be5a3261032975a3bd0038e3ca6313df3e2a665e95d223c1df8",
+      "response_source": "fixed_response",
+      "model_config_sha256": "a2021b6d52f4e5b2c295b94d321faf0d8ff4783d10efac83ec28582fda5758b7",
+      "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08",
+      "protocol_sha256": "f0d213d09363f34f932af72163354b44fc68f21e9bf7edf70ee5f4e5ba50488f"
     },
     {
-      "case_id": "cal-002", "assertion_id": "response-quality", "judge": "agent", "human_label_version": "human-labels-v1", "human_status": "fail", "judge_status": "fail",
+      "case_id": "cal-002",
+      "assertion_id": "response-quality",
+      "judge": "agent",
+      "human_label_version": "human-labels-v1",
+      "human_status": "fail",
+      "judge_status": "fail",
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The message and deterministic state conflict.\",\"completed_checks\":[\"state_diff_facts\",\"key_messages\"],\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
-      "evidence_sha256": "851d4f73309e633c316ce5adb0bd14dc87d48c6deace388a89badee7f734b6cb", "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448", "prompt_sha256": "0d35b3e0f4791ca461b899657ba7e2b053ec2102cc24d6318043d06993549507", "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3", "judge_model_id": "Qwen/Qwen3.6-35B-A3B", "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472", "model_config_sha256": "e6ab9c8cc46d505dfb52018256b868aa97c88335a7f67fa444ced28ff6395136", "model_protocol_sha256": "4e745c13f00ae75a5015592dde5af41b38ed6b1e3ab21cf3fe603a7e969f95c1", "protocol_sha256": "786fbc2d86c9e0959573916870c7f4205613a556c2866350c91185194eeec5b0"
+      "evidence_sha256": "851d4f73309e633c316ce5adb0bd14dc87d48c6deace388a89badee7f734b6cb",
+      "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
+      "prompt_sha256": "0d35b3e0f4791ca461b899657ba7e2b053ec2102cc24d6318043d06993549507",
+      "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+      "judge_model_id": "ses/fixed-response-fixture",
+      "model_lock_version": "fake-fixture:sha256:e1a985f19af1f28b0350b4956519bf95c32d5a3c1b7fbafa13c2f935c40863bd",
+      "response_source": "fixed_response",
+      "model_config_sha256": "970211729a98af9e4f2039a615417a7f347f9b6c2c0253ab54168efee9eb8915",
+      "model_protocol_sha256": "1070b969a69f76bfab42791df06ad64872bbcae555a00e7045755c830eaf34b4",
+      "protocol_sha256": "ec75b7838ad68604506a67278e105eb568dfbb32aa2d33e62e64abdca8b3f5f9"
     },
     {
-      "case_id": "cal-003", "assertion_id": "response-quality", "judge": "llm", "human_label_version": "human-labels-v1", "human_status": "not_evaluated", "judge_status": "pass",
+      "case_id": "cal-003",
+      "assertion_id": "response-quality",
+      "judge": "llm",
+      "human_label_version": "human-labels-v1",
+      "human_status": "not_evaluated",
+      "judge_status": "pass",
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The state shows completion.\",\"evidence_references\":[\"/state_diff_facts/0/after\"]}",
-      "evidence_sha256": "cb872559727b190542987a595a95f458dc364fdda06c8e5463cc6055d4846dd4", "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448", "prompt_sha256": "42bb4a74b1b511c43477661faa157f7958a3fd761f08549870153c19d6797d2c", "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3", "judge_model_id": "Qwen/Qwen3.6-35B-A3B", "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472", "model_config_sha256": "e6ab9c8cc46d505dfb52018256b868aa97c88335a7f67fa444ced28ff6395136", "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08", "protocol_sha256": "d010126c056596cae642181b9a56c5229794c78a65855710a2194d80638dbd31"
+      "evidence_sha256": "cb872559727b190542987a595a95f458dc364fdda06c8e5463cc6055d4846dd4",
+      "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
+      "prompt_sha256": "42bb4a74b1b511c43477661faa157f7958a3fd761f08549870153c19d6797d2c",
+      "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+      "judge_model_id": "ses/fixed-response-fixture",
+      "model_lock_version": "fake-fixture:sha256:9dae66d65b285ccddc3e1224b85c521c4fab5120636fb39eccdaebf41311c627",
+      "response_source": "fixed_response",
+      "model_config_sha256": "a1211b254770e0c2391b760d2fe33f378d7ab417930a94312def86b9a43eaf61",
+      "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08",
+      "protocol_sha256": "768e047ceff3d9668410dbf11208d3a5c6039e0acb083a5ac4daf63c34fd9fb2"
     },
     {
-      "case_id": "cal-003", "assertion_id": "response-quality", "judge": "agent", "human_label_version": "human-labels-v1", "human_status": "not_evaluated", "judge_status": "not_evaluated",
+      "case_id": "cal-003",
+      "assertion_id": "response-quality",
+      "judge": "agent",
+      "human_label_version": "human-labels-v1",
+      "human_status": "not_evaluated",
+      "judge_status": "not_evaluated",
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"not_evaluated\",\"reason\":\"There is no customer-facing final message to assess.\",\"completed_checks\":[\"key_messages\"],\"evidence_references\":[]}",
-      "evidence_sha256": "cb872559727b190542987a595a95f458dc364fdda06c8e5463cc6055d4846dd4", "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448", "prompt_sha256": "45fd24da1fbf0877c0f2079b3a7cdaa275fec734dbf0333b97a8955d0ad1ad8f", "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3", "judge_model_id": "Qwen/Qwen3.6-35B-A3B", "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472", "model_config_sha256": "e6ab9c8cc46d505dfb52018256b868aa97c88335a7f67fa444ced28ff6395136", "model_protocol_sha256": "4e745c13f00ae75a5015592dde5af41b38ed6b1e3ab21cf3fe603a7e969f95c1", "protocol_sha256": "046aa30113362027ef7452528004ca9c2e48b367e7454b1a47d41065246c2345"
+      "evidence_sha256": "cb872559727b190542987a595a95f458dc364fdda06c8e5463cc6055d4846dd4",
+      "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
+      "prompt_sha256": "45fd24da1fbf0877c0f2079b3a7cdaa275fec734dbf0333b97a8955d0ad1ad8f",
+      "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+      "judge_model_id": "ses/fixed-response-fixture",
+      "model_lock_version": "fake-fixture:sha256:ad9c8c1bf29614bf9ee89ac60f76c20a3265b2b5cb2d5113b354f01c9066b3f8",
+      "response_source": "fixed_response",
+      "model_config_sha256": "bbc226af38728d9a9a8ddd105e7f6a4ae190adccad685e78505634e5f4632912",
+      "model_protocol_sha256": "1070b969a69f76bfab42791df06ad64872bbcae555a00e7045755c830eaf34b4",
+      "protocol_sha256": "9724fd12c1ac99707031f2a34b292bebba6a9d403841cb22b883cf127fb6e044"
     },
     {
-      "case_id": "cal-004", "assertion_id": "response-quality", "judge": "llm", "human_label_version": "human-labels-v1", "human_status": "pass", "judge_status": "fail",
+      "case_id": "cal-004",
+      "assertion_id": "response-quality",
+      "judge": "llm",
+      "human_label_version": "human-labels-v1",
+      "human_status": "pass",
+      "judge_status": "fail",
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The wording is too vague.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
-      "evidence_sha256": "a9b1344af1aae5d5ce8b06778a2748c25c553e3b80468573ca7b52374336e764", "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448", "prompt_sha256": "c9eb36aed2a3ee4fc53552b186712e2030eff9d95f8b69fa5abdffb1e9b3d85b", "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3", "judge_model_id": "Qwen/Qwen3.6-35B-A3B", "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472", "model_config_sha256": "e6ab9c8cc46d505dfb52018256b868aa97c88335a7f67fa444ced28ff6395136", "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08", "protocol_sha256": "31007c2d92a836b91c6aae4bf844851826af91ee63c5305e9dec3a6ae78419d8"
+      "evidence_sha256": "a9b1344af1aae5d5ce8b06778a2748c25c553e3b80468573ca7b52374336e764",
+      "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
+      "prompt_sha256": "c9eb36aed2a3ee4fc53552b186712e2030eff9d95f8b69fa5abdffb1e9b3d85b",
+      "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+      "judge_model_id": "ses/fixed-response-fixture",
+      "model_lock_version": "fake-fixture:sha256:5e271b30575a8f8f0bcd21f29c0252a82d321ae75ce04d3d9513e6ae1eab8feb",
+      "response_source": "fixed_response",
+      "model_config_sha256": "0c21cfa28d882a391375e559adf7472ecb4dc58c6c9e56dacdc3a390ae6644a6",
+      "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08",
+      "protocol_sha256": "1d0b362c603c81e65b9eafdaad74e54dd6cbcb633f2089952ff2a54659c5fab6"
     },
     {
-      "case_id": "cal-004", "assertion_id": "response-quality", "judge": "agent", "human_label_version": "human-labels-v1", "human_status": "pass", "judge_status": "fail",
+      "case_id": "cal-004",
+      "assertion_id": "response-quality",
+      "judge": "agent",
+      "human_label_version": "human-labels-v1",
+      "human_status": "pass",
+      "judge_status": "fail",
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The wording does not name the return explicitly.\",\"completed_checks\":[\"state_diff_facts\",\"key_messages\"],\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
-      "evidence_sha256": "a9b1344af1aae5d5ce8b06778a2748c25c553e3b80468573ca7b52374336e764", "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448", "prompt_sha256": "211be20f1e3e18a4072ad001aa2244df8a769a5720154b6cfc533d07f1d6fbf2", "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3", "judge_model_id": "Qwen/Qwen3.6-35B-A3B", "model_lock_version": "models.lock.json:v1alpha1:sha256:843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472", "model_config_sha256": "e6ab9c8cc46d505dfb52018256b868aa97c88335a7f67fa444ced28ff6395136", "model_protocol_sha256": "4e745c13f00ae75a5015592dde5af41b38ed6b1e3ab21cf3fe603a7e969f95c1", "protocol_sha256": "d2199b13c105a25532c09869653995de3ad23f012b23b5d08dabd9ef1a43ab9b"
+      "evidence_sha256": "a9b1344af1aae5d5ce8b06778a2748c25c553e3b80468573ca7b52374336e764",
+      "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
+      "prompt_sha256": "211be20f1e3e18a4072ad001aa2244df8a769a5720154b6cfc533d07f1d6fbf2",
+      "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
+      "judge_model_id": "ses/fixed-response-fixture",
+      "model_lock_version": "fake-fixture:sha256:5aec617cfb607aea2d5df34d3c31728df294f08d52089f6ca15d11913c195297",
+      "response_source": "fixed_response",
+      "model_config_sha256": "c99366299446cc197d1cb61db32e1d8c2a22636f037cf1b4dafe8e65fa8e9961",
+      "model_protocol_sha256": "1070b969a69f76bfab42791df06ad64872bbcae555a00e7045755c830eaf34b4",
+      "protocol_sha256": "1b3d9d8268a2d6494a600ae80d8ef671f129e9bb304cdd379f6de1025122a892"
     }
   ]
 }

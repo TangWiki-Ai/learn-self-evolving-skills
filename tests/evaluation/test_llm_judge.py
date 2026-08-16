@@ -25,14 +25,22 @@ from ses.evaluation.evidence_extractor import (
     evidence_json_bytes,
     extract_evidence,
 )
-from ses.evaluation.judges.llm import JudgeModelConfig, Rubric, judge_llm
+from ses.evaluation.judges.llm import (
+    BoundJudgeEngine,
+    JudgeResponseSource,
+    Rubric,
+    judge_llm,
+)
+from ses.foundation.config import LockedModel
+from ses.foundation.credentials import ProviderCredentials
+from ses.foundation.workspace import WorkspaceFactory
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
-MODEL = JudgeModelConfig(
-    model_id="Qwen/Qwen3.6-35B-A3B",
-    model_lock_version="v1alpha1:843b2fc6",
-    model_parameters={"temperature": 0, "top_p": 1},
-)
+
+
+def _engine(fixture_name: str) -> BoundJudgeEngine:
+    fixture = load_fake_fixture(FIXTURES / "judges" / fixture_name)
+    return BoundJudgeEngine.from_fake(FakeEngine(fixture))
 
 
 def _evidence() -> EvidenceBundle:
@@ -106,11 +114,10 @@ def test_llm_judge_returns_canonical_assertion_results(
     evidence = _evidence()
     run = asyncio.run(
         judge_llm(
-            FakeEngine(load_fake_fixture(FIXTURES / "judges" / fixture_name)),
+            _engine(fixture_name),
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
-            model=MODEL,
         )
     )
 
@@ -133,11 +140,10 @@ def test_llm_judge_records_protocol_failures_as_judge_error(
 
     run = asyncio.run(
         judge_llm(
-            FakeEngine(load_fake_fixture(FIXTURES / "judges" / fixture_name)),
+            _engine(fixture_name),
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
-            model=MODEL,
         )
     )
 
@@ -150,11 +156,10 @@ def test_llm_judge_records_all_protocol_versions_and_hashes() -> None:
     evidence = _evidence()
     run = asyncio.run(
         judge_llm(
-            FakeEngine(load_fake_fixture(FIXTURES / "judges" / "pass.json")),
+            _engine("pass.json"),
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
-            model=MODEL,
         )
     )
 
@@ -162,8 +167,9 @@ def test_llm_judge_records_all_protocol_versions_and_hashes() -> None:
     assert run.protocol.prompt_version == "rubric-prompt-v2"
     assert run.protocol.extractor_version == "evidence-extractor-v2"
     assert run.protocol.model_protocol_version == "llm-assertion-json-v2"
-    assert run.protocol.judge_model_id == MODEL.model_id
-    assert run.protocol.model_lock_version == MODEL.model_lock_version
+    assert run.protocol.judge_model_id == "ses/fixed-response-fixture"
+    assert run.protocol.model_lock_version.startswith("fake-fixture:sha256:")
+    assert run.protocol.response_source is JudgeResponseSource.FIXED_RESPONSE
     for digest in (
         run.protocol.rubric_sha256,
         run.protocol.prompt_sha256,
@@ -182,11 +188,10 @@ def test_metadata_reference_is_rejected_even_when_it_exists() -> None:
 
     run = asyncio.run(
         judge_llm(
-            FakeEngine(fixture),
+            BoundJudgeEngine.from_fake(FakeEngine(fixture)),
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
-            model=MODEL,
         )
     )
 
@@ -194,26 +199,60 @@ def test_metadata_reference_is_rejected_even_when_it_exists() -> None:
     assert "invalid evidence reference" in run.assertion.reason
 
 
-def test_model_change_changes_protocol_hash() -> None:
+def test_fixed_response_change_changes_protocol_hash() -> None:
     evidence = _evidence()
     first = asyncio.run(
         judge_llm(
-            FakeEngine(load_fake_fixture(FIXTURES / "judges" / "pass.json")),
+            _engine("pass.json"),
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
-            model=MODEL,
         )
     )
-    changed_model = MODEL.model_copy(update={"model_id": "Qwen/Qwen3.6-70B"})
     second = asyncio.run(
         judge_llm(
-            FakeEngine(load_fake_fixture(FIXTURES / "judges" / "pass.json")),
+            _engine("fail.json"),
             rubric=_rubric(),
             evidence=evidence,
             evidence_artifact=_artifact(evidence),
-            model=changed_model,
         )
     )
 
     assert first.protocol.protocol_sha256 != second.protocol.protocol_sha256
+
+
+def test_llm_judge_rejects_an_unbound_engine() -> None:
+    evidence = _evidence()
+
+    with pytest.raises(TypeError, match="BoundJudgeEngine"):
+        asyncio.run(
+            judge_llm(
+                FakeEngine(load_fake_fixture(FIXTURES / "judges" / "pass.json")),  # type: ignore[arg-type]
+                rubric=_rubric(),
+                evidence=evidence,
+                evidence_artifact=_artifact(evidence),
+            )
+        )
+
+
+def test_live_binding_derives_identity_from_the_actual_claude_engine(
+    tmp_path: Path,
+) -> None:
+    model = LockedModel(
+        model_id="provider/model-v1",
+        base_url="https://provider.example/",
+    )
+    binding = BoundJudgeEngine.production(
+        model=model,
+        credentials=ProviderCredentials(api_key="test-secret-value"),
+        workspace_factory=WorkspaceFactory(tmp_path),
+        environ={},
+    )
+    cleanup_root = binding.workspace.cleanup_root if binding.workspace else None
+
+    assert binding.model.model_id == model.model_id
+    assert binding.model.response_source is JudgeResponseSource.LIVE_ENGINE
+    assert binding.model.model_lock_version.startswith("locked-model:sha256:")
+    binding.close()
+    assert cleanup_root is not None
+    assert not cleanup_root.exists()
