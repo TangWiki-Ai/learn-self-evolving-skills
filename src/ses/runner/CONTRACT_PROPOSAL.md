@@ -1,35 +1,21 @@
-# Contract proposal: RunRecord and BudgetState
+# Runner contract handoff
 
-Issue #4 needs canonical runner persistence, but this lane does not own
-`src/ses/contracts/**`. The current implementation therefore writes a narrow,
-append-only `baseline_run_event` JSONL format and does not publish a duplicate
-Pydantic contract.
+Issue #4 now defines the producer-owned contracts in
+`src/ses/contracts/runner.py`. Reporting and Runner import these models directly;
+this branch intentionally leaves `src/ses/contracts/__init__.py` unchanged so the
+integrator can coordinate the final package-level export.
 
-## Proposed producer-owned contracts
+The contract includes:
 
-Producer: Simulation/Runner. Consumers: Reporting, Gate, Automation.
+- `RunnerStatus`, with separate Agent, Simulator, Judge, infrastructure, budget,
+  and not-evaluated outcomes.
+- `RunConfig`, whose canonical hash covers the data version, model lock hash,
+  Skill hash, protocol version, and complete case/iteration plan.
+- `BudgetState`, which records independent limits and consumption across every
+  append-only attempt.
+- `RunRecord` and `RunArtifacts`, which link each attempt to relative,
+  content-addressed Trace, snapshot, StateDiff, and CaseGrade artifacts.
 
-`RunRecord` should contain `run_id`, immutable configuration hash, data/model/skill
-lineage, ordered case/iteration slots, artifact references, and the latest terminal
-status for each slot. `BudgetState` should contain independent case, turn, input
-token, output token, and decimal cost limits plus consumed values and one stop
-reason.
-
-The shared status enum needs these distinct values: `pass`, `agent_fail`,
-`judge_error`, `infrastructure_error`, `budget_stop`, and `not_evaluated`.
-
-## Invariants and migration impact
-
-- Persist events with `schema_version=v1alpha1`, a record discriminator, and a
-  monotonically increasing sequence.
-- Append state transitions; never replace an earlier iteration result.
-- Resume only a matching configuration hash. Explicit reruns allocate a new
-  iteration and link the superseded iteration.
-- Use decimal strings for cost and relative content-addressed artifact references.
-- Reports consume these records read-only and never invoke a Judge.
-
-The contract owner should replace the temporary JSON validation in
-`ses.runner.baseline` with the canonical models and add producer-consumer round-trip,
-unknown-field, hash, amount, path, and redaction tests. Existing `events.jsonl`
-artifacts need a `v1alpha1` loader or a one-time explicit migration if field names
-change.
+The JSONL format is `v1alpha1` and append-only. Retry attempts reuse the case and
+iteration slot but receive a new `attempt_id`; reports display the latest attempt
+while cost, token, turn, and latency totals include every attempt.

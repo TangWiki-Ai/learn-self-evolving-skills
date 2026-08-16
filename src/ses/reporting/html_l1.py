@@ -37,12 +37,29 @@ def _status(value: object) -> str:
     allowed = {
         "pass",
         "agent_fail",
+        "simulator_error",
         "judge_error",
         "infrastructure_error",
         "budget_stop",
         "not_evaluated",
     }
     return text if text in allowed else "not_evaluated"
+
+
+def _artifact_links(result: Mapping[str, object]) -> str:
+    value = result.get("artifacts")
+    if not isinstance(value, Mapping):
+        return ""
+    links: list[str] = []
+    for name, reference in value.items():
+        references = reference if isinstance(reference, Sequence) else (reference,)
+        for index, item in enumerate(references):
+            if not isinstance(item, Mapping) or not isinstance(item.get("path"), str):
+                continue
+            path = str(item["path"])
+            label = f"{name} {index + 1}" if len(references) > 1 else str(name)
+            links.append(f'<li><a href="{_escape(path)}">{_escape(label)}</a></li>')
+    return f"<details><summary>Artifact records</summary><ul>{''.join(links)}</ul></details>"
 
 
 def _repetition(result: Mapping[str, object]) -> str:
@@ -60,6 +77,7 @@ def _repetition(result: Mapping[str, object]) -> str:
   <h3>{_escape(result.get("iteration_id"))}: <span class="status {status}">{status}</span></h3>
   <p><strong>Usage / cost / latency:</strong> input={_escape(usage.get("input_tokens"))}, output={_escape(usage.get("output_tokens"))}, cost={_escape(usage.get("cost_amount"))} {_escape(usage.get("cost_currency"))}, latency={_escape(result.get("latency_ms"))} ms, turns={_escape(result.get("turn_count"))}</p>
   <details open><summary>Evidence</summary><pre>{_json(evidence)}</pre></details>
+  {_artifact_links(result)}
   <details><summary>Tool timeline</summary><pre>{_json(timeline)}</pre></details>
   <details><summary>StateDiff</summary><pre>{_json(state_diff)}</pre></details>
   <details><summary>Transcript</summary><pre>{_json(transcript)}</pre></details>

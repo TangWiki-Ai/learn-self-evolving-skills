@@ -68,6 +68,73 @@ def test_python_module_runs_repeated_offline_baseline_and_renders_html(
     assert "http://127.0.0.1:9" not in events
 
 
+def test_cli_runs_catalog_case_through_multiturn_judges_and_links_artifacts(
+    tmp_path: Path,
+) -> None:
+    completed = _run(
+        tmp_path,
+        "--run-id",
+        "run-cli-pipeline",
+        "--json",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    events_path = tmp_path / "run-cli-pipeline" / "events.jsonl"
+    records = [json.loads(line) for line in events_path.read_text().splitlines()]
+    result = next(record for record in records if record["event_type"] == "attempt")
+    assert result["status"] == "pass"
+    assert result["turn_count"] == 2
+    assert result["session_resumed"] is True
+    assert result["artifacts"]["traces"]
+    assert result["artifacts"]["state_diff"]
+    assert result["artifacts"]["grade"]
+
+    run_dir = tmp_path / "run-cli-pipeline"
+    artifact_paths = [
+        *(item["path"] for item in result["artifacts"]["traces"]),
+        result["artifacts"]["state_diff"]["path"],
+        result["artifacts"]["grade"]["path"],
+    ]
+    payloads = [json.loads((run_dir / path).read_text()) for path in artifact_paths]
+    assert [payload["record_type"] for payload in payloads] == [
+        "trace",
+        "trace",
+        "state_diff",
+        "case_grade",
+    ]
+    grade = payloads[-1]
+    assert grade["status"] == "pass"
+    assert {assertion["judge"] for assertion in grade["assertions"]} == {
+        "state",
+        "rule",
+    }
+
+    workspaces = list((run_dir / "workspaces").glob("case-*/workspace"))
+    assert len(workspaces) == 1
+    html = (run_dir / "l1.html").read_text(encoding="utf-8")
+    assert 'href="artifacts/' in html
+
+
+def test_public_l1_artifacts_do_not_leak_private_fields_credentials_or_local_paths(
+    tmp_path: Path,
+) -> None:
+    completed = _run(tmp_path, "--run-id", "run-cli-no-leak", "--json")
+    assert completed.returncode == 0, completed.stderr
+
+    run_dir = tmp_path / "run-cli-no-leak"
+    public = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in run_dir.rglob("*")
+        if path.is_file() and path.suffix in {".json", ".jsonl", ".html"}
+    )
+    lowered = public.casefold()
+    assert "hidden_gold" not in lowered
+    assert "gold_answer" not in lowered
+    assert "api_key" not in lowered
+    assert "bearer " not in lowered
+    assert str(tmp_path) not in public
+
+
 def test_resume_is_idempotent_and_explicit_rerun_appends_a_new_iteration(
     tmp_path: Path,
 ) -> None:
@@ -100,7 +167,9 @@ def test_resume_is_idempotent_and_explicit_rerun_appends_a_new_iteration(
     assert '"iteration_id":"iteration-1"' in events_path.read_text(encoding="utf-8")
 
 
-def test_cli_returns_structured_budget_stop_with_partial_result(tmp_path: Path) -> None:
+def test_cli_keeps_completed_attempt_when_budget_stops_next_work(
+    tmp_path: Path,
+) -> None:
     completed = _run(
         tmp_path,
         "--run-id",
@@ -113,6 +182,14 @@ def test_cli_returns_structured_budget_stop_with_partial_result(tmp_path: Path) 
     assert completed.returncode == 2
     payload = json.loads(completed.stdout)
     assert payload["stop_reason"] == "input_token_limit"
-    events = (tmp_path / "run-cli-budget" / "events.jsonl").read_text(encoding="utf-8")
-    assert '"partial_result"' in events
-    assert '"status":"budget_stop"' in events
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "run-cli-budget" / "events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    attempt = next(event for event in events if event["event_type"] == "attempt")
+    assert attempt["status"] == "pass"
+    assert attempt["artifacts"]["traces"]
+    assert events[-1]["status"] == "budget_stop"
+    assert events[-1]["event_type"] == "budget_stop"

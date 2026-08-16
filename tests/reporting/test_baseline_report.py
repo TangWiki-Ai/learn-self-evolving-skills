@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from pathlib import Path
 
+from ses.contracts.runner import RunnerStatus
 from ses.reporting.baseline import build_baseline_report
 from ses.reporting.html_l1 import render_l1_html, write_l1_html
-from ses.runner import BaselineRunner, BudgetLimits, CaseEvaluation, IterationStatus
+from ses.runner import BaselineRunner, BudgetLimits, CaseEvaluation
 
 
 def _evaluate(case_id: str, iteration_id: str, max_turns: int) -> CaseEvaluation:
     del max_turns
     status = (
-        IterationStatus.PASS
-        if iteration_id == "iteration-0"
-        else IterationStatus.AGENT_FAIL
+        RunnerStatus.PASS if iteration_id == "iteration-0" else RunnerStatus.AGENT_FAIL
     )
     return CaseEvaluation(
         case_id=case_id,
@@ -28,9 +28,9 @@ def _evaluate(case_id: str, iteration_id: str, max_turns: int) -> CaseEvaluation
         evidence=(
             {
                 "assertion_id": "state:item-returned",
-                "status": "pass" if status is IterationStatus.PASS else "fail",
+                "status": "pass" if status is RunnerStatus.PASS else "fail",
                 "reason": "terminal state matches"
-                if status is IterationStatus.PASS
+                if status is RunnerStatus.PASS
                 else "item stayed delivered",
             },
         ),
@@ -66,7 +66,7 @@ def test_report_aggregates_records_without_regrading(tmp_path: Path) -> None:
     report = build_baseline_report(_run(tmp_path))
 
     assert report["run_id"] == "run-report"
-    assert report["formula_version"] == "l1-baseline-v1"
+    assert report["formula_version"] == "l1-baseline-v2"
     assert report["metrics"] == {
         "sample_size": 2,
         "iteration_sample_size": 4,
@@ -117,3 +117,35 @@ def test_representative_html_stays_below_two_megabytes(tmp_path: Path) -> None:
     assert write_l1_html(events_path, output) == output
     assert output.stat().st_size < 2 * 1024 * 1024
     assert output.read_text(encoding="utf-8").startswith("<!doctype html>")
+
+
+def test_report_totals_all_attempts_but_displays_latest_iteration_result(
+    tmp_path: Path,
+) -> None:
+    events_path = _run(tmp_path, cases=1, iterations=1)
+    events = events_path.read_text(encoding="utf-8").splitlines()
+    retry = json.loads(events[-1])
+    retry["sequence"] = len(events)
+    retry["attempt_id"] = "attempt-1"
+    retry["status"] = "pass"
+    retry["usage"] = {
+        "input_tokens": 2,
+        "output_tokens": 3,
+        "cost_amount": "0.004",
+        "cost_currency": "CNY",
+    }
+    retry["latency_ms"] = 5
+    events_path.write_text("\n".join([*events, json.dumps(retry)]) + "\n")
+
+    report = build_baseline_report(events_path)
+
+    assert report["totals"] == {
+        "input_tokens": 23,
+        "output_tokens": 16,
+        "cost_amount": "0.0163",
+        "cost_currency": "CNY",
+        "latency_ms": 39,
+    }
+    cases = report["cases"]
+    assert isinstance(cases, list)
+    assert len(cases[0]["repetitions"]) == 1

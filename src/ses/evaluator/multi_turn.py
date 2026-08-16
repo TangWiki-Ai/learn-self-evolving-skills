@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
@@ -24,6 +25,8 @@ class MultiTurnOutcome(StrEnum):
     """Evaluation outcomes before deterministic grading is attached."""
 
     AGENT_FAIL = "agent_fail"
+    COMPLETED = "completed"
+    SIMULATOR_ERROR = "simulator_error"
     INFRASTRUCTURE_ERROR = "infrastructure_error"
     BUDGET_STOP = "budget_stop"
     NOT_EVALUATED = "not_evaluated"
@@ -67,9 +70,18 @@ def _sum_usage(traces: tuple[Trace, ...]) -> Usage:
 class MultiTurnEvaluator:
     """Drive one simulator and resume only the session created for that case."""
 
-    def __init__(self, engine: Engine, *, timeout_seconds: float = 30) -> None:
+    def __init__(
+        self,
+        engine: Engine,
+        *,
+        allowed_tools: tuple[str, ...] = (),
+        timeout_seconds: float = 30,
+        on_trace: Callable[[Trace], None] | None = None,
+    ) -> None:
         self._engine = engine
+        self._allowed_tools = allowed_tools
         self._timeout_seconds = timeout_seconds
+        self._on_trace = on_trace
 
     async def evaluate(
         self,
@@ -87,7 +99,19 @@ class MultiTurnEvaluator:
         traces: list[Trace] = []
         assistant_messages: list[str] = []
         session_id: str | None = None
-        turn = simulator.next_turn(())
+        try:
+            turn = simulator.next_turn(())
+        except Exception as exc:
+            return MultiTurnResult(
+                run_id=run_id,
+                case_id=case_id,
+                iteration_id=iteration_id,
+                outcome=MultiTurnOutcome.SIMULATOR_ERROR,
+                traces=(),
+                usage=_sum_usage(()),
+                latency_ms=round((monotonic() - started) * 1000),
+                stop_reason=str(exc) or type(exc).__name__,
+            )
         while turn.kind is SimulatorTurnKind.MESSAGE:
             if len(traces) >= max_turns:
                 completed = tuple(traces)
@@ -107,10 +131,23 @@ class MultiTurnEvaluator:
                 request_id=f"{run_id}:{case_id}:{iteration_id}:turn-{len(traces)}",
                 prompt=turn.message or "User ended the conversation.",
                 resume_session_id=session_id,
-                allowed_tools=(),
+                allowed_tools=self._allowed_tools,
                 timeout_seconds=self._timeout_seconds,
             )
-            events = tuple([event async for event in self._engine.stream(request)])
+            try:
+                events = tuple([event async for event in self._engine.stream(request)])
+            except Exception as exc:
+                completed = tuple(traces)
+                return MultiTurnResult(
+                    run_id=run_id,
+                    case_id=case_id,
+                    iteration_id=iteration_id,
+                    outcome=MultiTurnOutcome.INFRASTRUCTURE_ERROR,
+                    traces=completed,
+                    usage=_sum_usage(completed),
+                    latency_ms=round((monotonic() - started) * 1000),
+                    stop_reason=str(exc) or type(exc).__name__,
+                )
             trace = build_trace(
                 events,
                 request=request,
@@ -119,6 +156,21 @@ class MultiTurnEvaluator:
                 iteration_id=f"{iteration_id}:turn-{len(traces)}",
             )
             traces.append(trace)
+            if self._on_trace is not None:
+                try:
+                    self._on_trace(trace)
+                except Exception as exc:
+                    completed = tuple(traces)
+                    return MultiTurnResult(
+                        run_id=run_id,
+                        case_id=case_id,
+                        iteration_id=iteration_id,
+                        outcome=MultiTurnOutcome.INFRASTRUCTURE_ERROR,
+                        traces=completed,
+                        usage=_sum_usage(completed),
+                        latency_ms=round((monotonic() - started) * 1000),
+                        stop_reason=str(exc) or type(exc).__name__,
+                    )
             if trace.exit_status is not EngineExitStatus.SUCCESS:
                 completed = tuple(traces)
                 return MultiTurnResult(
@@ -136,13 +188,26 @@ class MultiTurnEvaluator:
             elif trace.session_id != session_id:
                 raise RuntimeError("engine changed session within one case")
             assistant_messages.extend(message.text for message in trace_messages(trace))
-            turn = simulator.next_turn(tuple(assistant_messages))
+            try:
+                turn = simulator.next_turn(tuple(assistant_messages))
+            except Exception as exc:
+                completed = tuple(traces)
+                return MultiTurnResult(
+                    run_id=run_id,
+                    case_id=case_id,
+                    iteration_id=iteration_id,
+                    outcome=MultiTurnOutcome.SIMULATOR_ERROR,
+                    traces=completed,
+                    usage=_sum_usage(completed),
+                    latency_ms=round((monotonic() - started) * 1000),
+                    stop_reason=str(exc) or type(exc).__name__,
+                )
         completed = tuple(traces)
         return MultiTurnResult(
             run_id=run_id,
             case_id=case_id,
             iteration_id=iteration_id,
-            outcome=MultiTurnOutcome.NOT_EVALUATED,
+            outcome=MultiTurnOutcome.COMPLETED,
             traces=completed,
             usage=_sum_usage(completed),
             latency_ms=round((monotonic() - started) * 1000),

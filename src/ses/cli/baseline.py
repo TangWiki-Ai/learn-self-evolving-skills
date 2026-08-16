@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import uuid
@@ -12,8 +13,14 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from ses.reporting.html_l1 import write_l1_html
-from ses.runner import BaselineRunner, BudgetLimits, PinnedFakeEvaluator
-from ses.shop import CASE_DEFINITION
+from ses.runner import (
+    BaselineRunner,
+    BudgetLimits,
+    DevelopCatalogEvaluator,
+    load_develop_catalog,
+)
+
+_EMPTY_SKILL_HASH = hashlib.sha256(b"").hexdigest()
 
 
 def _decimal(value: str) -> Decimal:
@@ -35,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the standalone parser without touching credentials or the network."""
     parser = argparse.ArgumentParser(
         prog="python -m ses.cli.baseline",
-        description="Run a reproducible offline L1 baseline with fake components.",
+        description="Run the executable develop catalog through the offline L1 pipeline.",
     )
     parser.add_argument("--output-root", type=Path, default=Path(".ses/baselines"))
     parser.add_argument("--run-id", default=None)
@@ -50,16 +57,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rerun", action="append", default=[])
     parser.add_argument("--html", type=Path)
     parser.add_argument("--json", action="store_true", dest="as_json")
+    parser.add_argument("--project-root", type=Path, default=Path.cwd())
+    parser.add_argument("--skill-hash", default=_EMPTY_SKILL_HASH)
+    parser.add_argument("--protocol-version", default="ses-runner-v1")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the offline baseline and return 2 only for a clean budget stop."""
     args = build_parser().parse_args(argv)
-    case_ids = tuple(args.cases or (CASE_DEFINITION.case_id,))
-    if any(case_id != CASE_DEFINITION.case_id for case_id in case_ids):
+    catalog = load_develop_catalog()
+    case_ids = tuple(args.cases or catalog)
+    unknown = sorted(set(case_ids) - set(catalog))
+    if unknown:
         print(
-            "baseline_error: the fake baseline supports only the pinned develop case",
+            f"baseline_error: cases are not executable develop cases: {unknown}",
             file=sys.stderr,
         )
         return 1
@@ -72,13 +84,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_output_tokens=args.max_output_tokens,
             max_cost=args.max_cost,
         )
-        completed = BaselineRunner(args.output_root, PinnedFakeEvaluator()).run(
+        project_root = args.project_root.resolve()
+        data_manifest = project_root / "data/upstream/manifest.json"
+        model_lock = project_root / "models.lock.json"
+        data_version = hashlib.sha256(data_manifest.read_bytes()).hexdigest()
+        model_lock_hash = hashlib.sha256(model_lock.read_bytes()).hexdigest()
+        completed = BaselineRunner(
+            args.output_root, DevelopCatalogEvaluator(catalog)
+        ).run(
             run_id=run_id,
             case_ids=case_ids,
             iterations=args.iterations,
             budgets=budgets,
             resume=args.resume,
             rerun_case_ids=tuple(args.rerun),
+            data_version=data_version,
+            model_lock_hash=model_lock_hash,
+            skill_hash=args.skill_hash,
+            protocol_version=args.protocol_version,
         )
         html_path = args.html or completed.run_dir / "l1.html"
         write_l1_html(completed.events_path, html_path)

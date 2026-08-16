@@ -16,12 +16,11 @@ Runner 把 case 和 iteration 组成固定计划。它把每次状态变化追�
 
 ## Starter
 
-[`starter/baseline.py`](starter/baseline.py) 保留了一个 `NotImplementedError`。你需要实现 `baseline_reliability`：
+[`starter/baseline.py`](starter/baseline.py) 留下三个核心连接点。你需要实现：
 
-1. 按 `case_id` 分组，并按 iteration 排序。
-2. 忽略 `budget_stop` 和 `not_evaluated`，但保留 `agent_fail`、`judge_error` 和 `infrastructure_error` 作为已评测失败。
-3. 计算首个已评测 iteration 的 pass@1。
-4. 只有前 k 次都通过时，该 case 才计入 pass^k。
+1. `evaluate_case`：首轮创建 session，后续轮 resume 同一 session，并在 Simulator 结束后调用 Judge。
+2. `run_baseline`：把固定 case 计划逐项交给 Evaluator。
+3. `build_l1_report`：从 Runner 记录计算 pass@1 和 pass^k，同时保留逐 case 证据。已采样但不足 k 次的 case 仍进入 pass^k 分母。
 
 参考实现位于 [`solution/baseline.py`](solution/baseline.py)。
 
@@ -34,7 +33,7 @@ uv run python -m ses.cli.baseline \
   --json
 ```
 
-默认命令只使用 FakeEngine 和 FakeSimulator，不联网，不读取 Key。输出目录中的 `events.jsonl` 是 append-only 记录，`l1.html` 可直接离线打开。
+默认命令加载当前可执行 develop catalog，使用 FakeEngine 和 FakeSimulator 跑完整离线 Pipeline，不联网、不读取 Key。每个 case 都有独立 workspace 和 shop；每轮 Trace 会立即写入 `artifacts/`。Simulator 结束后，Evaluator 运行 State Judge 和 Rule Judge。`events.jsonl` 保存 append-only attempt，`l1.html` 可回到 Trace、StateDiff 和 CaseGrade。
 
 恢复与显式重跑：
 
@@ -61,4 +60,4 @@ uv run pytest course/ch04-reproducible-baseline/tests
 
 ## 预算停止语义
 
-Runner 在启动 case 前检查 case 上限。case 开始后，Evaluator 先执行 turn 上限。Runner 保存返回的完整或部分记录，再依次检查 input token、output token 和 cost。第一个超限原因成为 `stop_reason`；后续计划项写成 `not_evaluated`。
+Runner 在启动下一轮前检查 case、turn、input token、output token 和 cost。Evaluator 每完成一轮就写 Trace 和用量。达到上限后，Runner 保留原 attempt，再追加独立的 `budget_stop`；它不会把已经完成的 Agent/Judge 结果改写成预算状态，也不会为未启动的工作伪造零用量 attempt。

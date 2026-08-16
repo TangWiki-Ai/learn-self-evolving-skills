@@ -8,8 +8,30 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
+from ses.contracts import ArtifactRef
 from ses.contracts.security import validate_public_data
 from ses.runner import compute_reliability_metrics, load_run_events
+
+
+def _verify_artifacts(events_path: Path, attempts: list[dict[str, object]]) -> None:
+    run_dir = events_path.parent
+    for attempt in attempts:
+        value = attempt.get("artifacts")
+        if not isinstance(value, Mapping):
+            continue
+        for candidate in value.values():
+            references = candidate if isinstance(candidate, list) else [candidate]
+            for item in references:
+                if item is None:
+                    continue
+                reference = ArtifactRef.model_validate(item)
+                try:
+                    payload = (run_dir / reference.path).read_bytes()
+                except OSError as exc:
+                    raise ValueError(
+                        f"L1 artifact is unavailable: {reference.path}"
+                    ) from exc
+                reference.verify_bytes(payload)
 
 
 def build_baseline_report(events_path: Path) -> dict[str, object]:
@@ -32,10 +54,12 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
     ):
         raise ValueError("run iteration count is invalid")
 
+    attempts: list[dict[str, object]] = []
     latest: dict[tuple[str, str], dict[str, object]] = {}
     for event in events:
-        if event.get("event_type") != "iteration_result":
+        if event.get("event_type") != "attempt":
             continue
+        attempts.append(event)
         case_id = event.get("case_id")
         iteration_id = event.get("iteration_id")
         if isinstance(case_id, str) and isinstance(iteration_id, str):
@@ -44,6 +68,7 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
         latest.values(),
         key=lambda value: (str(value.get("case_id")), str(value.get("iteration_id"))),
     )
+    _verify_artifacts(events_path, attempts)
     metrics = compute_reliability_metrics(results, k=iterations)
     grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
     total_input = 0
@@ -51,9 +76,7 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
     total_cost = Decimal(0)
     total_latency = 0
     currencies: set[str] = set()
-    for result in results:
-        case_id = cast(str, result["case_id"])
-        grouped[case_id].append(result)
+    for result in attempts:
         usage = result.get("usage")
         if isinstance(usage, Mapping):
             total_input += int(cast(Any, usage.get("input_tokens", 0)))
@@ -63,6 +86,9 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
             if isinstance(currency, str):
                 currencies.add(currency)
         total_latency += int(cast(Any, result.get("latency_ms", 0)))
+    for result in results:
+        case_id = cast(str, result["case_id"])
+        grouped[case_id].append(result)
     if len(currencies) > 1:
         raise ValueError("L1 report cannot aggregate mixed cost currencies")
 
@@ -78,7 +104,7 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
     report: dict[str, object] = {
         "schema_version": "v1alpha1",
         "record_type": "l1_baseline_report",
-        "formula_version": "l1-baseline-v1",
+        "formula_version": "l1-baseline-v2",
         "run_id": run_id,
         "config_hash": started.get("config_hash"),
         "metrics": metrics,

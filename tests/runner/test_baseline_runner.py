@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from ses.contracts.runner import RunnerStatus
 from ses.runner import (
     BaselineRunner,
     BudgetLimits,
     CaseEvaluation,
-    IterationStatus,
     compute_reliability_metrics,
     load_run_events,
 )
@@ -23,7 +23,7 @@ def _evaluation(
     iteration_id: str,
     max_turns: int,
     *,
-    status: IterationStatus = IterationStatus.PASS,
+    status: RunnerStatus = RunnerStatus.PASS,
     input_tokens: int = 10,
     output_tokens: int = 5,
     cost: str = "0.01",
@@ -50,9 +50,7 @@ def test_repeated_run_is_append_only_and_reports_pass_at_1_and_pass_power_k(
     tmp_path: Path,
 ) -> None:
     def evaluate(case_id: str, iteration_id: str, max_turns: int) -> CaseEvaluation:
-        status = (
-            IterationStatus.PASS if case_id == "case-a" else IterationStatus.AGENT_FAIL
-        )
+        status = RunnerStatus.PASS if case_id == "case-a" else RunnerStatus.AGENT_FAIL
         return _evaluation(case_id, iteration_id, max_turns, status=status)
 
     completed = BaselineRunner(tmp_path, evaluate).run(
@@ -64,10 +62,7 @@ def test_repeated_run_is_append_only_and_reports_pass_at_1_and_pass_power_k(
     events = load_run_events(completed.events_path)
 
     assert [event["sequence"] for event in events] == list(range(len(events)))
-    assert (
-        len([event for event in events if event["event_type"] == "iteration_result"])
-        == 4
-    )
+    assert len([event for event in events if event["event_type"] == "attempt"]) == 4
     assert completed.metrics == {
         "sample_size": 2,
         "iteration_sample_size": 4,
@@ -136,7 +131,7 @@ def test_explicit_rerun_creates_a_new_iteration_without_replacing_the_old_one(
     results = [
         event
         for event in load_run_events(rerun.events_path)
-        if event["event_type"] == "iteration_result"
+        if event["event_type"] == "attempt"
     ]
     assert [event["iteration_id"] for event in results] == [
         "iteration-0",
@@ -173,9 +168,12 @@ def test_budget_stops_preserve_results_and_label_remaining_work(
         budgets=limits,
     )
 
-    statuses = [value["status"] for value in completed.latest_results.values()]
-    assert "budget_stop" in statuses
-    assert "not_evaluated" in statuses
+    events = load_run_events(completed.events_path)
+    assert any(event["status"] == "budget_stop" for event in events[1:])
+    assert all(
+        value["status"] != "not_evaluated"
+        for value in completed.latest_results.values()
+    )
     assert completed.stop_reason == expected_reason
 
 
@@ -199,10 +197,10 @@ def test_token_and_cost_overrun_uses_documented_budget_precedence(
 
     assert completed.stop_reason == "input_token_limit"
     result = completed.latest_results[("case-a", "iteration-0")]
-    partial_result = result["partial_result"]
-    assert isinstance(partial_result, Mapping)
-    assert partial_result["status"] == "pass"
-    assert result["status"] == "budget_stop"
+    assert result["status"] == "pass"
+    events = load_run_events(completed.events_path)
+    assert events[-1]["status"] == "budget_stop"
+    assert events[-1]["event_type"] == "budget_stop"
 
     prefix = completed.events_path.read_bytes()
     resumed = runner.run(
@@ -233,6 +231,77 @@ def test_metrics_exclude_non_evaluated_and_keep_failure_categories_distinct() ->
     assert metrics["pass_power_k"] == 0.0
 
 
+def test_pass_power_k_counts_sampled_cases_with_missing_repetitions_as_unreliable() -> (
+    None
+):
+    metrics = compute_reliability_metrics(
+        [
+            {"case_id": "a", "iteration_id": "iteration-0", "status": "pass"},
+            {"case_id": "a", "iteration_id": "iteration-1", "status": "pass"},
+            {"case_id": "b", "iteration_id": "iteration-0", "status": "pass"},
+        ],
+        k=2,
+    )
+
+    assert metrics["sample_size"] == 2
+    assert metrics["pass_power_k"] == 0.5
+
+
+def test_retry_usage_and_latency_are_counted_for_every_append_only_attempt(
+    tmp_path: Path,
+) -> None:
+    calls = 0
+
+    def evaluate(case_id: str, iteration_id: str, max_turns: int) -> CaseEvaluation:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _evaluation(
+                case_id,
+                iteration_id,
+                max_turns,
+                status=RunnerStatus.INFRASTRUCTURE_ERROR,
+                input_tokens=7,
+                output_tokens=3,
+                cost="0.02",
+            )
+        return _evaluation(
+            case_id,
+            iteration_id,
+            max_turns,
+            input_tokens=11,
+            output_tokens=5,
+            cost="0.03",
+        )
+
+    runner = BaselineRunner(tmp_path, evaluate)
+    first = runner.run(
+        run_id="run-attempt-usage",
+        case_ids=("case-a",),
+        iterations=1,
+        budgets=BudgetLimits(max_cases=1, max_turns_per_case=2),
+    )
+    resumed = runner.run(
+        run_id="run-attempt-usage",
+        case_ids=("case-a",),
+        iterations=1,
+        budgets=BudgetLimits(max_cases=1, max_turns_per_case=2),
+        resume=True,
+    )
+
+    events = load_run_events(resumed.events_path)
+    attempts = [event for event in events if event["event_type"] == "attempt"]
+    assert first.latest_results[("case-a", "iteration-0")]["status"] == (
+        "infrastructure_error"
+    )
+    assert [attempt["attempt_id"] for attempt in attempts] == ["attempt-0", "attempt-1"]
+    summary = json.loads(resumed.summary_path.read_text())
+    assert summary["budget"]["consumed_input_tokens"] == 18
+    assert summary["budget"]["consumed_output_tokens"] == 8
+    assert summary["budget"]["consumed_cost_amount"] == "0.05"
+    assert summary["budget"]["consumed_latency_ms"] == 24
+
+
 def test_resume_rejects_a_different_plan(tmp_path: Path) -> None:
     runner = BaselineRunner(tmp_path, _evaluation)
     runner.run(
@@ -249,6 +318,44 @@ def test_resume_rejects_a_different_plan(tmp_path: Path) -> None:
             iterations=1,
             budgets=BudgetLimits(max_cases=1, max_turns_per_case=2),
             resume=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("changed", "value"),
+    [
+        ("data_version", "data-v2"),
+        ("model_lock_hash", "b" * 64),
+        ("skill_hash", "c" * 64),
+        ("protocol_version", "ses-runner-v2"),
+    ],
+)
+def test_resume_rejects_any_reproducibility_identity_change(
+    tmp_path: Path, changed: str, value: str
+) -> None:
+    runner = BaselineRunner(tmp_path, _evaluation)
+    identity: dict[str, Any] = {
+        "data_version": "data-v1",
+        "model_lock_hash": "a" * 64,
+        "skill_hash": "d" * 64,
+        "protocol_version": "ses-runner-v1",
+    }
+    runner.run(
+        run_id=f"run-identity-{changed.replace('_', '-')}",
+        case_ids=("case-a",),
+        iterations=1,
+        budgets=BudgetLimits(max_cases=1, max_turns_per_case=2),
+        **identity,
+    )
+
+    with pytest.raises(ValueError, match="configuration"):
+        runner.run(
+            run_id=f"run-identity-{changed.replace('_', '-')}",
+            case_ids=("case-a",),
+            iterations=1,
+            budgets=BudgetLimits(max_cases=1, max_turns_per_case=2),
+            resume=True,
+            **{**identity, changed: value},
         )
 
 
