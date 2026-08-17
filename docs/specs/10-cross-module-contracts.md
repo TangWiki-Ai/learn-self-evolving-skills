@@ -19,7 +19,8 @@
 | `Trace`, `EvidenceRef`, `AssertionResult`, `CaseGrade` | Evaluation & Judges | Runner、Reports、Evolution |
 | `RunRecord`, `BudgetState`, `ComparisonRecord` | Simulation/Runner | Reports、Gate、Automation |
 | `SkillArtifact`, `TriggerResult` | Skill Creation | Runner、Evolution、Portfolio |
-| `FailureCard`, `Patch`, `GateDecision`, `RegistryEvent` | Evolution & Governance | Automation、Reports、Portfolio |
+| `FailureEvidenceFixture`, `FailureCardSet`, `Patch`, `CandidateArtifact`, `EvolutionPipelineSummary`, `GateDecision`, `RegistryEvent` | Evolution & Governance | Skills、Automation、Reports、Portfolio |
+| `SkillArtifactManifest`, `SkillManifestFile` | Skills | Evolution、Installer、Reports |
 | `LoopState`, `PortfolioManifest` | Automation & Portfolio | CLI、Course Delivery |
 
 Producer ownership 指语义归属，不允许 producer 把实现细节塞进接口。共享 schema 的源码位置和当前 wave owner 由并行实施文档管理。

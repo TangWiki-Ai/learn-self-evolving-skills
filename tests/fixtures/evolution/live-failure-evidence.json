@@ -8,6 +8,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-001",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 6,
         "tool-arguments": 1,
@@ -31,6 +32,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-002",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 6,
         "tool-arguments": 1,
@@ -54,6 +56,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-003",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 6,
         "tool-arguments": 1,
@@ -77,6 +80,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-004",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 6,
         "tool-arguments": 1,
@@ -100,6 +104,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-005",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 6,
         "tool-arguments": 1,
@@ -123,6 +128,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-006",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 7,
         "tool-arguments": 1,
@@ -146,6 +152,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-007",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 6,
         "tool-arguments": 1,
@@ -169,6 +176,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-008",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 7,
         "tool-arguments": 1,
@@ -192,6 +200,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-009",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 7,
         "tool-arguments": 1,
@@ -215,6 +224,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-010",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 6,
         "tool-arguments": 1,
@@ -238,6 +248,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-011",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 6,
         "tool-arguments": 1,
@@ -261,6 +272,7 @@
       },
       "baseline_status": "agent_fail",
       "case_key": "case-012",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {
         "state-diff": 7,
         "tool-arguments": 1,
@@ -280,6 +292,7 @@
       "assertion": null,
       "baseline_status": "agent_fail",
       "case_key": "case-013",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {},
       "observation": "Skill-side infrastructure_error ended the attempt before Judge assertion evidence was available.",
       "pair_category": "both-fail",
@@ -294,6 +307,7 @@
       "assertion": null,
       "baseline_status": "agent_fail",
       "case_key": "case-014",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {},
       "observation": "Skill-side infrastructure_error ended the attempt before Judge assertion evidence was available.",
       "pair_category": "both-fail",
@@ -308,6 +322,7 @@
       "assertion": null,
       "baseline_status": "agent_fail",
       "case_key": "case-015",
+      "judge_simulator_health": "not_reviewed",
       "failure_kinds": {},
       "observation": "Skill-side infrastructure_error ended the attempt before Judge assertion evidence was available.",
       "pair_category": "both-fail",

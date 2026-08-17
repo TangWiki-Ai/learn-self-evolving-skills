@@ -59,11 +59,25 @@ def test_synthetic_lesson_material_explicitly_covers_six_categories_and_three_op
     )
 
 
-@pytest.mark.parametrize("function", ["analyze", "create_candidate"])
-def test_starter_keeps_the_two_decision_gaps(function: str) -> None:
+def test_solution_runs_the_complete_offline_evolution(tmp_path: Path) -> None:
+    solution = _variant("solution")
+    result = solution.evolve(
+        parent=ROOT / "course/ch07-create-v0/artifacts/skill/v0",
+        evidence=ROOT / "tests/fixtures/evolution/synthetic-failure-evidence.json",
+        output=tmp_path / "lesson-08",
+    )
+    assert result.failure_card_count == 6
+    assert result.patch_operation_count == 3
+    assert (tmp_path / "lesson-08/skill/skill-manifest.json").is_file()
+
+
+@pytest.mark.parametrize("function", ["analyze", "create_candidate", "evolve"])
+def test_starter_keeps_the_three_decision_gaps(function: str) -> None:
     starter = _variant("starter")
     with pytest.raises(NotImplementedError, match="Lesson 8"):
         if function == "analyze":
             starter.analyze(Path("evidence.json"))
-        else:
+        elif function == "create_candidate":
             starter.create_candidate()
+        else:
+            starter.evolve()

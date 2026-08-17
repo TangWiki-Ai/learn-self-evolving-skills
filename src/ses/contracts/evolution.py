@@ -11,11 +11,13 @@ from typing import Annotated, Literal, TypeAlias
 
 from pydantic import Field, JsonValue, model_validator
 
-from ses.contracts.artifact import RelativeArtifactPath, Sha256Digest
+from ses.contracts.artifact import ArtifactRef, RelativeArtifactPath, Sha256Digest
 from ses.contracts.base import ContractModel, VersionedRecord
+from ses.contracts.engine import Usage
 from ses.contracts.evaluation import EvidenceRef
+from ses.contracts.primitives import StrictNonNegativeInt
 from ses.contracts.runner import PairCategory, RunnerStatus
-from ses.contracts.skill import MeasurementKind
+from ses.contracts.skill import MeasurementKind, SkillArtifactManifest
 
 
 class FailureCategory(StrEnum):
@@ -51,6 +53,14 @@ class FailureProvenance(StrEnum):
 
     LIVE = "live"
     SYNTHETIC = "synthetic"
+
+
+class JudgeSimulatorHealth(StrEnum):
+    """Reviewed health of the Judge and Simulator protocol for one case."""
+
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+    NOT_REVIEWED = "not_reviewed"
 
 
 class EvidenceSource(ContractModel):
@@ -91,6 +101,8 @@ class FailureEvidenceCase(ContractModel):
     trace: EvidenceArtifact | None = None
     assertion: EvidenceArtifact | None = None
     failure_kinds: Mapping[str, int] = Field(default_factory=dict)
+    failure_categories: tuple[FailureCategory, ...] = ()
+    judge_simulator_health: JudgeSimulatorHealth
     observation: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -104,6 +116,8 @@ class FailureEvidenceCase(ContractModel):
         for kind, count in self.failure_kinds.items():
             if not kind or isinstance(count, bool) or count < 0:
                 raise ValueError("failure kind counts must be nonnegative")
+        if len(self.failure_categories) != len(set(self.failure_categories)):
+            raise ValueError("failure categories must be unique")
         return self
 
 
@@ -157,6 +171,31 @@ class FailureCard(VersionedRecord):
             raise ValueError("synthetic failure cards require an explicit reason")
         if self.provenance is FailureProvenance.LIVE and self.synthetic_reason:
             raise ValueError("live failure cards cannot carry a synthetic reason")
+        return self
+
+
+class FailureCardSet(VersionedRecord):
+    """The reviewed Skill-root diagnoses produced from one evidence fixture."""
+
+    record_type: Literal["failure_card_set"]
+    provenance: FailureProvenance
+    evidence_fixture: ArtifactRef
+    cards: tuple[FailureCard, ...]
+    analysis_protocol: Literal["failure-card-analysis-v1"]
+
+    @model_validator(mode="after")
+    def _cards_match_source(self) -> FailureCardSet:
+        if not self.cards:
+            raise ValueError("Failure Card set must not be empty")
+        identifiers = [card.failure_id for card in self.cards]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("Failure Card IDs must be unique")
+        for card in self.cards:
+            if card.provenance is not self.provenance:
+                raise ValueError("Failure Card provenance does not match its set")
+            for reference in (*card.trace_evidence, *card.assertion_evidence):
+                if reference.artifact != self.evidence_fixture:
+                    raise ValueError("Failure Card evidence must use the set fixture")
         return self
 
 
@@ -273,7 +312,7 @@ class CandidateArtifact(VersionedRecord):
     static_gate_status: Literal["pass"]
     patch: Patch
     files: Mapping[str, str]
-    manifest: Mapping[str, JsonValue]
+    manifest: SkillArtifactManifest
     creation_protocol: Literal["evidence-linked-patch-v1"]
 
     @model_validator(mode="after")
@@ -284,8 +323,50 @@ class CandidateArtifact(VersionedRecord):
             raise ValueError("candidate patch hash does not match Patch")
         if self.content_sha256 != normalized_files_sha256(self.files):
             raise ValueError("candidate content hash does not match installable files")
-        if self.manifest.get("content_sha256") != self.content_sha256:
+        if self.manifest.content_sha256 != self.content_sha256:
             raise ValueError("candidate manifest content hash does not match files")
+        if self.version != self.manifest.version:
+            raise ValueError("candidate version does not match its manifest")
+        manifest_files = {item.path: item.sha256 for item in self.manifest.files}
+        if set(manifest_files) != set(self.files):
+            raise ValueError("candidate file inventory does not match its manifest")
+        for path, content in self.files.items():
+            actual = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            if manifest_files[path] != actual:
+                raise ValueError(
+                    f"candidate file hash does not match its manifest: {path}"
+                )
         if "SKILL.md" not in self.files:
             raise ValueError("candidate must contain SKILL.md")
+        return self
+
+
+class EvolutionPipelineSummary(VersionedRecord):
+    """Canonical handoff from evidence analysis through candidate publication."""
+
+    record_type: Literal["evolution_pipeline_summary"]
+    mode: Literal["fixed", "live"]
+    evidence_provenance: FailureProvenance
+    updater_measurement: MeasurementKind
+    updater_usage: Usage
+    updater_latency_ms: StrictNonNegativeInt
+    failure_card_count: StrictNonNegativeInt
+    patch_operation_count: StrictNonNegativeInt
+    parent_skill_sha256: Sha256Digest
+    candidate_skill_sha256: Sha256Digest
+    failure_cards: ArtifactRef
+    patch: ArtifactRef
+    candidate: ArtifactRef
+
+    @model_validator(mode="after")
+    def _mode_matches_measurement(self) -> EvolutionPipelineSummary:
+        expected = (
+            MeasurementKind.LIVE_MEASURED
+            if self.mode == "live"
+            else MeasurementKind.SYNTHETIC_OFFLINE
+        )
+        if self.updater_measurement is not expected:
+            raise ValueError("Updater mode and measurement kind do not match")
+        if self.failure_card_count < 1 or self.patch_operation_count < 1:
+            raise ValueError("evolution summary requires cards and patch operations")
         return self

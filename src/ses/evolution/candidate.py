@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import tempfile
@@ -14,6 +13,7 @@ from ses.contracts import (
     Patch,
     SchemaVersion,
     Sha256Digest,
+    artifact_json_bytes,
     normalized_files_sha256,
 )
 from ses.evolution.patches import PatchValidationError, apply_patch
@@ -30,7 +30,8 @@ class CandidateError(ValueError):
     """Candidate creation failed before an invalid artifact could be published."""
 
 
-def _runtime_files(source: Path) -> dict[str, str]:
+def load_runtime_files(source: Path) -> dict[str, str]:
+    """Read the manifest-declared UTF-8 runtime files from one Skill."""
     manifest = load_skill_manifest(source)
     files: dict[str, str] = {}
     for item in manifest.files:
@@ -56,10 +57,16 @@ def create_candidate(
     expected_parent_sha256: Sha256Digest | None = None,
 ) -> CandidateArtifact:
     """Apply, gate, and atomically publish one candidate directory."""
+    if ".." in output_dir.parts:
+        raise CandidateError("candidate output path must be canonical")
     if output_dir.exists() or output_dir.is_symlink():
         raise CandidateError("candidate output must not already exist")
     if parent_dir.is_symlink() or not parent_dir.is_dir():
         raise CandidateError("accepted parent must be a real directory")
+    parent_root = parent_dir.resolve()
+    output_dir = output_dir.resolve()
+    if output_dir == parent_root or output_dir.is_relative_to(parent_root):
+        raise CandidateError("candidate output cannot be inside the accepted parent")
     try:
         parent_manifest = load_skill_manifest(parent_dir)
         parent_hash = normalized_skill_sha256(parent_dir)
@@ -71,9 +78,12 @@ def create_candidate(
         raise CandidateError("accepted parent hash does not match the expected hash")
     if patch.parent_skill_sha256 != parent_hash:
         raise CandidateError("Patch parent hash does not match accepted parent")
+    parent_files = load_runtime_files(parent_dir)
+    if normalized_files_sha256(parent_files) != parent_hash:
+        raise CandidateError("accepted parent changed while it was being read")
     try:
         changed_files = apply_patch(
-            _runtime_files(parent_dir),
+            parent_files,
             patch,
             cards=cards,
             evidence_path=evidence_path,
@@ -116,7 +126,7 @@ def create_candidate(
             static_gate_status="pass",
             patch=patch,
             files=changed_files,
-            manifest=manifest.model_dump(mode="json"),
+            manifest=manifest,
             creation_protocol="evidence-linked-patch-v1",
         )
         os.replace(staging, output_dir)
@@ -128,18 +138,10 @@ def create_candidate(
 
 
 def write_candidate_record(path: Path, candidate: CandidateArtifact) -> None:
-    """Persist a candidate record separately from its installable directory."""
+    """Persist one canonical candidate record without overwriting history."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            candidate.model_dump(mode="json"),
-            ensure_ascii=False,
-            sort_keys=True,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    with path.open("xb") as stream:
+        stream.write(artifact_json_bytes(candidate))
 
 
 def load_patch(path: Path) -> Patch:

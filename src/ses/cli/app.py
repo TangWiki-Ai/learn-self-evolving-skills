@@ -48,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
         "candidate-patch",
         help="Validate and atomically materialize an evidence-linked candidate.",
     )
+    commands.add_parser(
+        "evolve",
+        help="Turn failure evidence into cards, a patch, and a candidate bundle.",
+    )
     return parser
 
 
@@ -142,6 +146,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return evolution.export_main(command_args)
     if command == "candidate-patch":
         return evolution.candidate_main(command_args)
+    if command == "evolve":
+        return evolution.evolve_main(command_args)
     build_parser().parse_args(values)
     return 2
 

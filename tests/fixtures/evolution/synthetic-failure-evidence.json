@@ -8,10 +8,12 @@
       },
       "baseline_status": "pass",
       "case_key": "case-001",
-      "failure_kinds": {
-        "trigger": 1
-      },
-      "observation": "Synthetic teaching observation for trigger.",
+      "judge_simulator_health": "healthy",
+      "failure_categories": [
+        "trigger"
+      ],
+      "failure_kinds": {},
+      "observation": "An explicit product-return request did not activate the Skill.",
       "pair_category": "pass-to-fail",
       "skill_status": "agent_fail",
       "trace": {
@@ -28,10 +30,12 @@
       },
       "baseline_status": "pass",
       "case_key": "case-002",
-      "failure_kinds": {
-        "pattern": 1
-      },
-      "observation": "Synthetic teaching observation for pattern.",
+      "judge_simulator_health": "healthy",
+      "failure_categories": [
+        "pattern"
+      ],
+      "failure_kinds": {},
+      "observation": "The agent started the workflow before matching the requested item.",
       "pair_category": "pass-to-fail",
       "skill_status": "agent_fail",
       "trace": {
@@ -48,10 +52,12 @@
       },
       "baseline_status": "pass",
       "case_key": "case-003",
-      "failure_kinds": {
-        "overload": 1
-      },
-      "observation": "Synthetic teaching observation for overload.",
+      "judge_simulator_health": "healthy",
+      "failure_categories": [
+        "overload"
+      ],
+      "failure_kinds": {},
+      "observation": "A duplicated workflow reference added instructions without improving the action.",
       "pair_category": "pass-to-fail",
       "skill_status": "agent_fail",
       "trace": {
@@ -68,10 +74,12 @@
       },
       "baseline_status": "pass",
       "case_key": "case-004",
-      "failure_kinds": {
-        "terminology": 1
-      },
-      "observation": "Synthetic teaching observation for terminology.",
+      "judge_simulator_health": "healthy",
+      "failure_categories": [
+        "terminology"
+      ],
+      "failure_kinds": {},
+      "observation": "The response exposed internal workflow terminology to the customer.",
       "pair_category": "pass-to-fail",
       "skill_status": "agent_fail",
       "trace": {
@@ -88,10 +96,12 @@
       },
       "baseline_status": "pass",
       "case_key": "case-005",
-      "failure_kinds": {
-        "timing": 1
-      },
-      "observation": "Synthetic teaching observation for timing.",
+      "judge_simulator_health": "healthy",
+      "failure_categories": [
+        "timing"
+      ],
+      "failure_kinds": {},
+      "observation": "The agent confirmed a state change before obtaining customer consent.",
       "pair_category": "pass-to-fail",
       "skill_status": "agent_fail",
       "trace": {
@@ -108,10 +118,12 @@
       },
       "baseline_status": "pass",
       "case_key": "case-006",
-      "failure_kinds": {
-        "safety": 1
-      },
-      "observation": "Synthetic teaching observation for safety.",
+      "judge_simulator_health": "healthy",
+      "failure_categories": [
+        "safety"
+      ],
+      "failure_kinds": {},
+      "observation": "The response treated an unsupported assumption as policy and tool evidence.",
       "pair_category": "pass-to-fail",
       "skill_status": "agent_fail",
       "trace": {
@@ -131,7 +143,7 @@
     "measurement_kind": "synthetic_offline",
     "pair_execution_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "skill_events_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-    "skill_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "skill_sha256": "a19c423b65f9ef7960d682045832f7a8bf57fbbda759a42e102cb28ddfc8ef26",
     "source_label": "lesson-08-synthetic-fixture"
   }
 }

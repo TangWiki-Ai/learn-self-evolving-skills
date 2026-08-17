@@ -5,121 +5,22 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import ValidationError
+
+from ses.contracts import SkillArtifactManifest, artifact_json_bytes
 
 _MANIFEST = "skill-manifest.json"
-_ENTRYPOINT = "SKILL.md"
-_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 class SkillInstallError(ValueError):
     """The candidate Skill cannot be safely inspected or installed."""
 
 
-class _ManifestFile(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    path: str = Field(min_length=1)
-    sha256: str
-
-    @field_validator("path")
-    @classmethod
-    def _installable_path(cls, value: str) -> str:
-        path = PurePosixPath(value)
-        if (
-            "\\" in value
-            or path.is_absolute()
-            or value != path.as_posix()
-            or any(
-                part in {"", ".", ".."} or part.startswith(".") for part in path.parts
-            )
-        ):
-            raise ValueError("manifest file path must be a safe relative POSIX path")
-        if value != _ENTRYPOINT and (
-            len(path.parts) < 2 or path.parts[0] != "references"
-        ):
-            raise ValueError("manifest may declare only SKILL.md and references files")
-        return value
-
-    @field_validator("sha256")
-    @classmethod
-    def _valid_sha256(cls, value: str) -> str:
-        if not _SHA256_PATTERN.fullmatch(value):
-            raise ValueError("manifest file sha256 must be 64 lowercase hex characters")
-        return value
-
-
-class SkillManifest(BaseModel):
-    """Strict source manifest for one installable Skill artifact."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    schema_version: str = Field(pattern=r"^v1alpha1$")
-    record_type: str = Field(pattern=r"^skill_artifact_manifest$")
-    name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
-    version: str = Field(min_length=1)
-    source_version: str = "unspecified"
-    content_sha256: str | None = None
-    provider_compatibility: tuple[str, ...] = ("claude-code-native",)
-    files: tuple[_ManifestFile, ...]
-
-    @field_validator("files", mode="before")
-    @classmethod
-    def _json_files_to_tuple(cls, value: object) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
-
-    @field_validator("provider_compatibility", mode="before")
-    @classmethod
-    def _json_compatibility_to_tuple(cls, value: object) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
-
-    @field_validator("source_version")
-    @classmethod
-    def _source_version_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("source_version must not be blank")
-        return value
-
-    @field_validator("content_sha256")
-    @classmethod
-    def _optional_content_hash(cls, value: str | None) -> str | None:
-        if value is not None and not _SHA256_PATTERN.fullmatch(value):
-            raise ValueError("content_sha256 must be 64 lowercase hex characters")
-        return value
-
-    @field_validator("provider_compatibility")
-    @classmethod
-    def _provider_compatibility_not_empty(
-        cls, value: tuple[str, ...]
-    ) -> tuple[str, ...]:
-        if (
-            not value
-            or len(set(value)) != len(value)
-            or any(not item.strip() for item in value)
-        ):
-            raise ValueError("provider compatibility must be nonempty and unique")
-        return value
-
-    @field_validator("files")
-    @classmethod
-    def _complete_unique_inventory(
-        cls, value: tuple[_ManifestFile, ...]
-    ) -> tuple[_ManifestFile, ...]:
-        paths = [item.path for item in value]
-        if paths.count(_ENTRYPOINT) != 1:
-            raise ValueError("manifest must declare SKILL.md exactly once")
-        if len(paths) != len(set(paths)):
-            raise ValueError("manifest file paths must be unique")
-        return value
+SkillManifest = SkillArtifactManifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,10 +143,8 @@ def write_skill_manifest(
     }
     manifest = SkillManifest.model_validate(payload)
     destination = source / _MANIFEST
-    destination.write_text(
-        json.dumps(manifest.model_dump(mode="json"), sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    with destination.open("xb") as stream:
+        stream.write(artifact_json_bytes(manifest))
     return destination
 
 

@@ -141,6 +141,7 @@ def test_static_gate_scans_every_manifest_installed_reference(
     reference = source / "references" / "workflow.md"
     reference.parent.mkdir()
     reference.write_text(reference_body, encoding="utf-8")
+    (source / "skill-manifest.json").unlink()
     write_skill_manifest(
         source,
         name="resolve-product-returns",

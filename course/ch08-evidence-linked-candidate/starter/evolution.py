@@ -13,3 +13,8 @@ def analyze(evidence: Path) -> object:
 def create_candidate(*args: object, **kwargs: object) -> object:
     del args, kwargs
     raise NotImplementedError("Lesson 8: implement atomic candidate creation")
+
+
+def evolve(*args: object, **kwargs: object) -> object:
+    del args, kwargs
+    raise NotImplementedError("Lesson 8: connect analysis, Updater, and candidate")

@@ -6,7 +6,9 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from ses.evolution.evidence import EvidenceError, load_failure_evidence
+from pydantic import ValidationError
+
+from ses.contracts import FailureCardSet
 from ses.foundation.workspace import CaseWorkspace, WorkspaceError, WorkspaceFactory
 from ses.skills.installer import load_skill_manifest
 
@@ -35,24 +37,36 @@ _PRIVATE_NAME_PARTS = frozenset(
 
 def create_updater_workspace(
     *,
-    evidence_path: Path,
+    failure_cards_path: Path,
+    skill_spec_path: Path,
     parent_dir: Path,
     root: Path | None = None,
 ) -> UpdaterWorkspace:
-    """Expose only redacted failure evidence and installable parent files."""
-    if evidence_path.is_symlink() or not evidence_path.is_file():
-        raise UpdaterWorkspaceError("Updater evidence must be a regular file")
-    if any(part.casefold() in _PRIVATE_NAME_PARTS for part in evidence_path.parts):
-        raise UpdaterWorkspaceError("Updater cannot read private evidence paths")
+    """Expose only reviewed cards, the Skill spec, and installable parent files."""
+    for path, label in (
+        (failure_cards_path, "Failure Card set"),
+        (skill_spec_path, "Skill spec"),
+    ):
+        if path.is_symlink() or not path.is_file():
+            raise UpdaterWorkspaceError(f"Updater {label} must be a regular file")
+        if any(part.casefold() in _PRIVATE_NAME_PARTS for part in path.parts):
+            raise UpdaterWorkspaceError(f"Updater cannot read private {label} paths")
     try:
-        load_failure_evidence(evidence_path)
+        FailureCardSet.model_validate_json(
+            failure_cards_path.read_text(encoding="utf-8")
+        )
+        if not skill_spec_path.read_text(encoding="utf-8").strip():
+            raise UpdaterWorkspaceError("Updater Skill spec must not be empty")
         manifest = load_skill_manifest(parent_dir)
-    except (EvidenceError, ValueError) as exc:
+    except (OSError, UnicodeError, ValidationError, ValueError) as exc:
         raise UpdaterWorkspaceError(
             "Updater inputs failed visibility validation"
         ) from exc
 
-    files: list[tuple[Path, str]] = [(evidence_path, f"inputs/{evidence_path.name}")]
+    files: list[tuple[Path, str]] = [
+        (failure_cards_path, "inputs/failure-cards.json"),
+        (skill_spec_path, "inputs/skill-spec.md"),
+    ]
     manifest_path = parent_dir / "skill-manifest.json"
     files.append((manifest_path, "parent-skill/skill-manifest.json"))
     for item in manifest.files:

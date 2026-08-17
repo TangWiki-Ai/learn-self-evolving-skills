@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from ses.skills.installer import SkillInstallError, install_skill
+from ses.contracts import artifact_json_bytes
+from ses.skills.installer import (
+    SkillInstallError,
+    install_skill,
+    load_skill_manifest,
+    write_skill_manifest,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -75,7 +81,12 @@ def test_install_skill_rejects_manifest_hash_mismatch(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "declared_path",
-    ["../outside.md", "/tmp/outside.md", "references/../../outside.md"],
+    [
+        "../outside.md",
+        "/tmp/outside.md",
+        "references/../../outside.md",
+        "references/.hidden.md",
+    ],
 )
 def test_install_skill_rejects_manifest_path_escape(
     tmp_path: Path, declared_path: str
@@ -120,3 +131,27 @@ def test_install_skill_rejects_symlinks_in_source_and_destination(
 
     with pytest.raises(SkillInstallError, match="symlink"):
         install_skill(source, destination)
+
+
+def test_manifest_writer_is_canonical_and_never_overwrites(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    (source / "references").mkdir(parents=True)
+    (source / "SKILL.md").write_text("# Demo\n", encoding="utf-8")
+    (source / "references/policy.md").write_text("Policy.\n", encoding="utf-8")
+
+    destination = write_skill_manifest(
+        source,
+        name="demo",
+        version="v1",
+        files=("SKILL.md", "references/policy.md"),
+    )
+    manifest = load_skill_manifest(source)
+
+    assert destination.read_bytes() == artifact_json_bytes(manifest)
+    with pytest.raises(FileExistsError):
+        write_skill_manifest(
+            source,
+            name="demo",
+            version="v2",
+            files=("SKILL.md", "references/policy.md"),
+        )

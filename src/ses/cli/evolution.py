@@ -1,22 +1,33 @@
-"""Thin argparse adapters for Ticket 09 offline workflows."""
+"""Thin argparse adapters for Ticket 09 evolution workflows."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.contracts import FailureCard
-from ses.evolution.candidate import (
-    CandidateError,
-    create_candidate,
-    load_patch,
-    write_candidate_record,
-)
+from ses.contracts import FailureCardSet
+from ses.evolution.candidate import CandidateError, load_patch
 from ses.evolution.evidence import EvidenceError, export_failure_evidence
-from ses.evolution.workspace import UpdaterWorkspaceError, create_updater_workspace
+from ses.evolution.updater import ClaudeCodeUpdater, FakeUpdater, Updater
+from ses.evolution.workflow import (
+    EvolutionWorkflowError,
+    publish_candidate_bundle,
+    run_evolution_workflow,
+)
+from ses.evolution.workspace import UpdaterWorkspaceError
+from ses.foundation.config import ModelRole, load_model_lock, load_runtime_config
+from ses.foundation.credentials import read_siliconflow_credentials
+
+
+def _safe_error(exc: Exception) -> str:
+    message = str(exc)
+    if not message or "/" in message or "\\" in message:
+        return type(exc).__name__
+    return message
 
 
 def export_parser() -> argparse.ArgumentParser:
@@ -45,22 +56,23 @@ def export_main(argv: Sequence[str]) -> int:
             expected_skill_sha256=args.skill_sha256,
         )
     except (EvidenceError, OSError, TypeError, ValueError) as exc:
-        print(f"evidence_export_error:{type(exc).__name__}", file=sys.stderr)
+        print(f"evidence_export_error:{_safe_error(exc)}", file=sys.stderr)
         return 1
     payload = fixture.model_dump(mode="json")
-    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    if args.as_json:
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    else:
+        print(f"output={args.output}")
+        print(f"provenance={fixture.provenance.value}")
+        print(f"case_count={len(fixture.cases)}")
     return 0
 
 
-def _load_cards(path: Path) -> tuple[FailureCard, ...]:
+def _load_card_set(path: Path) -> FailureCardSet:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        values = raw["cards"] if isinstance(raw, dict) else raw
-        if not isinstance(values, list):
-            raise ValueError("cards must be a JSON array")
-        return tuple(FailureCard.model_validate(value) for value in values)
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
-        raise CandidateError("invalid failure card JSON") from exc
+        return FailureCardSet.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise CandidateError("invalid Failure Card set JSON") from exc
 
 
 def candidate_parser() -> argparse.ArgumentParser:
@@ -70,45 +82,95 @@ def candidate_parser() -> argparse.ArgumentParser:
     parser.add_argument("--patch", type=Path, required=True)
     parser.add_argument("--failure-cards", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--record-output", type=Path, required=True)
-    parser.add_argument("--workspace-root", type=Path)
-    parser.add_argument("--parent-sha256")
     parser.add_argument("--json", action="store_true", dest="as_json")
     return parser
 
 
 def candidate_main(argv: Sequence[str]) -> int:
     args = candidate_parser().parse_args(argv)
-    updater = None
     try:
-        patch = load_patch(args.patch)
-        cards = _load_cards(args.failure_cards)
-        updater = create_updater_workspace(
-            evidence_path=args.evidence,
+        candidate = publish_candidate_bundle(
             parent_dir=args.parent,
-            root=args.workspace_root,
+            evidence_path=args.evidence,
+            card_set=_load_card_set(args.failure_cards),
+            patch=load_patch(args.patch),
+            output_root=args.output,
         )
-        candidate = create_candidate(
-            parent_dir=updater.workspace.root / "parent-skill",
-            patch=patch,
-            cards=cards,
-            evidence_path=updater.workspace.root / "inputs" / args.evidence.name,
-            output_dir=args.output,
-            expected_parent_sha256=args.parent_sha256,
-        )
-        write_candidate_record(args.record_output, candidate)
     except (
         CandidateError,
-        UpdaterWorkspaceError,
+        EvolutionWorkflowError,
         OSError,
         TypeError,
         ValueError,
     ) as exc:
-        print(f"candidate_patch_error:{type(exc).__name__}", file=sys.stderr)
+        print(f"candidate_patch_error:{_safe_error(exc)}", file=sys.stderr)
         return 1
-    finally:
-        if updater is not None:
-            updater.cleanup()
     payload = candidate.model_dump(mode="json")
-    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    if args.as_json:
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    else:
+        print(f"output={args.output}")
+        print(f"candidate_id={candidate.candidate_id}")
+        print(f"content_sha256={candidate.content_sha256}")
+    return 0
+
+
+def evolve_parser() -> argparse.ArgumentParser:
+    root = Path(__file__).resolve().parents[3]
+    parser = argparse.ArgumentParser(prog="ses evolve")
+    parser.add_argument("--parent", type=Path, required=True)
+    parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--mode", choices=("fixed", "live"), default="fixed")
+    parser.add_argument("--project-root", type=Path, default=root)
+    parser.add_argument("--workspace-root", type=Path)
+    parser.add_argument("--timeout", type=float, default=180)
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    return parser
+
+
+def evolve_main(argv: Sequence[str]) -> int:
+    args = evolve_parser().parse_args(argv)
+    try:
+        updater: Updater
+        if args.mode == "fixed":
+            updater = FakeUpdater()
+        else:
+            config = load_runtime_config(args.project_root / "ses.json")
+            lock = load_model_lock(args.project_root / config.models_lock)
+            updater = ClaudeCodeUpdater(
+                model=lock.roles[ModelRole.CREATOR],
+                credentials=read_siliconflow_credentials(os.environ),
+                executable=config.claude_executable,
+                environ=os.environ,
+                timeout_seconds=args.timeout,
+            )
+        summary = run_evolution_workflow(
+            parent_dir=args.parent,
+            evidence_path=args.evidence,
+            output_root=args.output,
+            updater=updater,
+            mode=args.mode,
+            workspace_root=args.workspace_root,
+        )
+    except (
+        CandidateError,
+        EvidenceError,
+        EvolutionWorkflowError,
+        UpdaterWorkspaceError,
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        print(f"evolve_error:{_safe_error(exc)}", file=sys.stderr)
+        return 1
+    payload = summary.model_dump(mode="json")
+    if args.as_json:
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    else:
+        print(f"output={args.output}")
+        print(f"failure_card_count={summary.failure_card_count}")
+        print(f"patch_operation_count={summary.patch_operation_count}")
+        print(f"candidate_skill_sha256={summary.candidate_skill_sha256}")
     return 0
