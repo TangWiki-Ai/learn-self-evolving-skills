@@ -1,0 +1,137 @@
+{
+  "cases": [
+    {
+      "assertion": {
+        "kind": "assertion",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/assertion.json"
+      },
+      "baseline_status": "pass",
+      "case_key": "case-001",
+      "failure_kinds": {
+        "trigger": 1
+      },
+      "observation": "Synthetic teaching observation for trigger.",
+      "pair_category": "pass-to-fail",
+      "skill_status": "agent_fail",
+      "trace": {
+        "kind": "trace",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/trace.json"
+      }
+    },
+    {
+      "assertion": {
+        "kind": "assertion",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/assertion.json"
+      },
+      "baseline_status": "pass",
+      "case_key": "case-002",
+      "failure_kinds": {
+        "pattern": 1
+      },
+      "observation": "Synthetic teaching observation for pattern.",
+      "pair_category": "pass-to-fail",
+      "skill_status": "agent_fail",
+      "trace": {
+        "kind": "trace",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/trace.json"
+      }
+    },
+    {
+      "assertion": {
+        "kind": "assertion",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/assertion.json"
+      },
+      "baseline_status": "pass",
+      "case_key": "case-003",
+      "failure_kinds": {
+        "overload": 1
+      },
+      "observation": "Synthetic teaching observation for overload.",
+      "pair_category": "pass-to-fail",
+      "skill_status": "agent_fail",
+      "trace": {
+        "kind": "trace",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/trace.json"
+      }
+    },
+    {
+      "assertion": {
+        "kind": "assertion",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/assertion.json"
+      },
+      "baseline_status": "pass",
+      "case_key": "case-004",
+      "failure_kinds": {
+        "terminology": 1
+      },
+      "observation": "Synthetic teaching observation for terminology.",
+      "pair_category": "pass-to-fail",
+      "skill_status": "agent_fail",
+      "trace": {
+        "kind": "trace",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/trace.json"
+      }
+    },
+    {
+      "assertion": {
+        "kind": "assertion",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/assertion.json"
+      },
+      "baseline_status": "pass",
+      "case_key": "case-005",
+      "failure_kinds": {
+        "timing": 1
+      },
+      "observation": "Synthetic teaching observation for timing.",
+      "pair_category": "pass-to-fail",
+      "skill_status": "agent_fail",
+      "trace": {
+        "kind": "trace",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/trace.json"
+      }
+    },
+    {
+      "assertion": {
+        "kind": "assertion",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/assertion.json"
+      },
+      "baseline_status": "pass",
+      "case_key": "case-006",
+      "failure_kinds": {
+        "safety": 1
+      },
+      "observation": "Synthetic teaching observation for safety.",
+      "pair_category": "pass-to-fail",
+      "skill_status": "agent_fail",
+      "trace": {
+        "kind": "trace",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_file": "synthetic/trace.json"
+      }
+    }
+  ],
+  "provenance": "synthetic",
+  "record_type": "failure_evidence_fixture",
+  "redaction_notice": "provider_streams_paths_gold_and_private_model_content_removed",
+  "schema_version": "v1alpha1",
+  "source": {
+    "baseline_events_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "comparison_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "measurement_kind": "synthetic_offline",
+    "pair_execution_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "skill_events_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "skill_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "source_label": "lesson-08-synthetic-fixture"
+  }
+}

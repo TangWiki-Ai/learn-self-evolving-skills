@@ -32,6 +32,23 @@ from ses.contracts.evaluation import (
     JudgeKind,
     Trace,
 )
+from ses.contracts.evolution import (
+    AddPatchOperation,
+    CandidateArtifact,
+    DeletePatchOperation,
+    EvidenceArtifact,
+    EvidenceSource,
+    FailureAttribution,
+    FailureCard,
+    FailureCategory,
+    FailureEvidenceCase,
+    FailureEvidenceFixture,
+    FailureProvenance,
+    Patch,
+    PatchOperation,
+    UpdatePatchOperation,
+    normalized_files_sha256,
+)
 from ses.contracts.primitives import (
     AssertionId,
     CaseId,
@@ -54,7 +71,12 @@ from ses.contracts.primitives import (
     TraceId,
     UtcDateTime,
 )
-from ses.contracts.runner import PairCategory, PairedCaseResult, PairedComparison
+from ses.contracts.runner import (
+    PairCategory,
+    PairedCaseResult,
+    PairedComparison,
+    RunnerStatus,
+)
 from ses.contracts.serialization import artifact_json_bytes, content_sha256
 from ses.contracts.shop import (
     Money,
@@ -77,10 +99,12 @@ from ses.contracts.skill import (
 )
 
 __all__ = [
+    "AddPatchOperation",
     "ArtifactRef",
     "ArtifactRoot",
     "AssertionId",
     "AssertionResult",
+    "CandidateArtifact",
     "CaseDefinition",
     "CaseGrade",
     "CaseId",
@@ -92,6 +116,7 @@ __all__ = [
     "CreatorSourceProvenance",
     "CreatorSourceReplay",
     "CurrencyCode",
+    "DeletePatchOperation",
     "DiffId",
     "DiscoveryStatus",
     "EngineEvent",
@@ -101,7 +126,15 @@ __all__ = [
     "EngineRequest",
     "ErrorPayload",
     "EventId",
+    "EvidenceArtifact",
     "EvidenceRef",
+    "EvidenceSource",
+    "FailureAttribution",
+    "FailureCard",
+    "FailureCategory",
+    "FailureEvidenceCase",
+    "FailureEvidenceFixture",
+    "FailureProvenance",
     "GradeId",
     "GradeStatus",
     "IterationId",
@@ -115,10 +148,13 @@ __all__ = [
     "PairCategory",
     "PairedCaseResult",
     "PairedComparison",
+    "Patch",
+    "PatchOperation",
     "RecordType",
     "RelativeArtifactPath",
     "RequestId",
     "RunId",
+    "RunnerStatus",
     "SchemaVersion",
     "SessionId",
     "Sha256Digest",
@@ -139,10 +175,12 @@ __all__ = [
     "TriggerEvalResult",
     "TriggerPromptResult",
     "UnknownPayload",
+    "UpdatePatchOperation",
     "Usage",
     "UsagePayload",
     "UtcDateTime",
     "VersionedRecord",
     "artifact_json_bytes",
     "content_sha256",
+    "normalized_files_sha256",
 ]

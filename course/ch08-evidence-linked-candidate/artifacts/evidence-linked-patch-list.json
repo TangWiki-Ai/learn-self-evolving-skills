@@ -1,0 +1,34 @@
+{
+  "evidence_fixture": "tests/fixtures/evolution/synthetic-failure-evidence.json",
+  "evidence_fixture_sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb",
+  "notice": "Synthetic teaching patch; not live provenance.",
+  "operations": [
+    {
+      "failure_card_ids": [
+        "failure-safety"
+      ],
+      "operation": "add",
+      "target": "references/safety-notes.md"
+    },
+    {
+      "failure_card_ids": [
+        "failure-pattern",
+        "failure-timing"
+      ],
+      "operation": "update",
+      "target": "SKILL.md"
+    },
+    {
+      "failure_card_ids": [
+        "failure-overload"
+      ],
+      "operation": "delete",
+      "target": "references/return-workflow.md"
+    }
+  ],
+  "parent_skill_sha256": "a19c423b65f9ef7960d682045832f7a8bf57fbbda759a42e102cb28ddfc8ef26",
+  "patch_sha256": "4fc4573da3d7e1b841acaf6447a99ca30ddd4e64f0128eca423e93521329ae8d",
+  "provenance": "synthetic",
+  "record_type": "lesson_08_evidence_linked_patch_list",
+  "schema_version": "v1alpha1"
+}

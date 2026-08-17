@@ -1,0 +1,209 @@
+{
+  "cards": [
+    {
+      "assertion_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/0/assertion"
+        }
+      ],
+      "attribution": "Skill",
+      "case_key": "case-001",
+      "category": "trigger",
+      "confidence": 1.0,
+      "diagnosis_protocol": "failure-attribution-v1",
+      "failure_id": "failure-trigger",
+      "observation": "Synthetic teaching observation for trigger.",
+      "provenance": "synthetic",
+      "record_type": "failure_card",
+      "schema_version": "v1alpha1",
+      "suggested_scope": "one small runtime Skill instruction",
+      "synthetic_reason": "Teaching fixture only; Ticket 08 live evidence has no Skill-root failure provenance.",
+      "trace_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/0/trace"
+        }
+      ]
+    },
+    {
+      "assertion_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/1/assertion"
+        }
+      ],
+      "attribution": "Skill",
+      "case_key": "case-002",
+      "category": "pattern",
+      "confidence": 1.0,
+      "diagnosis_protocol": "failure-attribution-v1",
+      "failure_id": "failure-pattern",
+      "observation": "Synthetic teaching observation for pattern.",
+      "provenance": "synthetic",
+      "record_type": "failure_card",
+      "schema_version": "v1alpha1",
+      "suggested_scope": "one small runtime Skill instruction",
+      "synthetic_reason": "Teaching fixture only; Ticket 08 live evidence has no Skill-root failure provenance.",
+      "trace_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/1/trace"
+        }
+      ]
+    },
+    {
+      "assertion_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/2/assertion"
+        }
+      ],
+      "attribution": "Skill",
+      "case_key": "case-003",
+      "category": "overload",
+      "confidence": 1.0,
+      "diagnosis_protocol": "failure-attribution-v1",
+      "failure_id": "failure-overload",
+      "observation": "Synthetic teaching observation for overload.",
+      "provenance": "synthetic",
+      "record_type": "failure_card",
+      "schema_version": "v1alpha1",
+      "suggested_scope": "one small runtime Skill instruction",
+      "synthetic_reason": "Teaching fixture only; Ticket 08 live evidence has no Skill-root failure provenance.",
+      "trace_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/2/trace"
+        }
+      ]
+    },
+    {
+      "assertion_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/3/assertion"
+        }
+      ],
+      "attribution": "Skill",
+      "case_key": "case-004",
+      "category": "terminology",
+      "confidence": 1.0,
+      "diagnosis_protocol": "failure-attribution-v1",
+      "failure_id": "failure-terminology",
+      "observation": "Synthetic teaching observation for terminology.",
+      "provenance": "synthetic",
+      "record_type": "failure_card",
+      "schema_version": "v1alpha1",
+      "suggested_scope": "one small runtime Skill instruction",
+      "synthetic_reason": "Teaching fixture only; Ticket 08 live evidence has no Skill-root failure provenance.",
+      "trace_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/3/trace"
+        }
+      ]
+    },
+    {
+      "assertion_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/4/assertion"
+        }
+      ],
+      "attribution": "Skill",
+      "case_key": "case-005",
+      "category": "timing",
+      "confidence": 1.0,
+      "diagnosis_protocol": "failure-attribution-v1",
+      "failure_id": "failure-timing",
+      "observation": "Synthetic teaching observation for timing.",
+      "provenance": "synthetic",
+      "record_type": "failure_card",
+      "schema_version": "v1alpha1",
+      "suggested_scope": "one small runtime Skill instruction",
+      "synthetic_reason": "Teaching fixture only; Ticket 08 live evidence has no Skill-root failure provenance.",
+      "trace_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/4/trace"
+        }
+      ]
+    },
+    {
+      "assertion_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/5/assertion"
+        }
+      ],
+      "attribution": "Skill",
+      "case_key": "case-006",
+      "category": "safety",
+      "confidence": 1.0,
+      "diagnosis_protocol": "failure-attribution-v1",
+      "failure_id": "failure-safety",
+      "observation": "Synthetic teaching observation for safety.",
+      "provenance": "synthetic",
+      "record_type": "failure_card",
+      "schema_version": "v1alpha1",
+      "suggested_scope": "one small runtime Skill instruction",
+      "synthetic_reason": "Teaching fixture only; Ticket 08 live evidence has no Skill-root failure provenance.",
+      "trace_evidence": [
+        {
+          "artifact": {
+            "path": "synthetic-failure-evidence.json",
+            "root": "workspace",
+            "sha256": "a4098750f04baae3b97d1eef377346b1a6e0cf69d94a18761a2b184f4d9e3abb"
+          },
+          "json_pointer": "/cases/5/trace"
+        }
+      ]
+    }
+  ],
+  "provenance": "synthetic"
+}

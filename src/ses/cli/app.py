@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.cli import baseline, doctor, qualify_cases, skill_demo, skill_v0
+from ses.cli import baseline, doctor, evolution, qualify_cases, skill_demo, skill_v0
 from ses.evaluator import SingleCaseRunError, run_pinned_case
 from ses.foundation.credentials import credential_values, redact
 from ses.reporting import l1_json_bytes, load_l1_result, render_l1_text
@@ -40,6 +40,14 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("trigger-eval", help="Evaluate native Skill discovery.")
     commands.add_parser("paired-comparison", help="Run fresh baseline and Skill pairs.")
     commands.add_parser("l2-render", help="Render a paired L2 HTML report.")
+    commands.add_parser(
+        "export-failure-evidence",
+        help="Export a redacted fixture from an existing paired artifact.",
+    )
+    commands.add_parser(
+        "candidate-patch",
+        help="Validate and atomically materialize an evidence-linked candidate.",
+    )
     return parser
 
 
@@ -130,6 +138,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return skill_v0.paired_main(command_args)
     if command == "l2-render":
         return skill_v0.l2_main(command_args)
+    if command == "export-failure-evidence":
+        return evolution.export_main(command_args)
+    if command == "candidate-patch":
+        return evolution.candidate_main(command_args)
     build_parser().parse_args(values)
     return 2
 
