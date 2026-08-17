@@ -6,11 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from ses.contracts import DiscoveryStatus
 from ses.foundation.config import ModelRole, load_model_lock, load_runtime_config
 from ses.foundation.credentials import read_siliconflow_credentials
-from ses.skills.seeds import load_creator_seed_pack
-from ses.skills.trigger_eval import ClaudeNativeDiscovery, DiscoveryStatus
-from ses.skills.v0 import FakeV0Creator, create_skill_v0
+from ses.skills.trigger_eval import ClaudeNativeDiscovery
 
 ROOT = Path(__file__).parents[2]
 
@@ -24,16 +23,9 @@ def test_claude_code_native_skill_discovery_integration(tmp_path: Path) -> None:
         pytest.skip("Claude Code executable is unavailable")
     credentials = read_siliconflow_credentials(os.environ)
     lock = load_model_lock(ROOT / config.models_lock)
-    skill = create_skill_v0(
-        seed_pack=load_creator_seed_pack(
-            ROOT / "data" / "skill-v0" / "creator" / "seed-manifest.json"
-        ),
-        output_dir=tmp_path / "v0",
-        creator=FakeV0Creator(),
-        workspace_root=tmp_path / "creator-workspaces",
-    )
+    skill_source = ROOT / "course/ch07-create-v0/artifacts/skill/v0"
     discovery = ClaudeNativeDiscovery(
-        skill_source=skill.source,
+        skill_source=skill_source,
         model=lock.roles[ModelRole.MAIN],
         credentials=credentials,
         executable=config.claude_executable,

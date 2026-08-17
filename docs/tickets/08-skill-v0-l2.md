@@ -9,9 +9,15 @@ Gate、Claude Code 原生 Trigger Eval、fresh paired Runner 和 L2 renderer。
 ## Creator seed
 
 `data/skill-v0/creator/seed-manifest.json` 固定 9 条 creator split 成功
-Trace。每条记录保存源文件与 projection 的 SHA256，以及 State Judge、模型
-Judge 和人工审核结论。Loader 同时验证数量、split、三重结论、唯一性和两个
-hash。
+Trace。构建脚本要求 STATE-Bench 位于 commit
+`5644b1838d96bc4483da29642d058ecaa6f80f7f`，并验证 origin 和 27 个源文件。
+它逐条重放原始工具调用、核对每个返回、从前后快照计算 StateDiff，再执行
+STATE-Bench State Judge。它不再用 task 的预期字段伪造“实际”状态。
+
+每条记录保存来源、replay receipt、Trace、StateDiff、State Grade、模型 Judge
+输入、模型原始 run、Model Grade、projection 和审核记录的 SHA256。锁定的 live
+模型 Judge 使用 `rubric-prompt-v3`；维护者委托 Codex 检查后，审核记录同时绑定
+上述九类证据，并明确保留委托关系。Loader 会重算并核对整条证据链。
 
 Creator workspace 只复制 `projections/*.json` 和 `skill-spec.md`。完整源 Trace
 保留在 `private/traces/`，不会进入 Creator workspace。Ticket 07 的 15 条
@@ -25,7 +31,9 @@ v0 manifest 声明 runtime include allowlist、来源版本、完整规范化内
 
 Static Gate 在 Trigger 或 paired evaluation 前运行，并逐项报告 metadata、
 manifest、文件清单、工具、标识、固定答案、eval 内容、危险指令和长度。失败
-报告可审计，但调用链立即停止。
+报告可审计，但调用链立即停止。`allowed-tools` 必须写 Claude Code 实际识别的
+`mcp__shop__get_order`、`mcp__shop__get_policies` 和
+`mcp__shop__process_return`，不能使用只适用于课程内部的短名称。
 
 ## Trigger 与 paired
 
@@ -35,17 +43,27 @@ Skill，并观察 Claude Code `Skill` tool call。报告保留 TP/FP/TN/FN、P/R
 未确定状态、逐 prompt 证据、Skill hash 和引擎版本。
 
 Paired comparison 在 Ticket 07 的 15 条 qualified develop cases 上创建两套
-新 Runner。每次 attempt 都创建新 workspace、Shop 环境、Trace、StateDiff 和
-CaseGrade。比较器要求 case plan、iteration、data、模型锁和协议完全一致；
+新 Runner。每次 attempt 都创建新 workspace 和 Shop 环境；完成型结果必须提供
+Trace、StateDiff 和 CaseGrade，timeout 等异常则保留状态和已经产生的证据。
+比较器要求 case plan、iteration、data、模型锁和协议完全一致；
 Skill hash 是实验变量。Canonical `PairedComparison` 位于
-`ses.contracts.runner`。
+`ses.contracts.runner`。Live 两侧使用相同 Claude Code 原生 discovery 参数和
+MCP allowlist；只有 Skill 侧 workspace 安装候选。Rule Judge 忽略 `Skill`
+元调用，但仍严格检查业务工具顺序。
+
+比较器把两侧 event log、每条 Trace、StateDiff 和 CaseGrade 都绑定到同一个
+artifact root。Contract 重算 case 分类、分数、token、费用、耗时和 execution
+hash。L2 renderer 会从 event log 重新推导整份 comparison，并在任何引用或
+Skill hash 不一致时拒绝输出。
 
 ## Fixed 与 live 声明
 
 `course/ch07-create-v0/artifacts/` 是 fixed/offline reference。它真实执行
-Runner、Shop 和 Judge，但 Agent 输出来自 deterministic fake engine。
+Runner、Shop 和 Judge，但 Agent 输出来自 deterministic fake engine。Fixed
+模式规范化 Trace 事件时钟；相同代码和输入会生成相同的 event、comparison 和
+L2 artifact hash。
 
 `--mode live` 使用 `models.lock.json` 的 Creator 和 Main 角色，并只从进程
-环境读取 `SILICONFLOW_API_KEY`。当前 live vertical slice 实测 Creator 和
-Trigger；paired 部分仍标记 `paired_live_model_measured=false`，不冒充线上
-Agent paired 质量。Live artifact 必须写入临时目录，不能覆盖课程参考结果。
+环境读取 `SILICONFLOW_API_KEY`。Creator、Trigger 和 paired 都走真实 Claude
+Code headless；只有实际完成两侧 15-case run 时，paired 才标记
+`live_measured`。Live artifact 必须写入临时目录，不能覆盖课程参考结果。

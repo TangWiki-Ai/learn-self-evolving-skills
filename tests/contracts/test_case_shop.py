@@ -191,6 +191,22 @@ def test_empty_state_diff_is_valid() -> None:
     assert StateDiff.model_validate_json(diff.model_dump_json()) == diff
 
 
+def test_empty_state_diff_allows_identical_snapshot_identity() -> None:
+    diff = StateDiff(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type=RecordType.STATE_DIFF,
+        diff_id="diff-no-agent-tools",
+        before_snapshot_id="snapshot-unchanged",
+        after_snapshot_id="snapshot-unchanged",
+        added={},
+        removed={},
+        changed={},
+        summary="No business change.",
+    )
+
+    assert diff.before_snapshot_id == diff.after_snapshot_id
+
+
 def test_state_diff_summary_does_not_change_content_hash() -> None:
     first = _diff(summary="Order moved to returned.")
     second = _diff(summary="Returned.")

@@ -7,7 +7,7 @@ from types import ModuleType
 
 import pytest
 
-from ses.skills.trigger_eval import FixedNativeDiscovery
+from ses.skills.trigger_eval import SyntheticDiscoveryFixture
 
 LESSON = Path(__file__).parents[1]
 ROOT = LESSON.parents[1]
@@ -29,7 +29,7 @@ def test_solution_uses_production_seed_gate_and_trigger_protocol() -> None:
     )
     artifact = LESSON / "artifacts" / "skill" / "v0"
     gate = solution.static_gate(artifact)
-    trigger = solution.trigger_eval(gate.skill_sha256, FixedNativeDiscovery())
+    trigger = solution.trigger_eval(gate.skill_sha256, SyntheticDiscoveryFixture())
 
     assert len(pack.records) == 9
     assert gate.status.value == "pass"
@@ -43,14 +43,15 @@ def test_fixed_reference_is_quantitative_and_explicitly_offline() -> None:
     )
 
     assert summary["mode"] == "fixed"
-    assert summary["network_used"] is False
-    assert summary["live_provider_used"] is False
+    assert summary["creator_measurement"] == "synthetic_offline"
+    assert summary["trigger_measurement"] == "synthetic_offline"
+    assert summary["paired_measurement"] == "synthetic_offline"
     assert summary["paired_case_count"] == 15
     assert comparison["category_counts"] == {
-        "both-fail": 1,
-        "both-pass": 12,
-        "fail-to-pass": 1,
-        "pass-to-fail": 1,
+        "both-fail": 0,
+        "both-pass": 15,
+        "fail-to-pass": 0,
+        "pass-to-fail": 0,
     }
     assert (LESSON / "artifacts" / "l2.html").stat().st_size < 2_000_000
 

@@ -37,8 +37,9 @@ CREATOR_SAFE_TOOLS: tuple[str, ...] = ()
 _SKILL_SPEC = """# Skill v0 output contract
 
 Write a generic Claude Code Skill for product returns. Include YAML front matter
-with name, description, version, and allowed-tools. Use only get_order,
-get_policies, and process_return. Explain inspect, preview, confirm, and verify.
+with name, description, version, and allowed-tools. Declare only the exact native
+tool names mcp__shop__get_order, mcp__shop__get_policies, and
+mcp__shop__process_return. Explain inspect, preview, confirm, and verify.
 Never copy identifiers, monetary answers, eval data, gold, traces, or credentials.
 """
 
@@ -68,7 +69,7 @@ class FakeV0Creator:
             """---
 name: resolve-product-returns
 description: Use for product return requests that require policy checks and safe state changes.
-allowed-tools: get_order, get_policies, process_return
+allowed-tools: mcp__shop__get_order, mcp__shop__get_policies, mcp__shop__process_return
 ---
 
 # Resolve product returns
@@ -169,7 +170,8 @@ class LiveV0Creator:
             (request.workspace / "skill-spec.md").read_text(encoding="utf-8")
             + "\nReturn JSON fields skill_md and reference_md. skill_md must contain "
             "the exact metadata name resolve-product-returns and allowed-tools "
-            "get_order, get_policies, process_return. Do not put version in "
+            "mcp__shop__get_order, mcp__shop__get_policies, "
+            "mcp__shop__process_return. Do not put version in "
             "SKILL.md frontmatter; the artifact manifest owns versioning.\n"
             + json.dumps(inputs, ensure_ascii=False, sort_keys=True)
         )

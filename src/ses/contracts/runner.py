@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from decimal import Decimal
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Literal
 
 from pydantic import Field, JsonValue, field_validator, model_validator
 
-from ses.contracts.artifact import ArtifactRef, Sha256Digest
+from ses.contracts.artifact import ArtifactRef, ArtifactRoot, Sha256Digest
 from ses.contracts.base import ContractModel, VersionedRecord
 from ses.contracts.engine import Usage
 from ses.contracts.primitives import (
@@ -19,7 +22,9 @@ from ses.contracts.primitives import (
     NonEmptyStr,
     RunId,
     StrictNonNegativeInt,
+    UtcDateTime,
 )
+from ses.contracts.skill import MeasurementKind
 
 
 class RunnerStatus(StrEnum):
@@ -192,12 +197,12 @@ class PairedCaseResult(ContractModel):
     skill_cost_amount: Decimal
     baseline_latency_ms: StrictNonNegativeInt
     skill_latency_ms: StrictNonNegativeInt
-    baseline_trace: NonEmptyStr
-    skill_trace: NonEmptyStr
-    baseline_state_diff: NonEmptyStr
-    skill_state_diff: NonEmptyStr
-    baseline_grade: NonEmptyStr
-    skill_grade: NonEmptyStr
+    baseline_trace: ArtifactRef | None = None
+    skill_trace: ArtifactRef | None = None
+    baseline_state_diff: ArtifactRef | None = None
+    skill_state_diff: ArtifactRef | None = None
+    baseline_grade: ArtifactRef | None = None
+    skill_grade: ArtifactRef | None = None
 
     @field_validator("baseline_cost_amount", "skill_cost_amount", mode="before")
     @classmethod
@@ -205,6 +210,69 @@ class PairedCaseResult(ContractModel):
         if not isinstance(value, (str, Decimal)):
             raise ValueError("paired cost amounts must use decimal strings")
         return value
+
+    @model_validator(mode="after")
+    def _validate_binary_outcome(self) -> PairedCaseResult:
+        baseline_pass = self.baseline_status is RunnerStatus.PASS
+        skill_pass = self.skill_status is RunnerStatus.PASS
+        expected_category = (
+            PairCategory.BOTH_PASS
+            if baseline_pass and skill_pass
+            else PairCategory.PASS_TO_FAIL
+            if baseline_pass
+            else PairCategory.FAIL_TO_PASS
+            if skill_pass
+            else PairCategory.BOTH_FAIL
+        )
+        if (
+            self.category is not expected_category
+            or self.baseline_score != float(baseline_pass)
+            or self.skill_score != float(skill_pass)
+            or self.score_delta != self.skill_score - self.baseline_score
+        ):
+            raise ValueError("paired row category or score is inconsistent")
+        if any(
+            not value.is_finite() or value < 0
+            for value in (self.baseline_cost_amount, self.skill_cost_amount)
+        ):
+            raise ValueError("paired row costs must be finite and nonnegative")
+        for status, refs in (
+            (
+                self.baseline_status,
+                (self.baseline_trace, self.baseline_state_diff, self.baseline_grade),
+            ),
+            (
+                self.skill_status,
+                (self.skill_trace, self.skill_state_diff, self.skill_grade),
+            ),
+        ):
+            if status in (RunnerStatus.PASS, RunnerStatus.AGENT_FAIL) and any(
+                ref is None for ref in refs
+            ):
+                raise ValueError("completed paired outcomes require full evidence")
+        return self
+
+
+def pair_execution_sha256(
+    *,
+    baseline_events: ArtifactRef,
+    skill_events: ArtifactRef,
+    protocol_sha256: Sha256Digest,
+    measured_at: UtcDateTime,
+    measurement_kind: MeasurementKind,
+) -> Sha256Digest:
+    """Hash the exact event logs and measurement identity used by one pair."""
+
+    payload = {
+        "baseline_events": baseline_events.model_dump(mode="json"),
+        "skill_events": skill_events.model_dump(mode="json"),
+        "protocol_sha256": protocol_sha256,
+        "measured_at": measured_at.isoformat(),
+        "measurement_kind": measurement_kind.value,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 class PairedComparison(VersionedRecord):
@@ -215,9 +283,15 @@ class PairedComparison(VersionedRecord):
     skill_run_id: RunId
     skill_sha256: Sha256Digest
     protocol_sha256: Sha256Digest
-    compatible: bool
-    fresh_baseline: bool
-    fresh_skill: bool
+    pair_execution_sha256: Sha256Digest
+    measurement_kind: MeasurementKind
+    measured_at: UtcDateTime
+    data_version: NonEmptyStr
+    model_lock_sha256: Sha256Digest
+    engine_version: NonEmptyStr
+    model_id: NonEmptyStr
+    baseline_events: ArtifactRef
+    skill_events: ArtifactRef
     category_counts: Mapping[PairCategory, StrictNonNegativeInt]
     baseline_pass_rate: float = Field(ge=0, le=1)
     skill_pass_rate: float = Field(ge=0, le=1)
@@ -227,6 +301,7 @@ class PairedComparison(VersionedRecord):
     skill_output_tokens: StrictNonNegativeInt
     baseline_cost_amount: Decimal
     skill_cost_amount: Decimal
+    cost_currency: CurrencyCode
     baseline_latency_ms: StrictNonNegativeInt
     skill_latency_ms: StrictNonNegativeInt
     cases: tuple[PairedCaseResult, ...]
@@ -244,11 +319,81 @@ class PairedComparison(VersionedRecord):
             self.cases
         ):
             raise ValueError("paired comparison cases must be nonempty and unique")
-        if not self.compatible or not self.fresh_baseline or not self.fresh_skill:
-            raise ValueError("persisted paired comparison must be compatible and fresh")
         expected = {category: 0 for category in PairCategory}
         for item in self.cases:
             expected[item.category] += 1
         if dict(self.category_counts) != expected:
             raise ValueError("paired category counts do not match case rows")
+        if self.baseline_run_id == self.skill_run_id:
+            raise ValueError("paired comparison requires distinct run IDs")
+        if self.baseline_events == self.skill_events:
+            raise ValueError("paired comparison requires distinct event logs")
+        for run_id, events in (
+            (self.baseline_run_id, self.baseline_events),
+            (self.skill_run_id, self.skill_events),
+        ):
+            if events.root is not ArtifactRoot.RUN or PurePosixPath(
+                events.path
+            ).parts != (run_id, "events.jsonl"):
+                raise ValueError("paired event log path does not match its run")
+        for row in self.cases:
+            for run_id, refs in (
+                (
+                    self.baseline_run_id,
+                    (row.baseline_trace, row.baseline_state_diff, row.baseline_grade),
+                ),
+                (
+                    self.skill_run_id,
+                    (row.skill_trace, row.skill_state_diff, row.skill_grade),
+                ),
+            ):
+                prefix = (run_id, "artifacts", row.case_id, "iteration-0")
+                if any(
+                    ref.root is not ArtifactRoot.RUN
+                    or PurePosixPath(ref.path).parts[: len(prefix)] != prefix
+                    for ref in refs
+                    if ref is not None
+                ):
+                    raise ValueError("paired case evidence path does not match its run")
+        total = len(self.cases)
+        expected_values = (
+            sum(row.baseline_score for row in self.cases) / total,
+            sum(row.skill_score for row in self.cases) / total,
+            sum(row.baseline_input_tokens for row in self.cases),
+            sum(row.skill_input_tokens for row in self.cases),
+            sum(row.baseline_output_tokens for row in self.cases),
+            sum(row.skill_output_tokens for row in self.cases),
+            sum((row.baseline_cost_amount for row in self.cases), Decimal(0)),
+            sum((row.skill_cost_amount for row in self.cases), Decimal(0)),
+            sum(row.baseline_latency_ms for row in self.cases),
+            sum(row.skill_latency_ms for row in self.cases),
+        )
+        actual_values = (
+            self.baseline_pass_rate,
+            self.skill_pass_rate,
+            self.baseline_input_tokens,
+            self.skill_input_tokens,
+            self.baseline_output_tokens,
+            self.skill_output_tokens,
+            self.baseline_cost_amount,
+            self.skill_cost_amount,
+            self.baseline_latency_ms,
+            self.skill_latency_ms,
+        )
+        if actual_values != expected_values:
+            raise ValueError("paired aggregate metrics do not match case rows")
+        if any(
+            not value.is_finite() or value < 0
+            for value in (self.baseline_cost_amount, self.skill_cost_amount)
+        ):
+            raise ValueError("paired aggregate costs must be finite and nonnegative")
+        expected_execution = pair_execution_sha256(
+            baseline_events=self.baseline_events,
+            skill_events=self.skill_events,
+            protocol_sha256=self.protocol_sha256,
+            measured_at=self.measured_at,
+            measurement_kind=self.measurement_kind,
+        )
+        if self.pair_execution_sha256 != expected_execution:
+            raise ValueError("paired execution hash does not match its evidence")
         return self

@@ -1,7 +1,7 @@
 ---
 name: resolve-product-returns
 description: Use for product return requests that require policy checks and safe state changes.
-allowed-tools: get_order, get_policies, process_return
+allowed-tools: mcp__shop__get_order, mcp__shop__get_policies, mcp__shop__process_return
 ---
 
 # Resolve product returns

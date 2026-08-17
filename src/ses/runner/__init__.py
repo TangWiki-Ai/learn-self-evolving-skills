@@ -10,6 +10,7 @@ from ses.runner.baseline import (
 )
 from ses.runner.fake import (
     DevelopCatalogEvaluator,
+    LiveDevelopConfig,
     develop_catalog_sha256,
     load_develop_catalog,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "BudgetLimits",
     "CaseEvaluation",
     "DevelopCatalogEvaluator",
+    "LiveDevelopConfig",
     "compute_reliability_metrics",
     "develop_catalog_sha256",
     "load_develop_catalog",

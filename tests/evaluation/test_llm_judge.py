@@ -164,7 +164,7 @@ def test_llm_judge_records_all_protocol_versions_and_hashes() -> None:
     )
 
     assert run.protocol.rubric_version == "1.0.0"
-    assert run.protocol.prompt_version == "rubric-prompt-v2"
+    assert run.protocol.prompt_version == "rubric-prompt-v3"
     assert run.protocol.extractor_version == "evidence-extractor-v2"
     assert run.protocol.model_protocol_version == "llm-assertion-json-v2"
     assert run.protocol.judge_model_id == "ses/fixed-response-fixture"

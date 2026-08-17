@@ -41,7 +41,7 @@ from ses.foundation.config import LockedModel
 from ses.foundation.credentials import ProviderCredentials
 from ses.foundation.workspace import CaseWorkspace, WorkspaceFactory
 
-RUBRIC_PROMPT_VERSION = "rubric-prompt-v2"
+RUBRIC_PROMPT_VERSION = "rubric-prompt-v3"
 MODEL_PROTOCOL_VERSION = "llm-assertion-json-v2"
 _MODEL_PROTOCOL = (
     "ses.evaluation.llm-judge/llm-assertion-json-v2|"
@@ -246,6 +246,7 @@ class BoundJudgeEngine:
         run_id: str = "llm-judge",
         case_id: str = "read-only-evidence",
         iteration_id: str = "0",
+        output_json_schema: Mapping[str, object] | None = None,
     ) -> BoundJudgeEngine:
         """Create a live Claude Judge and derive provenance from its locked model."""
 
@@ -262,6 +263,7 @@ class BoundJudgeEngine:
             executable=executable,
             environ=environ,
             system_prompt=system_prompt,
+            output_json_schema=output_json_schema,
         )
         return cls._create(
             engine=engine,
@@ -300,6 +302,20 @@ def _render_llm_prompt(*, rubric: Rubric, evidence: EvidenceBundle) -> str:
         separators=(",", ":"),
     )
     evidence_json = evidence_json_bytes(evidence).decode("utf-8")
+    allowed_references = [
+        *(
+            f"/state_diff_facts/{index}"
+            for index in range(len(evidence.state_diff_facts))
+        ),
+        *(
+            f"/tool_timeline/{index}/{field}"
+            for index in range(len(evidence.tool_timeline))
+            for field in ("tool_name", "arguments", "result_content")
+        ),
+        *(f"/key_messages/{index}/text" for index in range(len(evidence.key_messages))),
+        "/amount_reconciliation",
+    ]
+    allowed_json = json.dumps(allowed_references, separators=(",", ":"))
     return (
         f"Protocol: {RUBRIC_PROMPT_VERSION}. Rate the rubric criterion in one "
         "single pass from the supplied evidence. Do not call tools or use outside "
@@ -307,6 +323,9 @@ def _render_llm_prompt(*, rubric: Rubric, evidence: EvidenceBundle) -> str:
         "reason, and evidence_references. status must be pass, fail, or "
         "not_evaluated. Evidence references may point only into "
         "state_diff_facts, tool_timeline, amount_reconciliation, or key_messages.\n"
+        "Copy evidence_references verbatim from ALLOWED_EVIDENCE_REFERENCES; do "
+        "not invent deeper paths or substitute record labels.\n"
+        f"ALLOWED_EVIDENCE_REFERENCES={allowed_json}\n"
         f"RUBRIC={rubric_json}\nEVIDENCE={evidence_json}"
     )
 

@@ -114,14 +114,14 @@
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The response matches the completed state.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
       "evidence_sha256": "80bc78e47967f80a6440dd59fd6828b582e2c05f173494130fefee4736e76d46",
       "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
-      "prompt_sha256": "3b0b140b809bf6159b56dea44a86e96a324bbc64e569fd69e48c85160c399273",
+      "prompt_sha256": "b4a942eda38d8f13c2b79c936cd968e050d89bf714222c3c66653a4a39960398",
       "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
       "judge_model_id": "ses/fixed-response-fixture",
       "model_lock_version": "fake-fixture:sha256:f47e65bb8514990d2615a5d74544ee8a3705b8a9b63cf748222b34152334fb37",
       "response_source": "fixed_response",
       "model_config_sha256": "f73406a5592ba971c50ff50ff25bca8b1a4a2ac471c5ef2fec420e4dd1b332fd",
       "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08",
-      "protocol_sha256": "37a38d92f87bb2a81680efa1f7ef21d7f005f00ec160b54e55df1769541083e4"
+      "protocol_sha256": "ec0ea2b57cf5ecc36acd30dd687f0ba2b0ff1ea35dc36ccbe0029f8a359b7e91"
     },
     {
       "case_id": "cal-001",
@@ -152,14 +152,14 @@
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The response conflicts with the completed state.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
       "evidence_sha256": "851d4f73309e633c316ce5adb0bd14dc87d48c6deace388a89badee7f734b6cb",
       "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
-      "prompt_sha256": "bee02088a30f16063b813966f64cb2efab82c44fbb10e6cab1fafc6e2603fafe",
+      "prompt_sha256": "c034bfb4fd04a3c1001fa70206fde7001387a6d057974eafe41a542789e27e1b",
       "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
       "judge_model_id": "ses/fixed-response-fixture",
       "model_lock_version": "fake-fixture:sha256:3a20a8369a4a8be5a3261032975a3bd0038e3ca6313df3e2a665e95d223c1df8",
       "response_source": "fixed_response",
       "model_config_sha256": "a2021b6d52f4e5b2c295b94d321faf0d8ff4783d10efac83ec28582fda5758b7",
       "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08",
-      "protocol_sha256": "f0d213d09363f34f932af72163354b44fc68f21e9bf7edf70ee5f4e5ba50488f"
+      "protocol_sha256": "6e060663c9b7c6361cde277875229fc45cffed6b9398a2bb53e2e421806f102b"
     },
     {
       "case_id": "cal-002",
@@ -190,14 +190,14 @@
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"pass\",\"reason\":\"The state shows completion.\",\"evidence_references\":[\"/state_diff_facts/0/after\"]}",
       "evidence_sha256": "cb872559727b190542987a595a95f458dc364fdda06c8e5463cc6055d4846dd4",
       "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
-      "prompt_sha256": "42bb4a74b1b511c43477661faa157f7958a3fd761f08549870153c19d6797d2c",
+      "prompt_sha256": "d11a17c8263636746428291f98302522bb2f5f61ba29e16f766afda84f5ae623",
       "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
       "judge_model_id": "ses/fixed-response-fixture",
       "model_lock_version": "fake-fixture:sha256:9dae66d65b285ccddc3e1224b85c521c4fab5120636fb39eccdaebf41311c627",
       "response_source": "fixed_response",
       "model_config_sha256": "a1211b254770e0c2391b760d2fe33f378d7ab417930a94312def86b9a43eaf61",
       "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08",
-      "protocol_sha256": "768e047ceff3d9668410dbf11208d3a5c6039e0acb083a5ac4daf63c34fd9fb2"
+      "protocol_sha256": "6a8188b0f86d826956992ea9f7f3fb0303b6f0bc1080bc1884a33a81fb117aad"
     },
     {
       "case_id": "cal-003",
@@ -228,14 +228,14 @@
       "raw_fixed_response": "{\"assertion_id\":\"response-quality\",\"status\":\"fail\",\"reason\":\"The wording is too vague.\",\"evidence_references\":[\"/key_messages/0/text\",\"/state_diff_facts/0/after\"]}",
       "evidence_sha256": "a9b1344af1aae5d5ce8b06778a2748c25c553e3b80468573ca7b52374336e764",
       "rubric_sha256": "bead3072d353e0fc8c2056f0260321cabf33aa44718f7efb1427a174624f3448",
-      "prompt_sha256": "c9eb36aed2a3ee4fc53552b186712e2030eff9d95f8b69fa5abdffb1e9b3d85b",
+      "prompt_sha256": "bed4f06b3da33d309a116b88860f88dfad2886ab0881bc7e31d4ec83eb3167e9",
       "extractor_sha256": "60534db9eaa9d27f1d7bfa706447e470d6fe201673c396025df177360452c5d3",
       "judge_model_id": "ses/fixed-response-fixture",
       "model_lock_version": "fake-fixture:sha256:5e271b30575a8f8f0bcd21f29c0252a82d321ae75ce04d3d9513e6ae1eab8feb",
       "response_source": "fixed_response",
       "model_config_sha256": "0c21cfa28d882a391375e559adf7472ecb4dc58c6c9e56dacdc3a390ae6644a6",
       "model_protocol_sha256": "bf68928faafeca88bbfaa745f9d150ae9f3c5702520a0e01d5be44c09e382a08",
-      "protocol_sha256": "1d0b362c603c81e65b9eafdaad74e54dd6cbcb633f2089952ff2a54659c5fab6"
+      "protocol_sha256": "c33c6d62c7cde698ac202b1c322af7de986411d8194e7e20bb81db82e4a1737b"
     },
     {
       "case_id": "cal-004",

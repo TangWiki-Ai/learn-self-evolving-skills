@@ -691,6 +691,7 @@ def judge_rules_across_traces(
     *,
     evidence_artifacts: Sequence[ArtifactRef],
     judge_version: str = "rule-v1",
+    ignored_tool_names: frozenset[str] = frozenset(),
 ) -> tuple[AssertionResult, ...]:
     """Evaluate rules over a complete multi-turn trace sequence."""
 
@@ -704,7 +705,11 @@ def judge_rules_across_traces(
     calls: list[TraceToolCall] = []
     artifact_by_call: dict[int, ArtifactRef] = {}
     for trace, artifact in zip(canonical_traces, canonical_artifacts, strict=True):
-        trace_calls = trace_tool_calls(trace)
+        trace_calls = tuple(
+            call
+            for call in trace_tool_calls(trace)
+            if call.tool_name not in ignored_tool_names
+        )
         calls.extend(trace_calls)
         artifact_by_call.update({id(call): artifact for call in trace_calls})
     return _judge_call_sequence(

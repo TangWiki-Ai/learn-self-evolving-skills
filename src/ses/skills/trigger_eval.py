@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import shutil
 from collections.abc import Mapping, Sequence
-from enum import StrEnum
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
@@ -14,12 +16,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ses.contracts import (
     CompletedPayload,
+    DiscoveryStatus,
     EngineExitStatus,
     EngineRequest,
     ErrorPayload,
+    MeasurementKind,
     RecordType,
     SchemaVersion,
     ToolCallPayload,
+    TriggerEvalResult,
+    TriggerPromptResult,
     Usage,
     UsagePayload,
 )
@@ -28,12 +34,6 @@ from ses.foundation.config import LockedModel
 from ses.foundation.credentials import ProviderCredentials
 from ses.foundation.workspace import WorkspaceFactory
 from ses.skills.installer import load_skill_manifest
-
-
-class DiscoveryStatus(StrEnum):
-    TRIGGERED = "triggered"
-    NOT_TRIGGERED = "not_triggered"
-    INDETERMINATE = "indeterminate"
 
 
 class TriggerPrompt(BaseModel):
@@ -96,35 +96,8 @@ class DiscoveryBackend(Protocol):
     def observe(self, prompt: str) -> DiscoveryObservation: ...
 
 
-class TriggerPromptResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    prompt_id: str
-    prompt: str
-    expected_trigger: bool
-    actual: DiscoveryStatus
-    evidence: str
-
-
-class TriggerEvalResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    schema_version: str = "v1alpha1"
-    record_type: str = "trigger_eval_result"
-    skill_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    engine_version: str = Field(min_length=1)
-    tp: int = Field(ge=0)
-    fp: int = Field(ge=0)
-    tn: int = Field(ge=0)
-    fn: int = Field(ge=0)
-    precision: float = Field(ge=0, le=1)
-    recall: float = Field(ge=0, le=1)
-    indeterminate_count: int = Field(ge=0)
-    prompts: tuple[TriggerPromptResult, ...]
-
-
-class FixedNativeDiscovery:
-    """Deterministic product-shaped discovery fixture for offline CI."""
+class SyntheticDiscoveryFixture:
+    """Deterministic synthetic responses used only by offline tests and lessons."""
 
     def __init__(self, expected: dict[str, bool] | None = None) -> None:
         self._expected = expected or {
@@ -135,7 +108,7 @@ class FixedNativeDiscovery:
         if prompt not in self._expected:
             return DiscoveryObservation(
                 status=DiscoveryStatus.INDETERMINATE,
-                evidence="fixed native discovery fixture has no observation",
+                evidence="synthetic fixture has no observation; no product call occurred",
             )
         triggered = self._expected[prompt]
         return DiscoveryObservation(
@@ -144,7 +117,7 @@ class FixedNativeDiscovery:
                 if triggered
                 else DiscoveryStatus.NOT_TRIGGERED
             ),
-            evidence="fixed Claude Code native discovery observation",
+            evidence="synthetic discovery fixture response; no product call occurred",
         )
 
 
@@ -178,7 +151,8 @@ class ClaudeNativeDiscovery:
         self._timeout_seconds = timeout_seconds
         self.input_tokens = 0
         self.output_tokens = 0
-        self.cost_amount = 0.0
+        self.cost_amount = Decimal(0)
+        self.cost_currency = "USD"
         self.latency_ms = 0
 
     def observe(self, prompt: str) -> DiscoveryObservation:
@@ -219,8 +193,12 @@ class ClaudeNativeDiscovery:
                 executable=self._executable,
                 environ=self._environ,
                 system_prompt=(
-                    "Handle the user's request naturally. Use the installed Skill "
-                    "through Claude Code's native Skill mechanism only when it applies."
+                    "Inspect the descriptions of the Skills installed by Claude Code. "
+                    "Evaluate only whether one applies to the user's request. When it "
+                    "applies, you must invoke that Skill exactly once through "
+                    "Claude Code's native Skill mechanism, then briefly acknowledge "
+                    "the discovery. When none applies, say so. Do not execute the "
+                    "business task or call any other tool."
                 ),
                 native_skill_discovery=True,
             )
@@ -237,7 +215,7 @@ class ClaudeNativeDiscovery:
             record_type=RecordType.ENGINE_REQUEST,
             request_id=f"trigger-live-{prompt_hash}",
             prompt=prompt,
-            allowed_tools=("Skill(resolve-product-returns)",),
+            allowed_tools=("Skill",),
             timeout_seconds=self._timeout_seconds,
         )
         triggered = False
@@ -259,7 +237,7 @@ class ClaudeNativeDiscovery:
                 terminal = payload.exit_status
         self.input_tokens += usage.input_tokens
         self.output_tokens += usage.output_tokens
-        self.cost_amount += float(usage.cost_amount or 0)
+        self.cost_amount += usage.cost_amount or Decimal(0)
         if error_codes or terminal is not EngineExitStatus.SUCCESS:
             diagnostic = ",".join(sorted(set(error_codes))) or "missing_success"
             return DiscoveryObservation(
@@ -287,6 +265,9 @@ def evaluate_triggers(
     *,
     skill_sha256: str,
     engine_version: str,
+    model_id: str,
+    measurement_kind: MeasurementKind,
+    measured_at: datetime,
     discovery: DiscoveryBackend,
     prompts: tuple[TriggerPrompt, ...] = TRIGGER_PROMPTS,
 ) -> TriggerEvalResult:
@@ -327,9 +308,33 @@ def evaluate_triggers(
             tn += 1
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
+    prompt_set_sha256 = hashlib.sha256(
+        json.dumps(
+            [item.model_dump(mode="json") for item in prompts],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    input_tokens = int(getattr(discovery, "input_tokens", 0))
+    output_tokens = int(getattr(discovery, "output_tokens", 0))
+    cost_amount = Decimal(str(getattr(discovery, "cost_amount", 0)))
+    cost_currency = getattr(discovery, "cost_currency", None)
+    usage = Usage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_amount=cost_amount if cost_amount else None,
+        cost_currency=cost_currency if cost_amount else None,
+    )
     return TriggerEvalResult(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type="trigger_eval_result",
         skill_sha256=skill_sha256,
+        prompt_set_sha256=prompt_set_sha256,
         engine_version=engine_version,
+        model_id=model_id,
+        measurement_kind=measurement_kind,
+        measured_at=measured_at,
+        usage=usage,
         tp=tp,
         fp=fp,
         tn=tn,

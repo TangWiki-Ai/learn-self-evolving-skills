@@ -69,7 +69,6 @@ _AMBIGUOUS_EXACT_FIELD_NAMES = frozenset(
         "auth",
         "authentication",
         "authorization",
-        "gold",
         "headers",
         "token",
     }

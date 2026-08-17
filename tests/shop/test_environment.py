@@ -370,6 +370,18 @@ def test_state_diff_summary_describes_every_non_empty_bucket_and_uses_snapshot_c
     assert diff.diff_id.startswith("foreign-case:diff:")
 
 
+def test_state_diff_accepts_an_unchanged_snapshot_identity() -> None:
+    environment = CaseEnvironment()
+    before = environment.snapshot()
+
+    diff = state_diff(before, before)
+
+    assert diff.before_snapshot_id == diff.after_snapshot_id
+    assert diff.added == {}
+    assert diff.removed == {}
+    assert diff.changed == {}
+
+
 def test_close_refuses_later_mutations_and_snapshots() -> None:
     environment = CaseEnvironment()
     environment.close()

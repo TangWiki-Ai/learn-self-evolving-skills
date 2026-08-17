@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections import deque
+from datetime import UTC, datetime
 
+from ses.contracts import DiscoveryStatus, MeasurementKind
 from ses.skills.trigger_eval import (
     TRIGGER_PROMPTS,
     DiscoveryObservation,
-    DiscoveryStatus,
     evaluate_triggers,
 )
 
@@ -33,6 +34,9 @@ def test_trigger_eval_reports_matrix_precision_recall_and_evidence() -> None:
     result = evaluate_triggers(
         skill_sha256="a" * 64,
         engine_version="claude-code:2.1.220",
+        model_id="fixture-model",
+        measurement_kind=MeasurementKind.SYNTHETIC_OFFLINE,
+        measured_at=datetime(2026, 8, 17, tzinfo=UTC),
         discovery=backend,
     )
 
@@ -54,6 +58,9 @@ def test_trigger_eval_preserves_indeterminate_without_coercing_it() -> None:
     result = evaluate_triggers(
         skill_sha256="b" * 64,
         engine_version="claude-code:2.1.220",
+        model_id="fixture-model",
+        measurement_kind=MeasurementKind.SYNTHETIC_OFFLINE,
+        measured_at=datetime(2026, 8, 17, tzinfo=UTC),
         discovery=backend,
     )
 

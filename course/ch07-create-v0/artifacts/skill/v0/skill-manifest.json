@@ -1,9 +1,9 @@
 {
-  "content_sha256": "45089f68bcbe7dc767c9123839472f1a1803eee2c69aec7ee8b3aebe0e151fb7",
+  "content_sha256": "a19c423b65f9ef7960d682045832f7a8bf57fbbda759a42e102cb28ddfc8ef26",
   "files": [
     {
       "path": "SKILL.md",
-      "sha256": "037a2a29e67ed43aa44eca52f73cd683b93370de1b4dca44e6905fd2dc20ed5d"
+      "sha256": "6bbb404a55651cc185c1290e914bc9015740a1123e1e2965d3369d9eee349585"
     },
     {
       "path": "references/return-workflow.md",
@@ -16,6 +16,6 @@
   ],
   "record_type": "skill_artifact_manifest",
   "schema_version": "v1alpha1",
-  "source_version": "state-bench:5644b183:creator-audit-v1",
+  "source_version": "state-bench:5644b1838d96bc4483da29642d058ecaa6f80f7f:creator-audit-v3",
   "version": "v0"
 }

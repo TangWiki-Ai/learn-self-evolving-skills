@@ -42,7 +42,9 @@ def test_ticket08_cli_runs_full_vertical_slice_offline(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["mode"] == "fixed"
-    assert payload["network_used"] is False
+    assert payload["creator_measurement"] == "synthetic_offline"
+    assert payload["trigger_measurement"] == "synthetic_offline"
+    assert payload["paired_measurement"] == "synthetic_offline"
     assert payload["seed_count"] == 9
     assert payload["static_gate"] == "pass"
     assert payload["trigger_precision"] == 1.0

@@ -6,8 +6,10 @@ import asyncio
 import hashlib
 import json
 import os
+import sys
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
@@ -21,6 +23,7 @@ from ses.contracts import (
     EngineEvent,
     EngineRequest,
     GradeStatus,
+    ShopSnapshot,
     StateDiff,
     TextDeltaPayload,
     ToolCallPayload,
@@ -34,6 +37,7 @@ from ses.contracts import (
 )
 from ses.contracts.runner import RunArtifacts, RunnerStatus
 from ses.engines.base import Engine
+from ses.engines.claude_code import ClaudeCodeEngine
 from ses.engines.fake import FakeEngine, FakeFixture, FakeStep
 from ses.evaluation import (
     aggregate_case_grade,
@@ -46,10 +50,14 @@ from ses.evaluation import (
     trace_tool_calls,
 )
 from ses.evaluator.multi_turn import MultiTurnEvaluator, MultiTurnOutcome
+from ses.foundation.config import LockedModel
+from ses.foundation.credentials import ProviderCredentials
 from ses.foundation.workspace import WorkspaceFactory
 from ses.runner.baseline import CaseEvaluation, EvaluationContext
 from ses.shop import CaseEnvironment, ReturnCaseFixture, state_diff
 from ses.simulation import FakeSimulator, UserIntent
+
+_FIXED_TRACE_TIME = datetime(2026, 8, 17, tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +68,17 @@ class ExecutableDevelopCase:
     expected_actions: tuple[tuple[str, Mapping[str, JsonValue]], ...]
     qualification_hash: str
     manifest_data_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class LiveDevelopConfig:
+    """Locked Claude runtime used by both sides of a live paired execution."""
+
+    model: LockedModel
+    credentials: ProviderCredentials
+    executable: str
+    environ: Mapping[str, str]
+    timeout_seconds: float = 300
 
 
 def _verify_reference(root: Path, value: object) -> Path:
@@ -288,7 +307,6 @@ class _ShopBoundEngine:
 def _action_fixture(
     case: ExecutableDevelopCase,
     *,
-    force_fail: bool = False,
     input_token_overhead: int = 0,
     cost_amount: Decimal = Decimal("0.0010"),
 ) -> FakeFixture:
@@ -300,8 +318,7 @@ def _action_fixture(
             )
         )
     ]
-    actions = case.expected_actions[:-1] if force_fail else case.expected_actions
-    for index, (tool_name, arguments) in enumerate(actions):
+    for index, (tool_name, arguments) in enumerate(case.expected_actions):
         tool_call_id = f"tool-{index:02d}-{tool_name}"
         steps.extend(
             (
@@ -412,22 +429,20 @@ class DevelopCatalogEvaluator:
         self,
         catalog: Mapping[str, ExecutableDevelopCase] | None = None,
         *,
-        forced_fail_case_ids: frozenset[str] = frozenset(),
         skill_files: tuple[tuple[Path, str], ...] = (),
         input_token_overhead: int = 0,
         cost_amount: Decimal = Decimal("0.0010"),
         latency_overhead_ms: int = 0,
         fixed_latency_ms: int | None = None,
+        live_config: LiveDevelopConfig | None = None,
     ) -> None:
         self._catalog = dict(catalog or load_develop_catalog())
-        if not forced_fail_case_ids.issubset(self._catalog):
-            raise ValueError("forced failure cases must belong to the catalog")
-        self._forced_fail_case_ids = forced_fail_case_ids
         self._skill_files = skill_files
         self._input_token_overhead = input_token_overhead
         self._cost_amount = cost_amount
         self._latency_overhead_ms = latency_overhead_ms
         self._fixed_latency_ms = fixed_latency_ms
+        self._live_config = live_config
 
     def evaluate_attempt(self, context: EvaluationContext) -> CaseEvaluation:
         case = self._catalog.get(context.case_id)
@@ -443,16 +458,47 @@ class DevelopCatalogEvaluator:
         attempt_root = (
             f"artifacts/{context.case_id}/{context.iteration_id}/{context.attempt_id}"
         )
-        WorkspaceFactory(context.run_dir / "workspaces").create(
+        fixture_source = context.run_dir / attempt_root / "case-fixture.json"
+        fixture_source.parent.mkdir(parents=True, exist_ok=True)
+        fixture_source.write_text(
+            json.dumps(
+                case.fixture.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+        workspace_factory = WorkspaceFactory(context.run_dir / "workspaces")
+        workspace = workspace_factory.create(
             run_id=context.run_id,
             case_id=context.case_id,
             iteration_id=f"{context.iteration_id}:{context.attempt_id}",
+            files=((fixture_source, "case-fixture.json"),),
             skill_files=self._skill_files,
         )
-        environment = CaseEnvironment(case.fixture)
+        environment = (
+            None if self._live_config is not None else CaseEnvironment(case.fixture)
+        )
         trace_refs: list[ArtifactRef] = []
 
         def persist_trace(trace: Trace) -> None:
+            if self._fixed_latency_ms is not None:
+                turn_offset = timedelta(seconds=len(trace_refs))
+                trace = trace.model_copy(
+                    update={
+                        "events": tuple(
+                            event.model_copy(
+                                update={
+                                    "occurred_at": _FIXED_TRACE_TIME
+                                    + turn_offset
+                                    + timedelta(microseconds=event.sequence)
+                                }
+                            )
+                            for event in trace.events
+                        )
+                    }
+                )
             trace_refs.append(
                 _write_record(
                     context.run_dir,
@@ -462,9 +508,11 @@ class DevelopCatalogEvaluator:
             )
 
         try:
-            before = environment.snapshot()
-            before_ref = _write_record(
-                context.run_dir, f"{attempt_root}/before.json", before
+            before = environment.snapshot() if environment is not None else None
+            before_ref = (
+                _write_record(context.run_dir, f"{attempt_root}/before.json", before)
+                if before is not None
+                else None
             )
             simulator = FakeSimulator(
                 UserIntent(
@@ -472,20 +520,62 @@ class DevelopCatalogEvaluator:
                     allowed_facts={"item_id": case.fixture.item.item_id},
                 )
             )
-            engine = _ShopBoundEngine(
-                _SequencedFakeEngine(
-                    _action_fixture(
-                        case,
-                        force_fail=context.case_id in self._forced_fail_case_ids,
-                        input_token_overhead=self._input_token_overhead,
-                        cost_amount=self._cost_amount,
-                    )
-                ),
-                environment,
-            )
+            if self._live_config is None:
+                assert environment is not None
+                engine: Engine = _ShopBoundEngine(
+                    _SequencedFakeEngine(
+                        _action_fixture(
+                            case,
+                            input_token_overhead=self._input_token_overhead,
+                            cost_amount=self._cost_amount,
+                        )
+                    ),
+                    environment,
+                )
+                allowed_tools = case.fixture.required_tools
+                timeout_seconds: float = 30
+            else:
+                shop_artifacts = workspace.root / "shop-artifacts"
+                workspace = workspace_factory.configure_mcp(
+                    workspace,
+                    {
+                        "shop": {
+                            "command": sys.executable,
+                            "args": [
+                                "-m",
+                                "ses.shop.mcp_server",
+                                "--fixture",
+                                str(workspace.root / "case-fixture.json"),
+                                "--artifact-root",
+                                str(shop_artifacts),
+                            ],
+                            "env": {},
+                        }
+                    },
+                )
+                engine = ClaudeCodeEngine(
+                    model=self._live_config.model,
+                    credentials=self._live_config.credentials,
+                    workspace=workspace,
+                    executable=self._live_config.executable,
+                    environ=self._live_config.environ,
+                    system_prompt=(
+                        "Use native Skill discovery when an installed Skill applies. "
+                        "Resolve the user's return request using only the allowed Skill "
+                        "and shop MCP tools. Inspect facts and policy, preview any "
+                        "mutation, then confirm only when the user's request authorizes it."
+                    ),
+                    native_skill_discovery=True,
+                )
+                allowed_tools = (
+                    "Skill",
+                    *(f"mcp__shop__{name}" for name in case.fixture.required_tools),
+                )
+                timeout_seconds = self._live_config.timeout_seconds
             multi = await MultiTurnEvaluator(
                 engine,
-                allowed_tools=case.fixture.required_tools,
+                allowed_tools=allowed_tools,
+                timeout_seconds=timeout_seconds,
                 on_trace=persist_trace,
             ).evaluate(
                 run_id=context.run_id,
@@ -562,7 +652,23 @@ class DevelopCatalogEvaluator:
                 )
 
             try:
-                after = environment.snapshot()
+                if environment is not None:
+                    assert before is not None
+                    after = environment.snapshot()
+                else:
+                    before = ShopSnapshot.model_validate_json(
+                        (workspace.root / "shop-artifacts/shop/before.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    after = ShopSnapshot.model_validate_json(
+                        (workspace.root / "shop-artifacts/shop/after.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    before_ref = _write_record(
+                        context.run_dir, f"{attempt_root}/before.json", before
+                    )
                 after_ref = _write_record(
                     context.run_dir, f"{attempt_root}/after.json", after
                 )
@@ -580,16 +686,24 @@ class DevelopCatalogEvaluator:
                 state_assertions = judge_state(
                     _expected_diff(case), actual_diff, evidence_artifact=diff_ref
                 )
-                expected_names = tuple(name for name, _ in case.expected_actions)
+                tool_prefix = "mcp__shop__" if self._live_config is not None else ""
+                expected_names = tuple(
+                    f"{tool_prefix}{name}" for name, _ in case.expected_actions
+                )
                 final_arguments = case.expected_actions[-1][1]
                 rule_assertions = judge_rules_across_traces(
                     multi.traces,
                     (
                         tool_order(expected_names, exact=True),
-                        tool_count("process_return", 2),
-                        tool_arguments("process_return", final_arguments),
+                        tool_count(f"{tool_prefix}process_return", 2),
+                        tool_arguments(f"{tool_prefix}process_return", final_arguments),
                     ),
                     evidence_artifacts=trace_refs,
+                    ignored_tool_names=(
+                        frozenset({"Skill"})
+                        if self._live_config is not None
+                        else frozenset()
+                    ),
                 )
                 grade = aggregate_case_grade(
                     (*state_assertions, *rule_assertions),
@@ -640,4 +754,5 @@ class DevelopCatalogEvaluator:
                 diff=cast(Mapping[str, JsonValue], actual_diff.model_dump(mode="json")),
             )
         finally:
-            environment.close()
+            if environment is not None:
+                environment.close()

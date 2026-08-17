@@ -11,6 +11,7 @@ from pathlib import Path
 from ses.contracts import ToolResult, ToolResultStatus
 from ses.shop.artifacts import SnapshotArtifactWriter
 from ses.shop.environment import CASE_ID, CaseEnvironment, ShopRole
+from ses.shop.fixture import PINNED_CASE_FIXTURE, ReturnCaseFixture
 
 
 def _send(payload: Mapping[str, object]) -> None:
@@ -113,7 +114,13 @@ def _handle(
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the pinned SES shop MCP server.")
-    parser.add_argument("--case", default=CASE_ID, choices=[CASE_ID])
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--case", choices=[CASE_ID])
+    source.add_argument(
+        "--fixture",
+        type=Path,
+        help="Evaluator-provided ReturnCaseFixture JSON for an isolated run.",
+    )
     parser.add_argument(
         "--role",
         default=ShopRole.AGENT.value,
@@ -132,7 +139,15 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
-    environment = CaseEnvironment(role=ShopRole(args.role))
+    fixture = (
+        ReturnCaseFixture.model_validate_json(args.fixture.read_text(encoding="utf-8"))
+        if args.fixture is not None
+        else None
+    )
+    environment = CaseEnvironment(
+        PINNED_CASE_FIXTURE if fixture is None else fixture,
+        role=ShopRole(args.role),
+    )
     artifact_writer = (
         None
         if args.artifact_root is None

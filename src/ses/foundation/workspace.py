@@ -100,6 +100,27 @@ class WorkspaceFactory:
             cleanup_root=boundary,
         )
 
+    def configure_mcp(
+        self,
+        workspace: CaseWorkspace,
+        servers: Mapping[str, Mapping[str, object]],
+    ) -> CaseWorkspace:
+        """Attach a scrubbed MCP config after workspace-local inputs exist."""
+        if workspace.mcp_config is not None:
+            raise WorkspaceError("workspace already has MCP configuration")
+        scrubbed = self._scrub_mcp_servers(servers)
+        mcp_path = workspace.root / "mcp.json"
+        mcp_path.write_text(
+            json.dumps({"mcpServers": scrubbed}, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        return CaseWorkspace(
+            root=workspace.root,
+            claude_config_dir=workspace.claude_config_dir,
+            mcp_config=mcp_path,
+            cleanup_root=workspace.cleanup_root,
+        )
+
     @staticmethod
     def _copy_allowed(source: Path, destination: Path, root: Path) -> None:
         if not source.is_file() or source.is_symlink():

@@ -107,11 +107,13 @@ class StateDiff(VersionedRecord):
 
     @model_validator(mode="after")
     def _validate_snapshot_and_path_identity(self) -> StateDiff:
-        if self.before_snapshot_id == self.after_snapshot_id:
-            raise ValueError("StateDiff requires two distinct snapshots")
         added_paths = set(self.added)
         removed_paths = set(self.removed)
         changed_paths = set(self.changed)
+        if self.before_snapshot_id == self.after_snapshot_id and (
+            added_paths or removed_paths or changed_paths
+        ):
+            raise ValueError("changed state requires two distinct snapshots")
         if (
             added_paths & removed_paths
             or added_paths & changed_paths

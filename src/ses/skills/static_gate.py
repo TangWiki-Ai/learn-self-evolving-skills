@@ -16,7 +16,13 @@ from ses.skills.installer import (
     normalized_skill_sha256,
 )
 
-SUPPORTED_TOOLS = frozenset({"get_order", "get_policies", "process_return"})
+SUPPORTED_TOOLS = frozenset(
+    {
+        "mcp__shop__get_order",
+        "mcp__shop__get_policies",
+        "mcp__shop__process_return",
+    }
+)
 _NATIVE_FRONTMATTER = frozenset(
     {
         "name",
@@ -115,10 +121,10 @@ def run_static_gate(
     """Inspect every gate condition without installing or calling a model."""
 
     try:
-        content = (source / "SKILL.md").read_text(encoding="utf-8")
+        skill_content = (source / "SKILL.md").read_text(encoding="utf-8")
     except (OSError, UnicodeError):
-        content = ""
-    metadata = parse_skill_front_matter(content)
+        skill_content = ""
+    metadata = parse_skill_front_matter(skill_content)
     required = {"name", "description", "allowed-tools"}
     metadata_ok = (
         metadata is not None
@@ -137,12 +143,16 @@ def run_static_gate(
     declared: set[str] = set()
     manifest_ok = False
     skill_hash: str | None = None
+    installable_content = skill_content
     try:
         manifest = load_skill_manifest(source)
         declared = {item.path for item in manifest.files}
+        installable_content = "\n".join(
+            (source / item.path).read_text(encoding="utf-8") for item in manifest.files
+        )
         manifest_ok = True
         skill_hash = normalized_skill_sha256(source)
-    except (OSError, SkillInstallError, ValueError):
+    except (OSError, UnicodeError, SkillInstallError, ValueError):
         try:
             raw = json.loads((source / "skill-manifest.json").read_text("utf-8"))
             declared = {
@@ -154,11 +164,13 @@ def run_static_gate(
             declared = set()
     actual = _actual_files(source)
     inventory_ok = actual == declared | {"skill-manifest.json"}
-    identifier_ok = not any(pattern.search(content) for pattern in _IDENTIFIER_PATTERNS)
-    fixed_ok = _FIXED_ANSWER.search(content) is None
-    eval_ok = _EVAL_CONTENT.search(content) is None
-    dangerous_ok = _DANGEROUS.search(content) is None
-    length_ok = 0 < len(content) <= max_characters
+    identifier_ok = not any(
+        pattern.search(installable_content) for pattern in _IDENTIFIER_PATTERNS
+    )
+    fixed_ok = _FIXED_ANSWER.search(installable_content) is None
+    eval_ok = _EVAL_CONTENT.search(installable_content) is None
+    dangerous_ok = _DANGEROUS.search(installable_content) is None
+    length_ok = 0 < len(installable_content) <= max_characters
     checks = (
         _check(
             "required_metadata",
