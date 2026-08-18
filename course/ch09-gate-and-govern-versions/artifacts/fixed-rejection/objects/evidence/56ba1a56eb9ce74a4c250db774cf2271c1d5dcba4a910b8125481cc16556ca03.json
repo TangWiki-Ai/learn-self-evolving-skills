@@ -1,0 +1,31 @@
+{
+  "baseline_pass_rate": 1.0,
+  "creator_measurement": "synthetic_offline",
+  "l2_html": {
+    "path": "l2.html",
+    "root": "run",
+    "sha256": "7a9b48bb01489bd9ded8b065691fef971ae68ae02c27c0d3c7a2d6fbf77953ca"
+  },
+  "mode": "fixed",
+  "paired_case_count": 15,
+  "paired_comparison": {
+    "path": "paired-comparison.json",
+    "root": "run",
+    "sha256": "e8eb1e9ab61389bdb0c7cc7bc3620d7d6d245a8a7fcc661d8a0fd92c1e81f0e3"
+  },
+  "paired_measurement": "synthetic_offline",
+  "record_type": "skill_v0_pipeline_summary",
+  "schema_version": "v1alpha1",
+  "seed_count": 9,
+  "skill_pass_rate": 1.0,
+  "skill_sha256": "a19c423b65f9ef7960d682045832f7a8bf57fbbda759a42e102cb28ddfc8ef26",
+  "static_gate": "pass",
+  "trigger_measurement": "synthetic_offline",
+  "trigger_precision": 1.0,
+  "trigger_recall": 1.0,
+  "trigger_result": {
+    "path": "trigger-eval.json",
+    "root": "run",
+    "sha256": "508901ca4f488d8e4b0eb0cfcbcb66661493ed32d2b55f647e6ebfda6dd3a714"
+  }
+}

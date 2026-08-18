@@ -5,17 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from decimal import Decimal
 from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Annotated, Literal, TypeAlias
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue, field_validator, model_validator
 
 from ses.contracts.artifact import ArtifactRef, RelativeArtifactPath, Sha256Digest
 from ses.contracts.base import ContractModel, VersionedRecord
 from ses.contracts.engine import Usage
 from ses.contracts.evaluation import EvidenceRef
-from ses.contracts.primitives import StrictNonNegativeInt
+from ses.contracts.primitives import (
+    CurrencyCode,
+    NonEmptyStr,
+    StrictNonNegativeInt,
+    UtcDateTime,
+)
 from ses.contracts.runner import PairCategory, RunnerStatus
 from ses.contracts.skill import MeasurementKind, SkillArtifactManifest
 
@@ -369,4 +375,584 @@ class EvolutionPipelineSummary(VersionedRecord):
             raise ValueError("Updater mode and measurement kind do not match")
         if self.failure_card_count < 1 or self.patch_operation_count < 1:
             raise ValueError("evolution summary requires cards and patch operations")
+        return self
+
+
+class GateStage(StrEnum):
+    """The conservative candidate gate order."""
+
+    CANDIDATE_VALIDATION = "candidate_validation"
+    STATIC = "static"
+    TRIGGER = "trigger"
+    SELECTION = "fresh_selection_pair"
+    CRITICAL_REGRESSION = "critical_regression"
+    OVERALL_QUALITY = "overall_quality"
+    COST = "cost"
+    BUDGET = "budget"
+
+
+class GateStepStatus(StrEnum):
+    """One gate stage outcome."""
+
+    PASS = "pass"
+    FAIL = "fail"
+    ERROR = "error"
+    BUDGET_STOP = "budget_stop"
+    NOT_EVALUATED = "not_evaluated"
+
+
+class GateOutcome(StrEnum):
+    """Final candidate disposition produced by the gate."""
+
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class GateReason(StrEnum):
+    """Stable, aggregate-only reasons safe to expose to an Updater."""
+
+    ACCEPTED = "accepted"
+    CANDIDATE_INVALID = "candidate_invalid"
+    STATIC_FAILED = "static_gate_failed"
+    TRIGGER_FAILED = "trigger_gate_failed"
+    EVIDENCE_INSUFFICIENT = "selection_evidence_insufficient"
+    JUDGE_ERROR = "judge_error"
+    EVALUATION_ERROR = "selection_evaluation_error"
+    BUDGET_STOP = "budget_stop"
+    CRITICAL_REGRESSION = "critical_case_regression"
+    TIE = "selection_tie"
+    OVERALL_REGRESSION = "overall_quality_regression"
+    COST_LIMIT = "absolute_cost_limit"
+    COST_GROWTH = "relative_cost_growth_limit"
+    TOKEN_BUDGET = "token_budget_limit"
+    NOT_EVALUATED = "not_evaluated_after_prior_failure"
+
+
+SELECTION_ITERATION_ID: Literal["iteration-0"] = "iteration-0"
+
+
+class GatePolicy(VersionedRecord):
+    """Versioned thresholds and locked protocol identities for one lineage."""
+
+    record_type: Literal["skill_gate_policy"]
+    policy_id: str = Field(pattern=r"^gate-policy-[a-z0-9-]+$")
+    selection_case_count: StrictNonNegativeInt
+    critical_case_count: StrictNonNegativeInt
+    selection_slots: tuple[Annotated[str, Field(pattern=r"^slot-[0-9]{3}$")], ...]
+    critical_slots: tuple[Annotated[str, Field(pattern=r"^slot-[0-9]{3}$")], ...]
+    trigger_prompt_set_sha256: Sha256Digest
+    trigger_model_id: NonEmptyStr
+    min_trigger_precision: float = Field(ge=0, le=1)
+    min_trigger_recall: float = Field(ge=0, le=1)
+    max_trigger_indeterminate: StrictNonNegativeInt
+    min_quality_delta: float = Field(ge=0, lt=1)
+    max_critical_regressions: StrictNonNegativeInt
+    max_candidate_cost_amount: Decimal
+    max_relative_cost_increase: Decimal
+    max_gate_cost_amount: Decimal
+    max_gate_input_tokens: StrictNonNegativeInt
+    max_gate_output_tokens: StrictNonNegativeInt
+    cost_currency: CurrencyCode
+    selection_lock_sha256: Sha256Digest
+    evaluation_protocol_sha256: Sha256Digest
+    model_lock_sha256: Sha256Digest
+
+    @field_validator(
+        "max_candidate_cost_amount",
+        "max_relative_cost_increase",
+        "max_gate_cost_amount",
+        mode="before",
+    )
+    @classmethod
+    def _decimal_wire_value(cls, value: object) -> object:
+        if not isinstance(value, (str, Decimal)):
+            raise ValueError("gate policy decimals must use decimal strings")
+        return value
+
+    @model_validator(mode="after")
+    def _valid_policy(self) -> GatePolicy:
+        if self.selection_case_count != 6:
+            raise ValueError("selection gate requires exactly six locked cases")
+        if not 0 < self.critical_case_count <= self.selection_case_count:
+            raise ValueError("critical case count must fit the selection plan")
+        if len(self.selection_slots) != self.selection_case_count or len(
+            set(self.selection_slots)
+        ) != len(self.selection_slots):
+            raise ValueError("selection slots must be complete and unique")
+        if (
+            len(self.critical_slots) != self.critical_case_count
+            or len(set(self.critical_slots)) != len(self.critical_slots)
+            or not set(self.critical_slots) <= set(self.selection_slots)
+        ):
+            raise ValueError("critical slots must be a locked selection subset")
+        for value in (
+            self.max_candidate_cost_amount,
+            self.max_relative_cost_increase,
+            self.max_gate_cost_amount,
+        ):
+            if not value.is_finite() or value < 0:
+                raise ValueError("gate policy costs must be finite and nonnegative")
+        return self
+
+
+class SelectionPairCase(ContractModel):
+    """Private outcome for one opaque locked selection slot."""
+
+    slot: str = Field(pattern=r"^slot-[0-9]{3}$")
+    critical: bool
+    accepted_status: RunnerStatus
+    candidate_status: RunnerStatus
+    accepted_score: float = Field(ge=0, le=1)
+    candidate_score: float = Field(ge=0, le=1)
+    accepted_input_tokens: StrictNonNegativeInt
+    candidate_input_tokens: StrictNonNegativeInt
+    accepted_output_tokens: StrictNonNegativeInt
+    candidate_output_tokens: StrictNonNegativeInt
+    accepted_cost_amount: Decimal
+    candidate_cost_amount: Decimal
+
+    @field_validator("accepted_cost_amount", "candidate_cost_amount", mode="before")
+    @classmethod
+    def _decimal_case_cost(cls, value: object) -> object:
+        if not isinstance(value, (str, Decimal)):
+            raise ValueError("selection costs must use decimal strings")
+        return value
+
+    @model_validator(mode="after")
+    def _valid_case(self) -> SelectionPairCase:
+        for value in (self.accepted_cost_amount, self.candidate_cost_amount):
+            if not value.is_finite() or value < 0:
+                raise ValueError("selection costs must be finite and nonnegative")
+        for status, score in (
+            (self.accepted_status, self.accepted_score),
+            (self.candidate_status, self.candidate_score),
+        ):
+            if status is RunnerStatus.PASS and score != 1:
+                raise ValueError("passing selection outcomes require score 1")
+            if status is RunnerStatus.AGENT_FAIL and score != 0:
+                raise ValueError("failed selection outcomes require score 0")
+        return self
+
+
+def selection_pair_payload_sha256(value: SelectionPairEvaluation) -> Sha256Digest:
+    """Hash a private pair record without its stored self hash."""
+
+    payload = value.model_dump(mode="json", exclude={"pair_execution_sha256"})
+    return hashlib.sha256(_patch_hash_payload(payload)).hexdigest()
+
+
+class SelectionPairEvaluation(VersionedRecord):
+    """Private accepted-vs-candidate evidence from one fresh selection run."""
+
+    record_type: Literal["selection_pair_evaluation"]
+    evaluation_id: str = Field(pattern=r"^selection-[a-z0-9-]+$")
+    gate_id: str = Field(pattern=r"^gate-[a-z0-9-]+$")
+    evaluation_nonce: NonEmptyStr
+    iteration_id: Literal["iteration-0"]
+    accepted_skill_sha256: Sha256Digest
+    candidate_skill_sha256: Sha256Digest
+    selection_lock_sha256: Sha256Digest
+    evaluation_protocol_sha256: Sha256Digest
+    model_lock_sha256: Sha256Digest
+    measurement_kind: MeasurementKind
+    measured_at: UtcDateTime
+    accepted_run_id: NonEmptyStr
+    candidate_run_id: NonEmptyStr
+    accepted_events: ArtifactRef
+    candidate_events: ArtifactRef
+    cost_currency: CurrencyCode
+    cases: tuple[SelectionPairCase, ...]
+    pair_execution_sha256: Sha256Digest = "0" * 64
+
+    @model_validator(mode="after")
+    def _valid_pair(self) -> SelectionPairEvaluation:
+        if self.accepted_skill_sha256 == self.candidate_skill_sha256:
+            raise ValueError("selection pair requires two distinct Skill versions")
+        if self.accepted_run_id == self.candidate_run_id:
+            raise ValueError("selection pair requires distinct fresh run IDs")
+        if self.accepted_events == self.candidate_events:
+            raise ValueError("selection pair requires distinct event evidence")
+        slots = [row.slot for row in self.cases]
+        if not slots or len(slots) != len(set(slots)):
+            raise ValueError("selection slots must be nonempty and unique")
+        expected = selection_pair_payload_sha256(self)
+        if self.pair_execution_sha256 == "0" * 64:
+            object.__setattr__(self, "pair_execution_sha256", expected)
+        elif self.pair_execution_sha256 != expected:
+            raise ValueError("selection pair hash does not match its evidence")
+        return self
+
+
+class GateErrorEvidence(VersionedRecord):
+    """Credential-safe receipt for a failed gate operation."""
+
+    record_type: Literal["gate_error_evidence"]
+    stage: GateStage
+    error_type: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+    http_status_code: Annotated[int, Field(strict=True, ge=100, le=599)] | None = None
+
+
+class GateStep(ContractModel):
+    """One ordered gate result with content-addressed evidence."""
+
+    stage: GateStage
+    status: GateStepStatus
+    reason_codes: tuple[GateReason, ...] = ()
+    evidence: tuple[ArtifactRef, ...] = ()
+
+    @model_validator(mode="after")
+    def _valid_step(self) -> GateStep:
+        if len(self.reason_codes) != len(set(self.reason_codes)):
+            raise ValueError("gate step reasons must be unique")
+        if self.status is GateStepStatus.PASS and self.reason_codes:
+            raise ValueError("passing gate steps cannot carry rejection reasons")
+        if self.status is not GateStepStatus.PASS and not self.reason_codes:
+            raise ValueError("non-passing gate steps require a reason")
+        if self.status is GateStepStatus.NOT_EVALUATED and self.reason_codes != (
+            GateReason.NOT_EVALUATED,
+        ):
+            raise ValueError("skipped gate steps require the not-evaluated reason")
+        if self.status is GateStepStatus.NOT_EVALUATED:
+            if self.evidence:
+                raise ValueError("skipped gate steps cannot carry evidence")
+            return self
+
+        allowed_statuses = {
+            GateStage.CANDIDATE_VALIDATION: {
+                GateStepStatus.PASS,
+                GateStepStatus.FAIL,
+            },
+            GateStage.STATIC: {
+                GateStepStatus.PASS,
+                GateStepStatus.FAIL,
+                GateStepStatus.ERROR,
+            },
+            GateStage.TRIGGER: {
+                GateStepStatus.PASS,
+                GateStepStatus.FAIL,
+                GateStepStatus.ERROR,
+            },
+            GateStage.SELECTION: {
+                GateStepStatus.PASS,
+                GateStepStatus.FAIL,
+                GateStepStatus.ERROR,
+                GateStepStatus.BUDGET_STOP,
+            },
+            GateStage.CRITICAL_REGRESSION: {
+                GateStepStatus.PASS,
+                GateStepStatus.FAIL,
+            },
+            GateStage.OVERALL_QUALITY: {
+                GateStepStatus.PASS,
+                GateStepStatus.FAIL,
+            },
+            GateStage.COST: {GateStepStatus.PASS, GateStepStatus.FAIL},
+            GateStage.BUDGET: {GateStepStatus.PASS, GateStepStatus.FAIL},
+        }
+        if self.status not in allowed_statuses[self.stage]:
+            raise ValueError("gate step status does not belong to its stage")
+
+        if self.stage is GateStage.SELECTION:
+            expected_reasons = {
+                GateStepStatus.FAIL: {(GateReason.EVIDENCE_INSUFFICIENT,)},
+                GateStepStatus.ERROR: {
+                    (GateReason.JUDGE_ERROR,),
+                    (GateReason.EVALUATION_ERROR,),
+                },
+                GateStepStatus.BUDGET_STOP: {(GateReason.BUDGET_STOP,)},
+            }
+            allowed_reasons = expected_reasons.get(self.status)
+            if allowed_reasons is not None and self.reason_codes not in allowed_reasons:
+                raise ValueError("selection gate reasons do not match the step status")
+
+        if self.stage is GateStage.CANDIDATE_VALIDATION:
+            expected_counts = {2} if self.status is GateStepStatus.PASS else {3}
+        elif self.stage is GateStage.SELECTION:
+            if self.status is GateStepStatus.FAIL:
+                expected_counts = {1}
+            elif self.status is GateStepStatus.ERROR:
+                expected_counts = (
+                    {3} if self.reason_codes == (GateReason.JUDGE_ERROR,) else {1, 3}
+                )
+            else:
+                expected_counts = {3}
+        else:
+            expected_counts = {1}
+        if len(self.evidence) not in expected_counts:
+            raise ValueError(
+                "gate step evidence is incomplete for its stage and status"
+            )
+
+        allowed = {
+            GateStage.CANDIDATE_VALIDATION: {GateReason.CANDIDATE_INVALID},
+            GateStage.STATIC: {GateReason.STATIC_FAILED},
+            GateStage.TRIGGER: {GateReason.TRIGGER_FAILED},
+            GateStage.SELECTION: {
+                GateReason.EVIDENCE_INSUFFICIENT,
+                GateReason.JUDGE_ERROR,
+                GateReason.EVALUATION_ERROR,
+                GateReason.BUDGET_STOP,
+            },
+            GateStage.CRITICAL_REGRESSION: {GateReason.CRITICAL_REGRESSION},
+            GateStage.OVERALL_QUALITY: {
+                GateReason.TIE,
+                GateReason.OVERALL_REGRESSION,
+            },
+            GateStage.COST: {GateReason.COST_LIMIT, GateReason.COST_GROWTH},
+            GateStage.BUDGET: {GateReason.COST_LIMIT, GateReason.TOKEN_BUDGET},
+        }
+        if (
+            self.status is not GateStepStatus.PASS
+            and not set(self.reason_codes) <= allowed[self.stage]
+        ):
+            raise ValueError("gate step reason does not belong to its stage")
+        return self
+
+
+class GateAggregateMetrics(ContractModel):
+    """Aggregate selection evidence safe to expose outside the Gate."""
+
+    trigger_precision: float = Field(default=0, ge=0, le=1)
+    trigger_recall: float = Field(default=0, ge=0, le=1)
+    trigger_indeterminate_count: StrictNonNegativeInt = 0
+    selection_case_count: StrictNonNegativeInt = 0
+    accepted_pass_count: StrictNonNegativeInt = 0
+    candidate_pass_count: StrictNonNegativeInt = 0
+    accepted_pass_rate: float = Field(default=0, ge=0, le=1)
+    candidate_pass_rate: float = Field(default=0, ge=0, le=1)
+    quality_delta: float = Field(default=0, ge=-1, le=1)
+    critical_regression_count: StrictNonNegativeInt = 0
+    trigger_cost_amount: Decimal = Decimal(0)
+    accepted_cost_amount: Decimal = Decimal(0)
+    candidate_cost_amount: Decimal = Decimal(0)
+    total_cost_amount: Decimal = Decimal(0)
+    relative_cost_increase: Decimal | None = None
+    cost_currency: CurrencyCode = "USD"
+    total_input_tokens: StrictNonNegativeInt = 0
+    total_output_tokens: StrictNonNegativeInt = 0
+
+    @field_validator(
+        "trigger_cost_amount",
+        "accepted_cost_amount",
+        "candidate_cost_amount",
+        "total_cost_amount",
+        "relative_cost_increase",
+        mode="before",
+    )
+    @classmethod
+    def _decimal_metric(cls, value: object) -> object:
+        if value is not None and not isinstance(value, (str, Decimal)):
+            raise ValueError("gate metric decimals must use decimal strings")
+        return value
+
+    @model_validator(mode="after")
+    def _valid_metrics(self) -> GateAggregateMetrics:
+        if self.accepted_pass_count > self.selection_case_count:
+            raise ValueError("accepted passes exceed the selection case count")
+        if self.candidate_pass_count > self.selection_case_count:
+            raise ValueError("candidate passes exceed the selection case count")
+        for value in (
+            self.trigger_cost_amount,
+            self.accepted_cost_amount,
+            self.candidate_cost_amount,
+            self.total_cost_amount,
+        ):
+            if not value.is_finite() or value < 0:
+                raise ValueError("gate costs must be finite and nonnegative")
+        if self.relative_cost_increase is not None and (
+            not self.relative_cost_increase.is_finite()
+            or self.relative_cost_increase < 0
+        ):
+            raise ValueError("relative cost increase must be finite and nonnegative")
+        return self
+
+
+class GateDecision(VersionedRecord):
+    """Complete aggregate decision over one immutable candidate."""
+
+    record_type: Literal["gate_decision"]
+    decision_id: str = Field(pattern=r"^decision-[a-z0-9-]+$")
+    gate_id: str = Field(pattern=r"^gate-[a-z0-9-]+$")
+    lineage_id: str = Field(pattern=r"^lineage-[a-z0-9-]+$")
+    candidate_id: str = Field(pattern=r"^candidate-[a-z0-9-]+$")
+    candidate_skill_sha256: Sha256Digest
+    accepted_skill_sha256: Sha256Digest
+    gate_policy_sha256: Sha256Digest
+    selection_lock_sha256: Sha256Digest
+    evaluation_protocol_sha256: Sha256Digest
+    model_lock_sha256: Sha256Digest
+    mode: Literal["fixed", "live"]
+    measurement_kind: MeasurementKind
+    network_used: bool
+    decided_at: UtcDateTime
+    steps: tuple[GateStep, ...]
+    metrics: GateAggregateMetrics
+    outcome: GateOutcome
+    reason_codes: tuple[GateReason, ...]
+    candidate: ArtifactRef
+    accepted_manifest: ArtifactRef
+    gate_policy: ArtifactRef
+
+    @model_validator(mode="after")
+    def _valid_decision(self) -> GateDecision:
+        if self.gate_policy.sha256 != self.gate_policy_sha256:
+            raise ValueError("gate policy reference does not match its locked hash")
+        if tuple(step.stage for step in self.steps) != tuple(GateStage):
+            raise ValueError("gate steps must use the complete fixed order")
+        if len(self.reason_codes) != len(set(self.reason_codes)):
+            raise ValueError("gate decision reasons must be unique")
+        terminal_seen = False
+        for step in self.steps:
+            if terminal_seen and step.status is not GateStepStatus.NOT_EVALUATED:
+                raise ValueError("gate steps after a failure must not be evaluated")
+            if step.status is not GateStepStatus.PASS:
+                terminal_seen = True
+        all_pass = all(step.status is GateStepStatus.PASS for step in self.steps)
+        if self.outcome is GateOutcome.ACCEPTED:
+            if not all_pass or self.reason_codes != (GateReason.ACCEPTED,):
+                raise ValueError("accepted decisions require every gate to pass")
+        else:
+            failed = next(
+                (step for step in self.steps if step.status is not GateStepStatus.PASS),
+                None,
+            )
+            if (
+                all_pass
+                or failed is None
+                or failed.status is GateStepStatus.NOT_EVALUATED
+                or self.reason_codes != failed.reason_codes
+            ):
+                raise ValueError(
+                    "rejected decisions require the first failed gate reasons"
+                )
+        expected_measurement = (
+            MeasurementKind.SYNTHETIC_OFFLINE
+            if self.mode == "fixed"
+            else MeasurementKind.LIVE_MEASURED
+        )
+        if self.measurement_kind is not expected_measurement:
+            raise ValueError("gate mode and measurement kind do not match")
+        if self.mode == "fixed" and self.network_used:
+            raise ValueError("fixed gates cannot claim network use")
+        if self.outcome is GateOutcome.ACCEPTED and self.mode == "live":
+            if not self.network_used:
+                raise ValueError("accepted live gates require actual network use")
+        return self
+
+
+class RegistryEventType(StrEnum):
+    """Append-only version-governance transitions."""
+
+    INITIALIZED = "registry_initialized"
+    CANDIDATE_REGISTERED = "candidate_registered"
+    CANDIDATE_ACCEPTED = "candidate_accepted"
+    CANDIDATE_REJECTED = "candidate_rejected"
+    PROMOTED = "promoted"
+    ROLLED_BACK = "rolled_back"
+
+
+class VersionStatus(StrEnum):
+    """Replayed lifecycle state for a content-addressed Skill version."""
+
+    CANDIDATE = "candidate"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    ROLLED_BACK = "rolled_back"
+
+
+def registry_event_payload_sha256(value: RegistryEvent) -> Sha256Digest:
+    """Hash an event payload including its previous link but excluding self hash."""
+
+    payload = value.model_dump(mode="json", exclude={"event_sha256"})
+    return hashlib.sha256(_patch_hash_payload(payload)).hexdigest()
+
+
+class RegistryEvent(VersionedRecord):
+    """One tamper-evident append-only Registry transition."""
+
+    record_type: Literal["registry_event"]
+    registry_id: str = Field(pattern=r"^registry-[a-z0-9-]+$")
+    lineage_id: str = Field(pattern=r"^lineage-[a-z0-9-]+$")
+    event_id: str = Field(pattern=r"^event-[a-z0-9-]+$")
+    command_id: str = Field(pattern=r"^command-[a-z0-9-]+$")
+    command_sha256: Sha256Digest
+    sequence: StrictNonNegativeInt
+    occurred_at: UtcDateTime
+    event_type: RegistryEventType
+    version_id: NonEmptyStr
+    version_sha256: Sha256Digest
+    parent_skill_sha256: Sha256Digest | None = None
+    previous_accepted_skill_sha256: Sha256Digest | None = None
+    current_accepted_skill_sha256: Sha256Digest
+    status: VersionStatus
+    version_manifest: ArtifactRef
+    candidate: ArtifactRef | None = None
+    gate_decision: ArtifactRef | None = None
+    evidence: tuple[ArtifactRef, ...] = ()
+    reason: NonEmptyStr
+    previous_event_sha256: Sha256Digest
+    event_sha256: Sha256Digest = "0" * 64
+
+    @model_validator(mode="after")
+    def _valid_event_shape_and_hash(self) -> RegistryEvent:
+        if self.event_type is RegistryEventType.INITIALIZED:
+            if (
+                self.sequence != 0
+                or self.previous_event_sha256 != "0" * 64
+                or self.previous_accepted_skill_sha256 is not None
+                or self.parent_skill_sha256 is not None
+                or self.current_accepted_skill_sha256 != self.version_sha256
+                or self.status is not VersionStatus.ACCEPTED
+                or self.candidate is not None
+                or self.gate_decision is not None
+                or not self.evidence
+            ):
+                raise ValueError("registry initialization event is inconsistent")
+        elif self.previous_accepted_skill_sha256 is None:
+            raise ValueError("registry transitions require the previous accepted Skill")
+        elif self.event_type is RegistryEventType.CANDIDATE_REGISTERED:
+            if (
+                self.parent_skill_sha256 != self.previous_accepted_skill_sha256
+                or self.current_accepted_skill_sha256
+                != self.previous_accepted_skill_sha256
+                or self.status is not VersionStatus.CANDIDATE
+                or self.candidate is None
+                or self.gate_decision is not None
+            ):
+                raise ValueError("candidate registration event is inconsistent")
+        elif self.event_type in {
+            RegistryEventType.CANDIDATE_ACCEPTED,
+            RegistryEventType.CANDIDATE_REJECTED,
+        }:
+            expected_status = (
+                VersionStatus.ACCEPTED
+                if self.event_type is RegistryEventType.CANDIDATE_ACCEPTED
+                else VersionStatus.REJECTED
+            )
+            if (
+                self.current_accepted_skill_sha256
+                != self.previous_accepted_skill_sha256
+                or self.status is not expected_status
+                or self.candidate is None
+                or self.gate_decision is None
+            ):
+                raise ValueError("candidate decision event is inconsistent")
+        elif self.event_type is RegistryEventType.PROMOTED:
+            if (
+                self.current_accepted_skill_sha256 != self.version_sha256
+                or self.status is not VersionStatus.ACCEPTED
+                or self.gate_decision is None
+            ):
+                raise ValueError("promotion event is inconsistent")
+        elif self.event_type is RegistryEventType.ROLLED_BACK and (
+            self.current_accepted_skill_sha256 != self.version_sha256
+            or self.status is not VersionStatus.ACCEPTED
+            or not self.evidence
+        ):
+            raise ValueError("rollback event is inconsistent")
+        expected = registry_event_payload_sha256(self)
+        if self.event_sha256 == "0" * 64:
+            object.__setattr__(self, "event_sha256", expected)
+        elif self.event_sha256 != expected:
+            raise ValueError("registry event hash does not match its payload")
         return self

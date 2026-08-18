@@ -17,5 +17,8 @@ dist/
 .ses/
 runs/
 artifacts/
+!course/ch09-gate-and-govern-versions/artifacts/
+!course/ch09-gate-and-govern-versions/artifacts/**
+course/ch09-gate-and-govern-versions/artifacts/**/.append.lock
 data/cache/
 skills/resolve-product-returns/

@@ -33,15 +33,21 @@
 - Patch 由一个或多个有序操作组成，每个操作只能是 add、update 或 delete，并记录目标、前置内容 hash、建议内容、证据、理由和风险说明。
 - 补丁应用器是确定性的。目标不存在、前置 hash 不匹配、操作冲突或结果不符合 Skill schema 时，整个 Patch 原子失败。
 - 每个 candidate 都保存完整可安装内容、父版本、Patch、创建协议和内容 hash。候选不能原地修改父版本。
-- Gate 顺序为 candidate validation、Static Gate、Trigger Gate、selection live paired evaluation、回归检查、成本检查和最终决策。
+- Gate 顺序为 candidate validation、Static Gate、Trigger Gate、fresh selection paired evaluation、关键 case 回归、总体质量、成本、预算和最终决策。生产 `live` 运行必须在 selection stage 发起真实 Provider 请求；课程 `fixed` 运行只能作为离线演示。
 - 便宜 gate 失败后立即停止，不运行后续付费步骤。停止记录明确说明哪些 gate 未执行。
-- Selection Gate 使用锁定 6 题，对 current accepted 和 candidate 生成 fresh paired runs。Updater 只收到聚合决策和允许公开的 gate 原因。
+- Selection Gate 使用锁定 6 题，在固定 `iteration-0` 上对 current accepted 和 candidate 生成 fresh paired runs。pair 摘要和两侧 event logs 必须绑定同一 iteration；Updater 只收到聚合决策和允许公开的 gate 原因。
+- Gate policy 同时锁定 Trigger prompt set 的有序内容 hash 和 Trigger model ID。Trigger evidence 的 prompt ID、题面、预期标签、顺序、model ID 或自身 hash 任一不匹配时，Gate 必须在 selection 前拒绝。
 - 接受规则必须在配置中版本化。默认保守策略拒绝总体退化、关键 case 回归、触发失败、预算超限、Judge error、证据不足和平局。
-- 成本门同时检查绝对预算和相对 accepted 版本的成本增长，阈值必须来自课程实测后锁定。
+- 成本门同时检查绝对预算和相对 accepted 版本的成本增长，阈值必须来自课程实测后锁定。总成本必须包含 Trigger、accepted selection run 和 candidate selection run 的货币成本；`live` Trigger 缺成本或货币不一致时必须拒绝，不能当作零成本。
 - GateDecision 保存协议 hash、双方 Skill hash、运行引用、每级 gate 状态、聚合指标、决定和理由。
+- Gate 对 candidate、Static、Trigger 或 selection 执行错误保存 canonical `GateErrorEvidence`。该回执只包含 stage、异常类型和可选 HTTP 状态码，不保存异常正文、请求头或凭据。
 - Registry 使用 append-only events 构建版本谱系。状态至少区分 candidate、accepted、rejected 和 rolled back；一个实验上下文只有一个 current accepted 指针。
 - Promote 只能引用通过完整 gate 的 candidate。Reject 不删除候选。Rollback 创建新事件并切换 accepted 指针，不改写旧事件。
 - Judge 或 Simulator 协议变化会建立新实验 lineage，不能把新协议分数直接接到旧进化曲线。
+- Gate 在读取 selection manifest 内容前必须拒绝任何 symlink 路径组件，并同时检查词法路径和 resolved 路径是否指向 final。Gate 只读取调用方显式传入的 locked selection manifest，不扫描 protected-data 目录。
+- `fixed` 决策必须标记 `synthetic_offline` 且 `network_used=false`。`live` 决策必须标记 `live_measured`；只有当真实 Trigger 和两侧 selection requests 由受信的私有 6-case runner/catalog 执行后，才能记录真实网络使用。缺少该私有资产时必须 fail closed，不能改用 develop 或 fixed evidence。
+- Registry 内部 hash chain 能检测改写、插入、重排和中间删除，但单凭链内数据不能识别攻击者干净删除整个尾部。把尾删除纳入威胁模型的部署必须在 Registry 外保存受信的 head hash 和 event count checkpoint。
+- Registry 对 accepted 和 rejected 决策都重新解析 Trigger/pair evidence、重算聚合指标，并按锁定 policy 验证首个终止 stage 和 reason。
 - 课程 fixture 必须可复现至少一次接受，以及一次拒绝或回滚。
 
 ## Testing Decisions
@@ -51,7 +57,9 @@
 - Patch parser 和应用器使用表驱动测试覆盖 add/update/delete、冲突、过期 hash、无效目标、原子失败和规范化 hash。
 - Candidate 测试证明创建和 gate 不会修改 parent artifact。
 - Gate orchestration 测试为每一级注入失败，验证短路顺序、未执行状态和不产生多余付费调用。
+- Trigger 契约测试拒绝 prompt set、prompt hash、model ID、货币或费用证据不匹配，并验证 Trigger 费用计入 Gate 总预算。
 - Selection pairing 测试拒绝非 fresh、不同协议、缺 case、iteration 不匹配或隐藏数据泄漏的比较。
+- Selection 路径测试使用 final 诱饵、symlink 文件和 symlink 父目录，验证 Gate 在读取内容前拒绝。
 - Decision 测试覆盖改进、回归、关键 case 回退、成本超限、平局、Judge error 和预算中断。
 - Registry 状态机测试覆盖 candidate、reject、promote、多代 lineage、rollback 和重复命令幂等性。
 - 事件重放测试从空状态重建 accepted 指针和谱系，验证历史记录完整。

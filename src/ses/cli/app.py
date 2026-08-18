@@ -8,7 +8,15 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.cli import baseline, doctor, evolution, qualify_cases, skill_demo, skill_v0
+from ses.cli import (
+    baseline,
+    doctor,
+    evolution,
+    governance,
+    qualify_cases,
+    skill_demo,
+    skill_v0,
+)
 from ses.evaluator import SingleCaseRunError, run_pinned_case
 from ses.foundation.credentials import credential_values, redact
 from ses.reporting import l1_json_bytes, load_l1_result, render_l1_text
@@ -52,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
         "evolve",
         help="Turn failure evidence into cards, a patch, and a candidate bundle.",
     )
+    commands.add_parser("gate", help="Gate a registered candidate Skill.")
+    commands.add_parser("registry", help="Manage immutable Skill version history.")
     return parser
 
 
@@ -148,6 +158,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return evolution.candidate_main(command_args)
     if command == "evolve":
         return evolution.evolve_main(command_args)
+    if command == "gate":
+        return governance.gate_main(command_args)
+    if command == "registry":
+        return governance.registry_main(command_args)
     build_parser().parse_args(values)
     return 2
 
