@@ -11,13 +11,15 @@
 运行默认离线生成候选：
 
 ```bash
-uv run ses skill-demo --generate --output-root .ses/lesson-1-demo
+uv run ses skill-demo --generate --output-root .ses/lesson-1-generated
 ```
 
-你也可以指定自己的候选，或明确使用 reference：
+下面的候选命令使用仓库中真实、已校验的 Skill，并写入独立目录。你可以把
+`--candidate` 的值替换成自己的候选目录；不要复用前一条命令的输出目录。
+你也可以明确使用 packaged reference：
 
 ```bash
-uv run ses skill-demo --candidate ./my-skill --output-root .ses/lesson-1-demo
+uv run ses skill-demo --candidate course/ch01-see-the-difference/reference-skill --output-root .ses/lesson-1-candidate
 uv run ses skill-demo --reference --output-root .ses/lesson-1-reference
 ```
 

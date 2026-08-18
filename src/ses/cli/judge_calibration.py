@@ -14,13 +14,14 @@ from ses.evaluation.calibration import (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the parser for the future ``ses judge-calibration`` subcommand."""
+    """Build the parser for the ``ses judge-calibration`` subcommand."""
 
     parser = argparse.ArgumentParser(
         prog="ses judge-calibration",
-        description="Execute fixed Judge protocols and compare with human labels.",
+        description="Execute fixed Judge protocols against reference labels.",
     )
     parser.add_argument("--fixture", type=Path, required=True)
+    parser.add_argument("--output", type=Path)
     return parser
 
 
@@ -31,7 +32,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = asyncio.run(
         execute_fixed_calibration(load_calibration_fixture(args.fixture))
     )
-    print(report.model_dump_json(indent=2))
+    payload = report.model_dump_json(indent=2) + "\n"
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(payload, encoding="utf-8")
+    print(payload, end="")
     return 0
 
 

@@ -77,7 +77,10 @@ def test_checked_in_agreement_artifact_is_protocol_traceable() -> None:
     assert artifact["fixed_offline_protocol_executed"] is True
     assert artifact["live_model_measured"] is False
     assert artifact["response_source"] == "course_authored_fixed_response"
-    assert artifact["human_label_version"] == "human-labels-v1"
+    assert artifact["human_label_version"] == (
+        "course-authored-labels-pending-review-v1"
+    )
+    assert artifact["label_review_status"] == ("course_authored_pending_human_review")
     assert len(artifact["measurements"]) == 8
     required = {
         "raw_fixed_response",

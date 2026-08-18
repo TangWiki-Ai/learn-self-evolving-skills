@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+from ses.runner import load_develop_catalog
 
 LESSON = Path(__file__).parents[1]
 
@@ -110,3 +113,11 @@ def test_comparison_labels_measured_and_estimated_sources_separately() -> None:
     assert artifact["outcome_source"]["kind"] == "synthetic_fixture"
     assert artifact["outcome_source"]["measured"] is False
     assert artifact["live_provider_projection"]["kind"] == "estimated"
+
+
+def test_readme_rerun_case_belongs_to_current_develop_catalog() -> None:
+    readme = (LESSON / "README.md").read_text(encoding="utf-8")
+    match = re.search(r"--rerun\s+(develop-return-[a-f0-9]+)", readme)
+
+    assert match is not None
+    assert match.group(1) in load_develop_catalog()

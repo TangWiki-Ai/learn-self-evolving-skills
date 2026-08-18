@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 
+from ses.cli.skill_demo import main as skill_demo_main
 from ses.skills.comparison import SkillDemoComparison
 from ses.skills.installer import normalized_skill_sha256
 from ses.skills.reference import materialize_reference_skill
@@ -76,6 +78,34 @@ def test_course_reference_matches_the_packaged_runtime_reference(
     assert normalized_skill_sha256(course_reference) == normalized_skill_sha256(
         packaged
     )
+
+
+def test_documented_candidate_is_real_and_executes_in_a_fresh_destination(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    readme = (LESSON / "README.md").read_text(encoding="utf-8")
+    repository = LESSON.parents[1]
+    candidate = Path("course/ch01-see-the-difference/reference-skill")
+
+    assert "--candidate ./my-skill" not in readme
+    assert f"--candidate {candidate.as_posix()}" in readme
+    assert (repository / candidate).is_dir()
+
+    exit_code = skill_demo_main(
+        [
+            "--candidate",
+            str(repository / candidate),
+            "--output-root",
+            str(tmp_path / "candidate-run"),
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["skill"]["source"] == "candidate"
+    assert comparison["runs"]["with_skill"]["outcome"] == "pass"
 
 
 def test_lesson_one_output_carries_terminal_state_evidence_into_lesson_two() -> None:

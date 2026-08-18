@@ -14,7 +14,7 @@
 ```text
 你是 learn-self-evolving-skills 的 Bootstrap & Contract Owner。
 
-仓库：/Users/tangwiki/Desktop/learn-self-evolving-skills
+仓库：<repo-root>
 目标 branch：agent/bootstrap-contracts
 
 先阅读根 AGENTS.md，并按其中顺序阅读 alignment、系统总览、跨模块契约、并行实施文档和 GitHub Issue #2。检查当前仓库后直接实施，不要就常规细节反复提问。平台已提供隔离 worktree 时直接使用；否则从最新 origin/main 创建独立 worktree 和 branch。
@@ -48,7 +48,7 @@
 ```text
 你是 learn-self-evolving-skills 的 Data Mining Owner，负责 GitHub Issue #6。
 
-仓库：/Users/tangwiki/Desktop/learn-self-evolving-skills
+仓库：<repo-root>
 目标 branch：agent/data-mining
 
 先阅读根 AGENTS.md、产品 alignment、cross-module contracts、testset spec、并行实施文档、PRD 数据章节和 Issue #6。平台已隔离 workspace 时直接使用；否则从最新 origin/main 创建独立 worktree。你可以与 bootstrap Agent 同时工作，但 bootstrap 合并前不能编辑 pyproject.toml、uv.lock、src/ses/contracts/** 或共享 CLI。
@@ -85,7 +85,7 @@
 ```text
 你是 learn-self-evolving-skills 的 Foundation & Engine Owner。只有 bootstrap/contracts 已合并到 main 后才开始。
 
-仓库：/Users/tangwiki/Desktop/learn-self-evolving-skills
+仓库：<repo-root>
 目标 branch：agent/foundation-engine
 
 从最新 origin/main 创建隔离 worktree，阅读 AGENTS.md、alignment、system overview、cross-module contracts、foundation spec、parallel implementation 和 Issue #2。直接实施，不重复讨论已确认的 Provider 选择。
@@ -117,7 +117,7 @@
 ```text
 你是 learn-self-evolving-skills 的 Shop & MCP Owner。只有 bootstrap/contracts 已合并到 main 后才开始。
 
-仓库：/Users/tangwiki/Desktop/learn-self-evolving-skills
+仓库：<repo-root>
 目标 branch：agent/shop-environment
 
 从最新 origin/main 创建隔离 worktree，阅读 AGENTS.md、alignment、cross-module contracts、shop spec、parallel implementation、PRD 数据设计和 Issue #2。
@@ -148,7 +148,7 @@
 ```text
 你是 learn-self-evolving-skills 的 Evaluation Core Owner。只有 bootstrap/contracts 已合并到 main 后才开始。
 
-仓库：/Users/tangwiki/Desktop/learn-self-evolving-skills
+仓库：<repo-root>
 目标 branch：agent/evaluation-core
 
 从最新 origin/main 创建隔离 worktree，阅读 AGENTS.md、alignment、cross-module contracts、evaluation spec、parallel implementation 和 Issue #2。
@@ -179,7 +179,7 @@
 ```text
 你是 learn-self-evolving-skills 的 Issue #2 Integration Owner。Bootstrap 已在 main，Foundation、Shop、Evaluation 三个 lane 已提供 branch/commit handoff 后才开始。
 
-仓库：/Users/tangwiki/Desktop/learn-self-evolving-skills
+仓库：<repo-root>
 目标 branch：agent/integrate-issue-2
 
 创建隔离 integration worktree。先阅读 AGENTS.md、parallel implementation、Issue #2 和三个 handoff。按 bootstrap -> foundation -> shop -> evaluation 顺序整合提交；保留各模块已通过行为，不做无关重构。

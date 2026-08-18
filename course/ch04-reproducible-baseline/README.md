@@ -40,7 +40,7 @@ uv run python -m ses.cli.baseline \
 ```bash
 uv run python -m ses.cli.baseline --run-id run-lesson-4 --iterations 2 --resume
 uv run python -m ses.cli.baseline --run-id run-lesson-4 --iterations 2 --resume \
-  --rerun state-bench-customer-support-2-return-defective-electronics
+  --rerun develop-return-01e57efeb7f9b2bb1179
 ```
 
 ## 测试
@@ -61,3 +61,8 @@ uv run pytest course/ch04-reproducible-baseline/tests
 ## 预算停止语义
 
 Runner 在启动下一轮前检查 case、turn、input token、output token 和 cost。Evaluator 每完成一轮就写 Trace 和用量。达到上限后，Runner 保留原 attempt，再追加独立的 `budget_stop`；它不会把已经完成的 Agent/Judge 结果改写成预算状态，也不会为未启动的工作伪造零用量 attempt。
+
+## 拓展阅读
+
+- [`04-simulation-runner-reporting.md`](../../docs/specs/04-simulation-runner-reporting.md)：回答恢复、幂等、预算停止和 L1 如何共用同一份 append-only 证据。
+- [`03-evaluation-judges.md`](../../docs/specs/03-evaluation-judges.md)：回答 `pass`、`fail` 与 `not_evaluated` 的边界，以及报告为何不能替 Judge 补结论。

@@ -6,7 +6,7 @@
 
 ## 方法
 
-你先用确定性 extractor 整理 StateDiff、工具时间线、具名金额组件和消息索引。然后，你分别执行 Rubric LLM Judge 与只读 Agent Judge。最后，你把它们产生的 AssertionResult 和版本化人工标签对比。
+你先用确定性 extractor 整理 StateDiff、工具时间线、具名金额组件和消息索引。然后，你分别执行 Rubric LLM Judge 与只读 Agent Judge。最后，你把它们产生的 AssertionResult 和课程作者参考标签对比；这些标签仍待独立人工签认。
 
 ## 业界做法
 
@@ -25,7 +25,7 @@ starter/ 留下四个明确缺口：
 - evidence_extractor.py：抽取状态事实、工具时间线、具名金额关系和关键消息。
 - llm_judge.py：执行单次、无重试的严格 JSON rubric 判定。
 - agent_judge.py：在无 MCP、无 Shop、无写工具的独立 workspace 中检查证据。
-- calibration.py：实际运行两个 Judge，再把 canonical assertions 与人工标签对比。
+- calibration.py：实际运行两个 Judge，再把 canonical assertions 与待独立签认的课程作者参考标签对比。
 
 solution/ 提供对应实现。Starter 不包含答案。
 
@@ -40,18 +40,32 @@ solution/ 提供对应实现。Starter 不包含答案。
 
 ## 测试
 
-    uv run pytest course/ch03-calibrate-judges/tests
+```bash
+uv run pytest course/ch03-calibrate-judges/tests
+```
 
 测试确认 starter 在四个学习点失败、solution 暴露完整实现，并验证签入 artifact 等于固定离线协议的实际输出。
 
+## 运行校准
+
+```bash
+uv run ses judge-calibration \
+  --fixture tests/fixtures/judges/calibration.json \
+  --output .ses/lesson03-agreement-experiment.json
+```
+
+这条命令实际执行两个课程编写的固定离线 Judge 协议，把校准结果写到 fresh
+`.ses/` 目标并同时写到标准输出。它不覆盖签入的参考产物，不联网，不创建人工复核
+记录，也不代表 live 模型结果。
+
 ## 对照产物
 
-agreement-experiment.json 保存 4 条人工复核记录的固定协议测量结果：
+agreement-experiment.json 保存 4 条课程编写、尚待人工签认的参考标签，以及固定协议测量结果：
 
 - Rubric LLM Judge：2 / 4 = 0.50
 - Evidence Agent Judge：3 / 4 = 0.75
 
-artifact 同时保存人工标签版本、课程编写的固定响应、evidence hash，以及 rubric、prompt、extractor、响应来源和协议 hash。它明确写明 response_source=course_authored_fixed_response、live_model_measured=false。这些数字只描述当前固定数据与协议，不能代表 live 模型准确率。
+artifact 同时保存参考标签版本、review_status、课程编写的固定响应、evidence hash，以及 rubric、prompt、extractor、响应来源和协议 hash。它明确写明 label_review_status=course_authored_pending_human_review、response_source=course_authored_fixed_response、live_model_measured=false。这些数字只描述当前固定数据与协议，不能代表人工复核结论或 live 模型准确率。
 
 ## 拓展阅读
 

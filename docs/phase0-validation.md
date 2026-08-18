@@ -1,5 +1,10 @@
 # Phase 0 前置检查
 
+> 状态说明：本页保存 2026-08-16 的历史 smoke 记录。2026-08-19 的首发验证没有重新运行
+> canonical live Provider，因此下表的 `PASS` 只代表当日环境，不能作为本轮 release 的
+> live、selection 或 final 证据。当前发布结论必须以根 README 和最新 release validator
+> 报告为准。
+
 ## 运行命令
 
 本地工具和数据检查不调用付费模型：
@@ -20,9 +25,9 @@ read -s SILICONFLOW_API_KEY && export SILICONFLOW_API_KEY && uv run ses doctor -
 
 `ses doctor` 严格读取根目录的 `ses.json` 和 `models.lock.json`。主模型锁定为 `deepseek-ai/DeepSeek-V3.2`；命令不接受环境变量覆盖模型标识。`scripts/phase0_check.py` 只作为兼容入口保留；运行 live 时必须显式传入 `--config ses.json`。
 
-## 2026-08-16 实测结果
+## 2026-08-16 历史实测结果
 
-| 检查项 | 结果 | 证据 |
+| 检查项 | 当日结果 | 当日证据 |
 | --- | --- | --- |
 | Python | PASS | 3.11.9 |
 | Claude Code | PASS | Native CLI 2.1.220，darwin-arm64 |
@@ -39,9 +44,13 @@ ABCD 完整数据 `data/abcd_v1.1.json.gz` 的实测大小为 `36,985,084` bytes
 
 STATE-Bench 的 33/21 来自 JSON 字段过滤，不来自文件名匹配。后续数据 manifest 必须沿用 `task_type == return_item`，否则数量会错。
 
-## 当前结论
+## 2026-08-16 当日结论
 
 本机运行时、三组官方数据、硅流 headless、模型驱动 MCP tool calling 和 `stream-json` 已完成一次端到端验证，Phase 0 结论为 **GO**。GitHub Issue #1 可以关闭，开发进入单 case 完整评测链。
+
+这条历史 GO 不会自动延续到 2026-08-19 release。Provider 余额、模型服务、Claude Code
+版本和网络状态都会变化；本轮未复测时，发布材料必须明确记录 `live_not_rerun`，不能把本页
+的当日 PASS 汇总成当前 canonical live PASS。
 
 首版只验证 Claude Code headless + 硅基流动。代码保留薄 Engine 边界，后续可以增加其他 Provider，但 Phase 0 不实现路由、fallback 或通用 Provider 框架。
 
