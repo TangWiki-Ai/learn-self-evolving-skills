@@ -35,6 +35,20 @@ class DeterministicFakeClusterAdapter:
         )
 
 
+class NearEqualConfidenceAdapter:
+    def __init__(self, confidence: float) -> None:
+        self._confidence = confidence
+
+    @property
+    def adapter_id(self) -> str:
+        return "near-equal-confidence:v1"
+
+    def cluster(self, items: tuple[ClusterItem, ...]) -> tuple[ClusterAssignment, ...]:
+        return tuple(
+            ClusterAssignment(item.item_id, "one", self._confidence) for item in items
+        )
+
+
 def test_cluster_adapter_output_is_joined_by_id_and_compared_to_labels() -> None:
     items = (
         ClusterItem("abcd:1", "wrong size", "abcd"),
@@ -98,6 +112,17 @@ def test_cluster_adapter_identity_captures_reproducibility_parameters() -> None:
     assert first.adapter_id != second.adapter_id
     assert "n_clusters=6" in first.adapter_id
     assert "random_state=7" in first.adapter_id
+
+
+def test_cluster_confidence_is_quantized_at_the_canonical_adapter_boundary() -> None:
+    items = (ClusterItem("abcd:1", "return it", "abcd"),)
+
+    lower = assign_clusters(items, NearEqualConfidenceAdapter(0.12345678901234))
+    upper = assign_clusters(items, NearEqualConfidenceAdapter(0.12345678901235))
+
+    assert lower == upper
+    assert lower[0].confidence == 0.123456789012
+    assert "confidence_quantization=12dp" in SklearnTfidfClusterAdapter().adapter_id
 
 
 def test_cluster_representatives_are_auditable_and_input_order_independent() -> None:

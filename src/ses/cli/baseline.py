@@ -69,7 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--catalog-manifest",
         type=Path,
-        help="Qualified develop manifest; defaults to the canonical Ticket 07 catalog.",
+        help=(
+            "Executable fixed/offline pending-review develop manifest; "
+            "defaults to the Ticket 07 generated catalog."
+        ),
     )
     return parser
 

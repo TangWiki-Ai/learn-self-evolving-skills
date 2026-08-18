@@ -74,12 +74,12 @@ def run_skill_v0_workflow(
     source_environment = os.environ if environ is None else environ
     runtime = load_runtime_config(config.project_root / "ses.json")
     lock = load_model_lock(config.project_root / runtime.models_lock)
+    pack = load_creator_seed_pack(config.seed_manifest, mode=config.mode)
     credentials = (
         read_siliconflow_credentials(source_environment)
         if config.mode == "live"
         else None
     )
-    pack = load_creator_seed_pack(config.seed_manifest)
     creator: V0Creator
     if config.mode == "fixed":
         creator = FakeV0Creator()
@@ -168,6 +168,7 @@ def run_skill_v0_workflow(
         record_type="skill_v0_pipeline_summary",
         mode=config.mode,
         seed_count=len(pack.records),
+        seed_review_status=pack.review_status,
         skill_sha256=skill.sha256,
         creator_measurement=measurement,
         trigger_measurement=trigger.measurement_kind,
@@ -178,6 +179,10 @@ def run_skill_v0_workflow(
         paired_case_count=len(paired.cases),
         baseline_pass_rate=paired.baseline_pass_rate,
         skill_pass_rate=paired.skill_pass_rate,
+        static_gate_result=_ref(
+            config.output_root,
+            config.output_root / "static-gate.json",
+        ),
         trigger_result=_ref(config.output_root, trigger_path),
         paired_comparison=_ref(config.output_root, paired_path),
         l2_html=_ref(config.output_root, l2_path),

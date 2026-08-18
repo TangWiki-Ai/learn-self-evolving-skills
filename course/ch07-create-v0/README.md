@@ -17,7 +17,7 @@
 
 ## 关键边界
 
-Creator 只看到允许公开的 9 个 seed projection 和 Skill 规范。它看不到完整源 Trace、Ticket 07 的 15 条 develop cases、selection、final、gold、失败证据、项目源码或凭据。系统先在固定 STATE-Bench commit 上真实重放 9 条来源轨迹，核对每个工具返回和 StateDiff，再执行 State Judge、live 模型 Judge 和维护者委托审核。默认 `FakeV0Creator` 固定输出；只有显式 live 命令才调用锁定的 Creator 模型。
+Creator 只看到允许公开的 9 个 seed projection 和 Skill 规范。它看不到完整源 Trace、Ticket 07 的 15 条 develop cases、selection、final、gold、失败证据、项目源码或凭据。系统先在固定 STATE-Bench commit 上真实重放 9 条来源轨迹，核对每个工具返回和 StateDiff，再执行 State Judge 和锁定模型 Judge。课程作者 attestation 只绑定这条证据链，状态明确写成 `course_authored_pending_human_review`，不代表人工批准。默认 `FakeV0Creator` 可以用这组固定证据演示协议；live Creator 必须等独立人工签署 [`human-review-packet.md`](../../docs/release/human-review-packet.md)，否则 CLI 在 Provider 调用前关闭。
 
 Static Gate 必须先运行。失败候选保留 `static-gate.json`，但不能安装、不能进入 Trigger Eval，也不能启动 paired run。安装器只复制 manifest 中的 `SKILL.md` 和 `references/`；即使 artifact 目录放了 `eval/`、Trace 或其他诱饵文件，它们也不会进入 Agent workspace。
 
@@ -38,17 +38,18 @@ uv run pytest course/ch07-create-v0/tests
 ## 完整离线 vertical slice
 
 ```bash
-uv run ses skill-v0-pipeline --output-root .ses/lesson-07 --json
+uv run ses skill-v0-pipeline --output-root .ses/lesson-07-pipeline --json
 ```
 
-你也可以分步运行：
+你也可以分步运行。下面整段使用另一个 fresh output root，不会与 vertical slice
+生成的文件碰撞：
 
 ```bash
-uv run ses skill create-v0 --out .ses/lesson-07/v0 --json
-uv run ses skill static-gate --skill .ses/lesson-07/v0 --output .ses/lesson-07/static-gate.json --json
-uv run ses trigger-eval --skill .ses/lesson-07/v0 --output .ses/lesson-07/trigger-eval.json --json
-uv run ses paired-comparison --skill .ses/lesson-07/v0 --output-root .ses/lesson-07/paired --output .ses/lesson-07/comparison.json --json
-uv run ses l2-render --comparison .ses/lesson-07/comparison.json --trigger .ses/lesson-07/trigger-eval.json --artifact-root .ses/lesson-07/paired --output .ses/lesson-07/l2.html
+uv run ses skill create-v0 --out .ses/lesson-07-step/v0 --json
+uv run ses skill static-gate --skill .ses/lesson-07-step/v0 --output .ses/lesson-07-step/static-gate.json --json
+uv run ses trigger-eval --skill .ses/lesson-07-step/v0 --output .ses/lesson-07-step/trigger-eval.json --json
+uv run ses paired-comparison --skill .ses/lesson-07-step/v0 --output-root .ses/lesson-07-step/paired --output .ses/lesson-07-step/comparison.json --json
+uv run ses l2-render --comparison .ses/lesson-07-step/comparison.json --trigger .ses/lesson-07-step/trigger-eval.json --artifact-root .ses/lesson-07-step/paired --output .ses/lesson-07-step/l2.html
 ```
 
 ## 固定参考结果
@@ -57,7 +58,7 @@ uv run ses l2-render --comparison .ses/lesson-07/comparison.json --trigger .ses/
 
 固定定量结果：
 
-- Creator seed：9/9 通过真实 replay、State Judge、live 模型 Judge 和维护者委托审核。
+- Creator seed：9/9 通过真实 replay、State Judge 和签入的固定模型证据检查；9/9 人工复核仍待签署。
 - Trigger：TP=10、FP=0、TN=10、FN=0，precision=1.00，recall=1.00。
 - Paired：15 case；fail-to-pass=0、pass-to-fail=0、both-fail=0、both-pass=15。
 - Baseline 和 Skill v0 都是 15/15。两侧使用同一 deterministic fake 行为，费用都是 0；系统没有伪造翻转来制造教学效果。
@@ -65,6 +66,11 @@ uv run ses l2-render --comparison .ses/lesson-07/comparison.json --trigger .ses/
 
 ## Fixed 与 live
 
-`fixed/offline` 用固定响应和 fake engine，网络使用为零，并规范化 Trace 事件时钟，所以相同输入会生成相同 artifact hash。`live measured` 必须显式启用、从 `models.lock.json` 读取角色模型，并从进程环境读取 `SILICONFLOW_API_KEY`。你可以给 `skill-v0-pipeline` 或 `paired-comparison` 传入 `--mode live`；两侧都使用 Claude Code 原生 Skill discovery，只有 Skill 侧安装候选。Live artifact 写到临时目录，不覆盖这里的参考结果。
+`fixed/offline` 用固定响应和 fake engine，网络使用为零，并规范化 Trace 事件时钟，所以相同输入会生成相同 artifact hash。当前 creator seed 和 develop packet 都仍待独立人工复核。`skill create-v0 --mode live`、`skill-v0-pipeline --mode live` 与 `paired-comparison --mode live` 会分别检查所需 creator/develop 人审记录，并在读取 Key 或启动 Provider 前关闭。签署集中复核包后还需要把可验证的签名记录接入 loader；在此之前，三条 live 路径都不可运行，也不要把 fixed Skill 转称为 live-created。未来生成的 Live artifact 必须写到独立临时目录，不能覆盖这里的参考结果。
 
 不要把两类数字混在一起。固定结果证明协议和课程代码可重放；live 结果才描述当前 Provider、模型和 Claude Code 版本的实际行为。
+
+## 拓展阅读
+
+- [`06-skill-creation-triggering.md`](../../docs/specs/06-skill-creation-triggering.md)：回答 Creator 隔离、Static Gate、原生 Trigger discovery 和安装边界。
+- [`10-cross-module-contracts.md`](../../docs/specs/10-cross-module-contracts.md)：回答 9 条 creator、15 条 develop 与后续 selection/final 之间怎样传递 hash，而不传递私有内容。

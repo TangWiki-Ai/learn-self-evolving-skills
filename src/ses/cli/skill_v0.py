@@ -109,7 +109,7 @@ def skill_main(argv: Sequence[str]) -> int:
     args = parser.parse_args(argv)
     try:
         if args.action == "create-v0":
-            pack = load_creator_seed_pack(args.seed_manifest)
+            pack = load_creator_seed_pack(args.seed_manifest, mode=args.mode)
             creator: V0Creator
             if args.mode == "fixed":
                 creator = FakeV0Creator()
@@ -135,6 +135,7 @@ def skill_main(argv: Sequence[str]) -> int:
                 "version": candidate.version,
                 "skill_sha256": candidate.sha256,
                 "seed_count": len(pack.records),
+                "seed_review_status": pack.review_status,
                 "mode": args.mode,
                 "input_tokens": 0 if usage is None else usage.input_tokens,
                 "output_tokens": 0 if usage is None else usage.output_tokens,
@@ -149,7 +150,10 @@ def skill_main(argv: Sequence[str]) -> int:
             report = run_static_gate(args.skill, audit_path=args.output)
             payload = report.model_dump(mode="json")
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
-        print(f"skill_error:{type(exc).__name__}", file=sys.stderr)
+        message = str(exc)
+        if "/" in message or "\\" in message:
+            message = type(exc).__name__
+        print(f"skill_error:{message}", file=sys.stderr)
         return 1
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     return 0 if args.action == "create-v0" or payload["status"] == "pass" else 1

@@ -71,24 +71,22 @@ class SkillArtifactManifest(VersionedRecord):
         return value
 
 
-class CreatorHumanReview(VersionedRecord):
-    """A named, dated decision over one complete creator evidence chain."""
+class CreatorSeedAttestation(VersionedRecord):
+    """Course-authored evidence binding that explicitly awaits human review."""
 
-    record_type: Literal["creator_human_review"]
+    record_type: Literal["creator_seed_attestation"]
     seed_id: NonEmptyStr
-    reviewed_source_sha256: Sha256Digest
-    reviewed_trace_sha256: Sha256Digest
-    reviewed_replay_sha256: Sha256Digest
-    reviewed_state_diff_sha256: Sha256Digest
-    reviewed_state_grade_sha256: Sha256Digest
-    reviewed_model_evidence_sha256: Sha256Digest
-    reviewed_model_grade_sha256: Sha256Digest
-    reviewed_model_run_sha256: Sha256Digest
-    reviewed_projection_sha256: Sha256Digest
-    decision: Literal["approved", "rejected"]
-    reason: NonEmptyStr
-    reviewed_at: UtcDateTime
-    reviewer: NonEmptyStr
+    status: Literal["course_authored_pending_human_review"]
+    source_sha256: Sha256Digest
+    trace_sha256: Sha256Digest
+    replay_sha256: Sha256Digest
+    state_diff_sha256: Sha256Digest
+    state_grade_sha256: Sha256Digest
+    model_evidence_sha256: Sha256Digest
+    model_grade_sha256: Sha256Digest
+    model_run_sha256: Sha256Digest
+    projection_sha256: Sha256Digest
+    review_packet: Literal["docs/release/human-review-packet.md"]
 
 
 class CreatorSourceProvenance(VersionedRecord):
@@ -226,6 +224,7 @@ class SkillV0PipelineSummary(VersionedRecord):
     record_type: Literal["skill_v0_pipeline_summary"]
     mode: Literal["fixed", "live"]
     seed_count: StrictNonNegativeInt
+    seed_review_status: Literal["course_authored_pending_human_review"]
     skill_sha256: Sha256Digest
     creator_measurement: MeasurementKind
     trigger_measurement: MeasurementKind
@@ -236,6 +235,7 @@ class SkillV0PipelineSummary(VersionedRecord):
     paired_case_count: StrictNonNegativeInt
     baseline_pass_rate: float = Field(ge=0, le=1)
     skill_pass_rate: float = Field(ge=0, le=1)
+    static_gate_result: ArtifactRef
     trigger_result: ArtifactRef
     paired_comparison: ArtifactRef
     l2_html: ArtifactRef

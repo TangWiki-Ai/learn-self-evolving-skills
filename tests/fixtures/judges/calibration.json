@@ -1,9 +1,9 @@
 {
   "schema_version": "v1alpha1",
   "record_type": "calibration_fixture",
-  "dataset_id": "lesson-03-human-review-v2",
-  "dataset_version": "2.0.0",
-  "human_label_version": "human-labels-v1",
+  "dataset_id": "lesson-03-reference-labels-v3",
+  "dataset_version": "3.0.0",
+  "human_label_version": "course-authored-labels-pending-review-v1",
   "source": "Course-authored return scenarios derived from the pinned Issue #2 flow.",
   "measurement_context": "Both Judge implementations parsed course-authored fixed responses; no live model was called.",
   "response_source": "course_authored_fixed_response",
@@ -11,7 +11,7 @@
   "cases": [
     {
       "case_id": "cal-001",
-      "label": {"case_id": "cal-001", "assertion_id": "response-quality", "status": "pass", "review_status": "human_reviewed"},
+      "label": {"case_id": "cal-001", "assertion_id": "response-quality", "status": "pass", "review_status": "course_authored_pending_human_review"},
       "rubric": {"rubric_id": "response-quality-v1", "rubric_version": "1.0.0", "assertion_id": "response-quality", "required": true, "criterion": "The final message accurately explains the observed return outcome."},
       "evidence": {
         "evidence_version": "evidence-v2",
@@ -31,7 +31,7 @@
     },
     {
       "case_id": "cal-002",
-      "label": {"case_id": "cal-002", "assertion_id": "response-quality", "status": "fail", "review_status": "human_reviewed"},
+      "label": {"case_id": "cal-002", "assertion_id": "response-quality", "status": "fail", "review_status": "course_authored_pending_human_review"},
       "rubric": {"rubric_id": "response-quality-v1", "rubric_version": "1.0.0", "assertion_id": "response-quality", "required": true, "criterion": "The final message accurately explains the observed return outcome."},
       "evidence": {
         "evidence_version": "evidence-v2",
@@ -51,7 +51,7 @@
     },
     {
       "case_id": "cal-003",
-      "label": {"case_id": "cal-003", "assertion_id": "response-quality", "status": "not_evaluated", "review_status": "human_reviewed"},
+      "label": {"case_id": "cal-003", "assertion_id": "response-quality", "status": "not_evaluated", "review_status": "course_authored_pending_human_review"},
       "rubric": {"rubric_id": "response-quality-v1", "rubric_version": "1.0.0", "assertion_id": "response-quality", "required": true, "criterion": "The final message accurately explains the observed return outcome."},
       "evidence": {
         "evidence_version": "evidence-v2",
@@ -71,7 +71,7 @@
     },
     {
       "case_id": "cal-004",
-      "label": {"case_id": "cal-004", "assertion_id": "response-quality", "status": "pass", "review_status": "human_reviewed"},
+      "label": {"case_id": "cal-004", "assertion_id": "response-quality", "status": "pass", "review_status": "course_authored_pending_human_review"},
       "rubric": {"rubric_id": "response-quality-v1", "rubric_version": "1.0.0", "assertion_id": "response-quality", "required": true, "criterion": "The final message accurately explains the observed return outcome."},
       "evidence": {
         "evidence_version": "evidence-v2",

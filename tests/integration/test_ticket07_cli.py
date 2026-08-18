@@ -32,15 +32,15 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _qualification_args(output: Path, reviews: Path) -> list[str]:
+def _qualification_args(output: Path, attestations: Path) -> list[str]:
     return [
         "qualify-cases",
         "--candidates",
         str(TICKET / "candidate-seeds.jsonl"),
         "--variants",
         str(TICKET / "variant-plan.json"),
-        "--reviews",
-        str(reviews),
+        "--attestations",
+        str(attestations),
         "--output",
         str(output),
         "--json",
@@ -49,42 +49,25 @@ def _qualification_args(output: Path, reviews: Path) -> list[str]:
 
 def test_cli_runs_candidate_to_expanded_l1_fully_offline(tmp_path: Path) -> None:
     output = tmp_path / "qualified"
-    reviews = tmp_path / "synthetic-reviews.jsonl"
-    reviews.write_text("", encoding="utf-8")
+    attestations = TICKET / "course-attestations.jsonl"
 
-    pending = _run(*_qualification_args(output, reviews))
+    pending = _run(*_qualification_args(output, attestations))
     assert pending.returncode == 0, pending.stderr
     pending_payload = json.loads(pending.stdout)
     assert pending_payload["pending_count"] == 15
     assert pending_payload["source_candidate_count"] == 2
     assert pending_payload["selected_source_count"] == 1
+    assert pending_payload["fixed_course_count"] == 15
+    assert pending_payload["excluded_count"] == 7
+    assert pending_payload["qualified_count"] == 0
+    assert pending_payload["review_status"] == ("course_authored_pending_human_review")
     assert pending_payload["curation_response_source"] == "fixed_response"
     assert pending_payload["network_used"] is False
     assert pending_payload["live_provider_used"] is False
-    packet = json.loads((output / "review-packet.json").read_text())
-    review_rows = [
-        {
-            "case_id": row["case_id"],
-            "reviewed_hash": row["reviewed_hash"],
-            "decision": "approved",
-            "reason": "synthetic integration review",
-            "reviewed_at": "2026-08-16T12:00:00Z",
-            "reviewer": "synthetic-test-reviewer",
-        }
-        for row in packet
-    ]
-    reviews.write_text(
-        "".join(
-            json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
-            for row in review_rows
-        ),
-        encoding="utf-8",
+    assert pending_payload["protected_split_validation_status"] == (
+        "fixed_offline_unverified"
     )
-
-    qualified = _run(*_qualification_args(output, reviews))
-    assert qualified.returncode == 0, qualified.stderr
-    assert json.loads(qualified.stdout)["qualified_count"] == 15
-
+    assert pending_payload["protected_split_provenance_sha256"] is None
     baseline_root = tmp_path / "baseline"
     baseline = _run(
         "baseline",
@@ -124,11 +107,11 @@ def test_cli_protected_split_failure_leaves_output_unchanged(tmp_path: Path) -> 
     output.mkdir()
     marker = output / "marker.txt"
     marker.write_text("unchanged", encoding="utf-8")
-    reviews = tmp_path / "reviews.jsonl"
-    reviews.write_text("", encoding="utf-8")
+    attestations = tmp_path / "attestations.jsonl"
+    attestations.write_text("", encoding="utf-8")
 
     completed = _run(
-        *_qualification_args(output, reviews),
+        *_qualification_args(output, attestations),
         "--split",
         "selection",
     )
@@ -138,7 +121,7 @@ def test_cli_protected_split_failure_leaves_output_unchanged(tmp_path: Path) -> 
     assert list(output.iterdir()) == [marker]
 
     live = _run(
-        *_qualification_args(output, reviews),
+        *_qualification_args(output, attestations),
         "--split",
         "final",
         "--curation-mode",
@@ -150,19 +133,19 @@ def test_cli_protected_split_failure_leaves_output_unchanged(tmp_path: Path) -> 
     assert list(output.iterdir()) == [marker]
 
 
-def test_live_curation_is_explicit_and_requires_environment_credentials(
+def test_live_curation_fails_closed_before_reading_provider_credentials(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "live-output"
-    reviews = tmp_path / "reviews.jsonl"
-    reviews.write_text("", encoding="utf-8")
+    attestations = TICKET / "course-attestations.jsonl"
 
     completed = _run(
-        *_qualification_args(output, reviews),
+        *_qualification_args(output, attestations),
         "--curation-mode",
         "live",
     )
 
     assert completed.returncode == 1
-    assert "missing SILICONFLOW_API_KEY" in completed.stderr
+    assert "requires a trusted external holdout verifier" in completed.stderr
+    assert "SILICONFLOW_API_KEY" not in completed.stderr
     assert not output.exists()

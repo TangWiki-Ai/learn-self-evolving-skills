@@ -46,6 +46,7 @@ def test_ticket08_cli_runs_full_vertical_slice_offline(tmp_path: Path) -> None:
     assert payload["trigger_measurement"] == "synthetic_offline"
     assert payload["paired_measurement"] == "synthetic_offline"
     assert payload["seed_count"] == 9
+    assert payload["seed_review_status"] == "course_authored_pending_human_review"
     assert payload["static_gate"] == "pass"
     assert payload["trigger_precision"] == 1.0
     assert payload["trigger_recall"] == 1.0
@@ -71,7 +72,11 @@ def test_ticket08_cli_runs_full_vertical_slice_offline(tmp_path: Path) -> None:
     assert str(ROOT).casefold() not in (output / "l2.html").read_text().casefold()
 
 
-def test_ticket08_live_mode_requires_environment_key(tmp_path: Path) -> None:
+def test_ticket08_live_mode_rejects_pending_seed_review_before_provider_use(
+    tmp_path: Path,
+) -> None:
+    environment = _environment()
+    environment["SILICONFLOW_API_KEY"] = "must-not-be-used"
     completed = subprocess.run(
         [
             sys.executable,
@@ -82,10 +87,12 @@ def test_ticket08_live_mode_requires_environment_key(tmp_path: Path) -> None:
             str(tmp_path / "live"),
             "--mode",
             "live",
+            "--creator-timeout",
+            "0.1",
             "--json",
         ],
         cwd=ROOT,
-        env=_environment(),
+        env=environment,
         capture_output=True,
         text=True,
         timeout=30,
@@ -93,5 +100,34 @@ def test_ticket08_live_mode_requires_environment_key(tmp_path: Path) -> None:
     )
 
     assert completed.returncode == 1
-    assert "missing SILICONFLOW_API_KEY" in completed.stderr
+    assert "independent signed human review" in completed.stderr
     assert not (tmp_path / "live" / "paired-comparison.json").exists()
+
+
+def test_create_v0_live_rejects_pending_seed_review(tmp_path: Path) -> None:
+    environment = _environment()
+    environment["SILICONFLOW_API_KEY"] = "must-not-be-used"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ses.cli.app",
+            "skill",
+            "create-v0",
+            "--out",
+            str(tmp_path / "v0"),
+            "--mode",
+            "live",
+            "--json",
+        ],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "independent signed human review" in completed.stderr
+    assert not (tmp_path / "v0").exists()

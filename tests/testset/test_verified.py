@@ -8,12 +8,18 @@ import pytest
 from pydantic import ValidationError
 
 from ses.runner import develop_catalog_sha256, load_develop_catalog
+from ses.testset.split_guard import (
+    DevelopSplitIdentity,
+    FixedOfflineSplitVerifier,
+    SplitIdentityDimension,
+    SplitValidationStatus,
+)
 from ses.testset.verified import (
     CandidateSeed,
     QualificationSummary,
-    ReviewStatus,
     VariantDimensions,
     assert_split_safe,
+    enforce_course_attestation_boundary,
     generate_controlled_variant,
     qualify_cases,
     reject_protected_split_write,
@@ -100,36 +106,16 @@ def _protected() -> list[Path]:
     ]
 
 
-def _run(output: Path, reviews: Path) -> QualificationSummary:
+def _run(output: Path, attestations: Path) -> QualificationSummary:
     return qualify_cases(
         candidate_path=TICKET / "candidate-seeds.jsonl",
         variant_plan_path=TICKET / "variant-plan.json",
-        reviews_path=reviews,
+        attestations_path=attestations,
         protected_manifests=_protected(),
         model_calibration_fixture=JUDGE_FIXTURE,
         output=output,
-    )
-
-
-def _approve_pending(output: Path, reviews: Path) -> None:
-    packet = json.loads((output / "review-packet.json").read_text())
-    rows = [
-        {
-            "case_id": item["case_id"],
-            "reviewed_hash": item["reviewed_hash"],
-            "decision": ReviewStatus.APPROVED.value,
-            "reason": "synthetic test reviewer approved protocol fixture",
-            "reviewed_at": "2026-08-16T12:00:00Z",
-            "reviewer": "synthetic-test-reviewer",
-        }
-        for item in packet
-    ]
-    reviews.write_text(
-        "".join(
-            json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
-            for row in rows
-        ),
-        encoding="utf-8",
+        mode="fixed",
+        protected_split_verifier=FixedOfflineSplitVerifier(),
     )
 
 
@@ -141,22 +127,28 @@ def _tree_hash(root: Path) -> str:
     return digest.hexdigest()
 
 
-def test_pipeline_preserves_pending_then_qualifies_fifteen_after_synthetic_review(
+def test_fixed_pipeline_builds_pending_course_catalog_without_human_acceptance(
     tmp_path: Path,
 ) -> None:
-    reviews = tmp_path / "reviews.jsonl"
-    reviews.write_text("", encoding="utf-8")
+    attestations = TICKET / "course-attestations.jsonl"
     output = tmp_path / "generated"
 
-    pending = _run(output, reviews)
-    assert pending.pending_count == 15
-    assert pending.qualified_count == 0
-    assert pending.source_candidate_count == 2
-    assert pending.selected_source_count == 1
-    assert pending.response_source == "fixed_response"
-    assert pending.network_used is False
-    assert pending.live_provider_used is False
-    assert not (output / "develop-manifest.json").exists()
+    result = _run(output, attestations)
+    assert result.fixed_course_count == 15
+    assert result.excluded_count == 7
+    assert result.pending_count == 15
+    assert result.qualified_count == 0
+    assert result.rejected_count == 0
+    assert result.source_candidate_count == 2
+    assert result.selected_source_count == 1
+    assert result.response_source == "fixed_response"
+    assert result.network_used is False
+    assert result.live_provider_used is False
+    assert (
+        result.protected_split_validation_status
+        is SplitValidationStatus.FIXED_OFFLINE_UNVERIFIED
+    )
+    assert result.protected_split_provenance_sha256 is None
     curation = json.loads((output / "curation-manifest.json").read_text())
     assert curation["source_candidate_count"] == 2
     assert curation["selected_source_count"] == 1
@@ -176,45 +168,140 @@ def test_pipeline_preserves_pending_then_qualifies_fifteen_after_synthetic_revie
     assert {item["judge_statuses"]["evidence_insufficient"] for item in packet} == {
         "not_evaluated"
     }
-
-    _approve_pending(output, reviews)
-    completed = _run(output, reviews)
-    assert completed.qualified_count == 15
-    assert completed.rejected_count == 0
+    assert {item["course_attestation"]["status"] for item in packet} == {
+        "course_authored_pending_human_review"
+    }
     catalog = load_develop_catalog(output / "develop-manifest.json")
     assert len(catalog) == 15
-    assert completed.data_version == next(iter(catalog.values())).manifest_data_version
+    assert result.data_version == next(iter(catalog.values())).manifest_data_version
     assert len(develop_catalog_sha256(catalog)) == 64
+    manifest = json.loads((output / "develop-manifest.json").read_text())
+    assert manifest["review_status"] == "course_authored_pending_human_review"
+    assert manifest["intended_use"] == "fixed_offline_course_only"
 
     stable = _tree_hash(output)
-    _run(output, reviews)
+    _run(output, attestations)
     assert _tree_hash(output) == stable
 
 
-def test_rejected_review_is_retained_in_audit_manifest(tmp_path: Path) -> None:
+def test_qualification_rejects_legacy_unsigned_human_review_claim(
+    tmp_path: Path,
+) -> None:
     reviews = tmp_path / "reviews.jsonl"
     reviews.write_text("", encoding="utf-8")
     output = tmp_path / "generated"
     _run(output, reviews)
-    _approve_pending(output, reviews)
-    rows = [json.loads(line) for line in reviews.read_text().splitlines()]
-    rows[0].update({"decision": "rejected", "reason": "ambiguous public intent"})
+    packet = json.loads((output / "review-packet.json").read_text())
     reviews.write_text(
-        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        json.dumps(
+            {
+                "case_id": packet[0]["case_id"],
+                "reviewed_hash": packet[0]["qualification_hash"],
+                "decision": "approved",
+                "reason": "unsigned legacy claim",
+                "reviewed_at": "2026-08-16T12:00:00Z",
+                "reviewer": "ticket-owner",
+            },
+            sort_keys=True,
+        )
+        + "\n",
         encoding="utf-8",
     )
 
-    result = _run(output, reviews)
+    with pytest.raises(ValueError, match="legacy unsigned human review claim"):
+        _run(output, reviews)
+
+
+def test_course_attestations_are_unsigned_and_non_accepting() -> None:
+    rows = [
+        json.loads(line)
+        for line in (TICKET / "course-attestations.jsonl").read_text().splitlines()
+    ]
+    forbidden = {
+        "approved",
+        "decision",
+        "human_reviewed",
+        "reviewed_at",
+        "reviewed_hash",
+        "reviewer",
+        "signature",
+    }
+    assert len(rows) == 22
+    assert all(not forbidden.intersection(row) for row in rows)
+    assert {row["status"] for row in rows} == {"course_authored_pending_human_review"}
+
+
+@pytest.mark.parametrize("mode", ["live", "release"])
+def test_pending_course_attestations_fail_closed_for_acceptance(mode: str) -> None:
+    with pytest.raises(ValueError, match="independent signed human review"):
+        enforce_course_attestation_boundary(mode)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("mode", ["live", "release"])
+def test_live_and_release_require_a_trusted_holdout_verifier_before_writes(
+    tmp_path: Path, mode: str
+) -> None:
+    output = tmp_path / "generated"
+
+    with pytest.raises(ValueError, match="trusted external holdout verifier"):
+        qualify_cases(
+            candidate_path=TICKET / "candidate-seeds.jsonl",
+            variant_plan_path=TICKET / "variant-plan.json",
+            attestations_path=TICKET / "course-attestations.jsonl",
+            protected_manifests=_protected(),
+            model_calibration_fixture=JUDGE_FIXTURE,
+            output=output,
+            mode=mode,  # type: ignore[arg-type]
+        )
+
+    assert not output.exists()
+
+
+def test_fixed_qualification_requires_an_explicit_unverified_adapter(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "generated"
+
+    with pytest.raises(ValueError, match="explicit fixed/offline holdout verifier"):
+        qualify_cases(
+            candidate_path=TICKET / "candidate-seeds.jsonl",
+            variant_plan_path=TICKET / "variant-plan.json",
+            attestations_path=TICKET / "course-attestations.jsonl",
+            protected_manifests=_protected(),
+            model_calibration_fixture=JUDGE_FIXTURE,
+            output=output,
+            mode="fixed",
+        )
+
+    assert not output.exists()
+
+
+def test_fixed_course_exclusion_is_not_a_human_rejection_claim(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "generated"
+    result = _run(output, TICKET / "course-attestations.jsonl")
     audit = [
         json.loads(line)
         for line in (output / "qualification-manifest.jsonl").read_text().splitlines()
     ]
-    assert result.qualified_count == 14
-    assert result.rejected_count == 1
-    assert any(
-        row["stage"] == "rejected" and row["reason_code"] == "human_rejected"
+    exclusions = [
+        row
         for row in audit
-    )
+        if row["stage"] == "course_fixed_excluded_pending_human_review"
+    ]
+    assert result.excluded_count == 7
+    assert len(exclusions) == 7
+    serialized = json.dumps(exclusions, ensure_ascii=False).casefold()
+    for forbidden in (
+        '"reviewer"',
+        '"reviewed_at"',
+        '"decision"',
+        '"reviewed_hash"',
+        "ticket-owner",
+        "human_rejected",
+    ):
+        assert forbidden not in serialized
 
 
 def test_protected_split_write_fails_without_modifying_files(tmp_path: Path) -> None:
@@ -256,6 +343,45 @@ def test_split_conflicts_cover_id_content_and_semantics(tmp_path: Path) -> None:
         )
         with pytest.raises(ValueError, match=expected):
             assert_split_safe([fake], [manifest])
+
+
+@pytest.mark.parametrize(
+    ("dimension", "reason"),
+    [
+        (SplitIdentityDimension.SOURCE_ID, "split_source_conflict"),
+        (SplitIdentityDimension.SEMANTIC_GROUP_ID, "split_semantic_conflict"),
+        (SplitIdentityDimension.CASE_ID, "split_id_conflict"),
+        (SplitIdentityDimension.CONTENT_HASH, "split_content_conflict"),
+    ],
+)
+def test_trusted_holdout_verifier_blocks_all_four_identity_dimensions(
+    dimension: SplitIdentityDimension, reason: str
+) -> None:
+    variant = generate_controlled_variant(_seed(), _dimensions())
+    fake_case = type("Case", (), {"variant": variant})()
+    expected_identity = DevelopSplitIdentity(
+        source_id=_seed().source_id,
+        semantic_group_id=_seed().semantic_group_id,
+        case_id=variant.fixture.case_id,
+        content_hash=hashlib.sha256(variant.fixture.user_prompt.encode()).hexdigest(),
+    )
+
+    class ConflictVerifier:
+        status = SplitValidationStatus.EXTERNAL_INVENTORY_COMMITMENT_VERIFIED
+        provenance_sha256 = "a" * 64
+
+        def conflict_dimension(
+            self, identity: DevelopSplitIdentity
+        ) -> SplitIdentityDimension | None:
+            assert identity == expected_identity
+            return dimension
+
+    with pytest.raises(ValueError, match=reason):
+        assert_split_safe(
+            [fake_case],
+            [],
+            protected_split_verifier=ConflictVerifier(),
+        )
 
 
 def test_role_views_never_expose_oracle_or_review_fields(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ from typing import cast
 
 from ses.testset.sources import ABCD_COMMIT, STATE_BENCH_COMMIT, TAU2_COMMIT
 
-TRANSFORMATION_VERSION = "ses-testset-candidates-v1"
+TRANSFORMATION_VERSION = "ses-testset-candidates-v2"
 _PINNED_COMMITS = {
     "state_bench": STATE_BENCH_COMMIT,
     "abcd": ABCD_COMMIT,
@@ -127,6 +127,7 @@ _EXPECTED_TRANSFORMATION: dict[str, object] = {
         "exact_slice",
         "scrub_deduplicate",
         "cluster_compare_labels",
+        "quantize_cluster_confidence_12dp",
         "aggregate_tau2_by_task",
         "stratify_candidates",
     ],

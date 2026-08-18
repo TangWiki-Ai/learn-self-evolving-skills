@@ -40,7 +40,7 @@ def test_fake_v0_creator_sees_only_safe_projections_and_skill_spec(
     assert result.source == tmp_path / "v0"
     manifest = load_skill_manifest(result.source)
     assert manifest.source_version == (
-        "state-bench:5644b1838d96bc4483da29642d058ecaa6f80f7f:creator-audit-v3"
+        "state-bench:5644b1838d96bc4483da29642d058ecaa6f80f7f:creator-audit-v4-pending"
     )
     assert manifest.content_sha256 == result.sha256
     assert manifest.provider_compatibility == ("claude-code-native",)

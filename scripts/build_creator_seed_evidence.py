@@ -46,7 +46,7 @@ from ses.skills.seeds import CreatorSeedProjection  # noqa: E402
 
 REPOSITORY = "https://github.com/microsoft/STATE-Bench"
 COMMIT = "5644b1838d96bc4483da29642d058ecaa6f80f7f"
-SOURCE_VERSION = f"state-bench:{COMMIT}:creator-audit-v3"
+SOURCE_VERSION = f"state-bench:{COMMIT}:creator-audit-v4-pending"
 SEEDS = (
     "2-return_defective_electronics",
     "3-hard_voluntary_store_credit_return_method_update",
@@ -590,7 +590,7 @@ def build(source_root: Path, output: Path) -> None:
                 mode="json"
             ),
             "model_judge": {"status": "pending"},
-            "human_review": {"status": "pending"},
+            "course_attestation": {"status": "course_authored_pending_human_review"},
         }
         prior_row = previous.get(seed_id)
         if prior_row is not None and all(
@@ -622,6 +622,8 @@ def build(source_root: Path, output: Path) -> None:
             "source_version": SOURCE_VERSION,
             "source_repository": REPOSITORY,
             "source_commit": COMMIT,
+            "review_status": "course_authored_pending_human_review",
+            "review_packet": "docs/release/human-review-packet.md",
             "records": packet,
         },
     )

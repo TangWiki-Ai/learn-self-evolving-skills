@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finalize an explicitly approved creator packet into the canonical seed pack."""
+"""Bind creator evidence into an honest pending-review fixed course pack."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ if str(SOURCE) not in sys.path:
 from ses.contracts import (  # noqa: E402
     ArtifactRef,
     ArtifactRoot,
-    CreatorHumanReview,
+    CreatorSeedAttestation,
     SchemaVersion,
     artifact_json_bytes,
 )
@@ -62,7 +62,8 @@ def _copy(source: Path, packet_root: Path, output: Path) -> Path:
     relative = source.relative_to(packet_root.resolve())
     destination = output / relative
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, destination, follow_symlinks=False)
+    if source.resolve() != destination.resolve():
+        shutil.copyfile(source, destination, follow_symlinks=False)
     return destination
 
 
@@ -70,12 +71,7 @@ def finalize(
     *,
     packet_path: Path,
     output: Path,
-    reviewer: str,
-    reviewed_at: str,
-    approve_all: bool,
 ) -> Path:
-    if not approve_all:
-        raise ValueError("finalization requires the explicit --approve-all decision")
     packet = _read_object(packet_path)
     records = packet.get("records")
     source_version = packet.get("source_version")
@@ -121,35 +117,30 @@ def finalize(
             sources[f"model_{name}"] = source
         for source in sources.values():
             _copy(source, packet_root, output)
-        review = CreatorHumanReview(
+        attestation = CreatorSeedAttestation(
             schema_version=SchemaVersion.V1ALPHA1,
-            record_type="creator_human_review",
+            record_type="creator_seed_attestation",
             seed_id=seed_id,
-            reviewed_source_sha256=refs["source"].sha256,
-            reviewed_trace_sha256=refs["trace"].sha256,
-            reviewed_replay_sha256=refs["replay"].sha256,
-            reviewed_state_diff_sha256=refs["state_diff"].sha256,
-            reviewed_state_grade_sha256=refs["state_grade"].sha256,
-            reviewed_model_evidence_sha256=refs["model_evidence"].sha256,
-            reviewed_model_grade_sha256=refs["model_grade"].sha256,
-            reviewed_model_run_sha256=refs["model_run"].sha256,
-            reviewed_projection_sha256=refs["projection"].sha256,
-            decision="approved",
-            reason=(
-                "Approved after inspecting pinned-source hashes, exact tool-result "
-                "replay, deterministic state scoring, live model evidence, and the "
-                "safe creator projection."
-            ),
-            reviewed_at=reviewed_at,
-            reviewer=reviewer,
+            status="course_authored_pending_human_review",
+            source_sha256=refs["source"].sha256,
+            trace_sha256=refs["trace"].sha256,
+            replay_sha256=refs["replay"].sha256,
+            state_diff_sha256=refs["state_diff"].sha256,
+            state_grade_sha256=refs["state_grade"].sha256,
+            model_evidence_sha256=refs["model_evidence"].sha256,
+            model_grade_sha256=refs["model_grade"].sha256,
+            model_run_sha256=refs["model_run"].sha256,
+            projection_sha256=refs["projection"].sha256,
+            review_packet="docs/release/human-review-packet.md",
         )
-        review_path = output / f"private/reviews/review-{index:03d}.json"
-        review_path.parent.mkdir(parents=True, exist_ok=True)
-        review_path.write_bytes(artifact_json_bytes(review))
-        review_ref = _ref(output, review_path)
-        value["human_review"] = {
-            "status": "approved",
-            "review": review_ref.model_dump(mode="json"),
+        attestation_path = output / f"private/reviews/review-{index:03d}.json"
+        attestation_path.parent.mkdir(parents=True, exist_ok=True)
+        attestation_path.write_bytes(artifact_json_bytes(attestation))
+        attestation_ref = _ref(output, attestation_path)
+        value.pop("human_review", None)
+        value["course_attestation"] = {
+            "status": "course_authored_pending_human_review",
+            "attestation": attestation_ref.model_dump(mode="json"),
         }
         manifest_records.append(
             {
@@ -164,7 +155,7 @@ def finalize(
                 "model_evidence": refs["model_evidence"].model_dump(mode="json"),
                 "model_grade": refs["model_grade"].model_dump(mode="json"),
                 "model_judge_run": refs["model_run"].model_dump(mode="json"),
-                "human_review": review_ref.model_dump(mode="json"),
+                "course_attestation": attestation_ref.model_dump(mode="json"),
                 "projection": refs["projection"].model_dump(mode="json"),
             }
         )
@@ -175,7 +166,8 @@ def finalize(
             {
                 "schema_version": "v1alpha1",
                 "record_type": "creator_seed_manifest",
-                "source_version": source_version,
+                "source_version": source_version.rsplit(":", 1)[0]
+                + ":creator-audit-v4-pending",
                 "records": manifest_records,
             },
             ensure_ascii=False,
@@ -185,6 +177,11 @@ def finalize(
         + "\n",
         encoding="utf-8",
     )
+    packet["source_version"] = source_version.rsplit(":", 1)[0] + (
+        ":creator-audit-v4-pending"
+    )
+    packet["review_status"] = "course_authored_pending_human_review"
+    packet["review_packet"] = "docs/release/human-review-packet.md"
     (output / "review-packet.json").write_text(
         json.dumps(packet, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         + "\n",
@@ -198,16 +195,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--reviewer", required=True)
-    parser.add_argument("--reviewed-at", required=True)
-    parser.add_argument("--approve-all", action="store_true")
     args = parser.parse_args()
     finalize(
         packet_path=args.packet.resolve(),
         output=args.output.resolve(),
-        reviewer=args.reviewer,
-        reviewed_at=args.reviewed_at,
-        approve_all=args.approve_all,
     )
     return 0
 

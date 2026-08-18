@@ -22,6 +22,7 @@ from ses.contracts import (
     SchemaVersion,
     Sha256Digest,
     TextDeltaPayload,
+    UtcDateTime,
     VersionedRecord,
 )
 from ses.engines.fake import FakeEngine, FakeFixture, FakeStep
@@ -57,17 +58,24 @@ _JUDGE_ORDER = (JudgeKind.LLM, JudgeKind.AGENT)
 
 
 class HumanLabel(ContractModel):
-    """One assertion label explicitly reviewed by a person."""
+    """One reference label whose review status is explicit and auditable."""
 
     case_id: str
     assertion_id: str
     status: GradeStatus
-    review_status: Literal["human_reviewed"]
+    review_status: Literal["course_authored_pending_human_review", "human_reviewed"]
+    reviewer: str | None = None
+    reviewed_at: UtcDateTime | None = None
 
     @model_validator(mode="after")
     def _human_labels_are_not_infrastructure_errors(self) -> HumanLabel:
         if self.status is GradeStatus.ERROR:
             raise ValueError("human labels cannot use judge error")
+        reviewed = self.review_status == "human_reviewed"
+        if reviewed != (self.reviewer is not None and self.reviewed_at is not None):
+            raise ValueError(
+                "human-reviewed labels require reviewer identity and timestamp"
+            )
         return self
 
 
@@ -97,7 +105,7 @@ class CalibrationCase(ContractModel):
 
 
 class CalibrationFixture(VersionedRecord):
-    """Human-reviewed cases and raw responses for the fixed offline protocol."""
+    """Reference cases and raw responses for the fixed offline protocol."""
 
     record_type: Literal[RecordType.CALIBRATION_FIXTURE]
     dataset_id: str
@@ -116,6 +124,8 @@ class CalibrationFixture(VersionedRecord):
             raise ValueError("calibration requires at least one human label")
         if len(set(keys)) != len(keys):
             raise ValueError("human label keys must be unique")
+        if len({item.label.review_status for item in self.cases}) != 1:
+            raise ValueError("calibration label review status must be uniform")
         return self
 
 
@@ -146,7 +156,7 @@ class JudgeCalibration(ContractModel):
 
 
 class CalibrationDisagreement(ContractModel):
-    """One traceable disagreement with the human-reviewed label."""
+    """One traceable disagreement with the current reference label."""
 
     case_id: str
     assertion_id: str
@@ -188,6 +198,9 @@ class CalibrationReport(VersionedRecord):
     source: str
     measurement_context: str
     response_source: Literal["course_authored_fixed_response"]
+    label_review_status: Literal[
+        "course_authored_pending_human_review", "human_reviewed"
+    ]
     measured: Literal[True] = True
     fixed_offline_protocol_executed: Literal[True] = True
     live_model_measured: Literal[False] = False
@@ -403,6 +416,7 @@ async def execute_fixed_calibration(
         source=fixture.source,
         measurement_context=fixture.measurement_context,
         response_source=fixture.response_source,
+        label_review_status=fixture.cases[0].label.review_status,
         sample_size=len(fixture.cases),
         judges=reports,
         disagreements=disagreements,

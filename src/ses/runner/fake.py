@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import JsonValue
 
@@ -58,6 +58,7 @@ from ses.shop import CaseEnvironment, ReturnCaseFixture, state_diff
 from ses.simulation import FakeSimulator, UserIntent
 
 _FIXED_TRACE_TIME = datetime(2026, 8, 17, tzinfo=UTC)
+DevelopCatalogMode = Literal["fixed", "live", "release"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,8 +131,10 @@ def _verify_curation_manifest(root: Path, path: Path) -> None:
 
 def load_develop_catalog(
     manifest_path: Path | None = None,
+    *,
+    mode: DevelopCatalogMode = "fixed",
 ) -> Mapping[str, ExecutableDevelopCase]:
-    """Load qualified executable cases from the versioned develop manifest."""
+    """Load the fixed course catalog without treating it as human acceptance."""
 
     if manifest_path is None:
         manifest_path = (
@@ -145,6 +148,16 @@ def load_develop_catalog(
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError("develop manifest must be an object")
+    if mode != "fixed":
+        raise ValueError(
+            f"{mode} develop evaluation requires an independent signed human review; "
+            "the course catalog is pending"
+        )
+    if (
+        payload.get("review_status") != "course_authored_pending_human_review"
+        or payload.get("intended_use") != "fixed_offline_course_only"
+    ):
+        raise ValueError("fixed develop manifest review boundary is invalid")
     cases = payload.get("cases")
     data_version = payload.get("data_version")
     if not isinstance(cases, list) or not isinstance(data_version, str):
@@ -204,7 +217,7 @@ def load_develop_catalog(
             manifest_data_version=data_version,
         )
     if len(catalog) < 15:
-        raise ValueError("qualified develop catalog must contain at least 15 cases")
+        raise ValueError("fixed develop course catalog must contain at least 15 cases")
     return catalog
 
 

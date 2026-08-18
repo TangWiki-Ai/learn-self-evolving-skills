@@ -1,4 +1,4 @@
-"""Fresh baseline-vs-Skill paired evaluation on the qualified develop catalog."""
+"""Fresh baseline-vs-Skill paired evaluation on the fixed develop catalog."""
 
 from __future__ import annotations
 
@@ -292,7 +292,8 @@ def run_fresh_paired(
         path.name.startswith("run-") for path in output_root.iterdir()
     ):
         raise ValueError("fresh paired output root already contains a run")
-    catalog = load_develop_catalog()
+    is_live = live_config is not None
+    catalog = load_develop_catalog(mode="live" if is_live else "fixed")
     case_ids = tuple(catalog)
     model_lock_hash = hashlib.sha256(
         (project_root / "models.lock.json").read_bytes()
@@ -307,7 +308,6 @@ def run_fresh_paired(
         )
         for item in manifest.files
     )
-    is_live = live_config is not None
     budgets = BudgetLimits(
         max_cases=15,
         max_turns_per_case=3,

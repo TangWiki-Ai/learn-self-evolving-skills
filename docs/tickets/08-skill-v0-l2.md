@@ -15,9 +15,11 @@ Trace。构建脚本要求 STATE-Bench 位于 commit
 STATE-Bench State Judge。它不再用 task 的预期字段伪造“实际”状态。
 
 每条记录保存来源、replay receipt、Trace、StateDiff、State Grade、模型 Judge
-输入、模型原始 run、Model Grade、projection 和审核记录的 SHA256。锁定的 live
-模型 Judge 使用 `rubric-prompt-v3`；维护者委托 Codex 检查后，审核记录同时绑定
-上述九类证据，并明确保留委托关系。Loader 会重算并核对整条证据链。
+输入、模型原始 run、Model Grade、projection 和课程 attestation 的 SHA256。锁定的
+live 模型 Judge 使用 `rubric-prompt-v3`；课程 attestation 只绑定上述证据，状态为
+`course_authored_pending_human_review`，不声称人已批准。Loader 会重算并核对整条
+证据链。fixed/offline 可以用它复现课程；live Creator 在独立签名人审接入前关闭，
+待处理项目集中在 `docs/release/human-review-packet.md`。
 
 Creator workspace 只复制 `projections/*.json` 和 `skill-spec.md`。完整源 Trace
 保留在 `private/traces/`，不会进入 Creator workspace。Ticket 07 的 15 条
@@ -42,11 +44,12 @@ Trigger 集固定 10 条正向和 10 条负向 prompt。Offline backend 回放�
 Skill，并观察 Claude Code `Skill` tool call。报告保留 TP/FP/TN/FN、P/R、
 未确定状态、逐 prompt 证据、Skill hash 和引擎版本。
 
-Paired comparison 在 Ticket 07 的 15 条 qualified develop cases 上创建两套
+Fixed paired comparison 在 Ticket 07 的 15 条 pending course develop cases 上创建两套
 新 Runner。每次 attempt 都创建新 workspace 和 Shop 环境；完成型结果必须提供
 Trace、StateDiff 和 CaseGrade，timeout 等异常则保留状态和已经产生的证据。
 比较器要求 case plan、iteration、data、模型锁和协议完全一致；
-Skill hash 是实验变量。Canonical `PairedComparison` 位于
+Skill hash 是实验变量。这 15 条只允许 fixed/offline；live paired 会在调用 Provider
+前要求独立签名的人审记录。Canonical `PairedComparison` 位于
 `ses.contracts.runner`。Live 两侧使用相同 Claude Code 原生 discovery 参数和
 MCP allowlist；只有 Skill 侧 workspace 安装候选。Rule Judge 忽略 `Skill`
 元调用，但仍严格检查业务工具顺序。

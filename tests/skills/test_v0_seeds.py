@@ -44,7 +44,7 @@ def _record(manifest: dict[str, object], index: int = 0) -> dict[str, object]:
     return value
 
 
-def _update_review_binding(
+def _update_attestation_binding(
     root: Path,
     manifest: dict[str, object],
     *,
@@ -52,13 +52,13 @@ def _update_review_binding(
     digest: str,
 ) -> None:
     record = _record(manifest)
-    review_ref = record["human_review"]
-    assert isinstance(review_ref, dict)
-    review_path = root / str(review_ref["path"])
-    review = _read(review_path)
-    review[field] = digest
-    _write(review_path, review)
-    review_ref["sha256"] = _sha(review_path)
+    attestation_ref = record["course_attestation"]
+    assert isinstance(attestation_ref, dict)
+    attestation_path = root / str(attestation_ref["path"])
+    attestation = _read(attestation_path)
+    attestation[field] = digest
+    _write(attestation_path, attestation)
+    attestation_ref["sha256"] = _sha(attestation_path)
 
 
 def test_creator_seed_pack_requires_exactly_nine_fully_audited_creator_traces(
@@ -69,7 +69,49 @@ def test_creator_seed_pack_requires_exactly_nine_fully_audited_creator_traces(
     assert len(pack.records) == 9
     assert {record.split for record in pack.records} == {"creator"}
     assert len(pack.projections) == 9
-    assert pack.manifest.source_version.endswith(":creator-audit-v3")
+    assert pack.manifest.source_version.endswith(":creator-audit-v4-pending")
+    assert pack.review_status == "course_authored_pending_human_review"
+
+
+def test_checked_in_course_attestations_never_claim_human_approval() -> None:
+    forbidden_fields = {"human_reviewed", "approved", "reviewer", "reviewed_at"}
+    for path in sorted((SOURCE_PACK / "private" / "reviews").glob("*.json")):
+        value = _read(path)
+        assert value["record_type"] == "creator_seed_attestation"
+        assert value["status"] == "course_authored_pending_human_review"
+        assert value["review_packet"] == "docs/release/human-review-packet.md"
+        assert not forbidden_fields.intersection(value)
+        assert "delegated to Codex" not in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("record_type", "creator_human_review"),
+        ("course_author", "tangwiki (delegated to Codex)"),
+        ("course_author", "tangwiki (DELEGATED TO CODEX)"),
+    ],
+)
+def test_creator_seed_pack_rejects_legacy_or_delegated_review_claims(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    manifest_path = _copy_pack(tmp_path)
+    root = manifest_path.parent
+    manifest = _read(manifest_path)
+    record = _record(manifest)
+    attestation_ref = record["course_attestation"]
+    assert isinstance(attestation_ref, dict)
+    attestation_path = root / str(attestation_ref["path"])
+    attestation = _read(attestation_path)
+    attestation[field] = value
+    _write(attestation_path, attestation)
+    attestation_ref["sha256"] = _sha(attestation_path)
+    _write(manifest_path, manifest)
+
+    with pytest.raises(CreatorSeedError, match="legacy creator_human_review"):
+        load_creator_seed_pack(manifest_path)
 
 
 @pytest.mark.parametrize("count", [8, 10, 15])
@@ -146,10 +188,10 @@ def test_creator_seed_pack_rejects_hash_valid_projection_leakage(
     projection_ref = _record(manifest)["projection"]
     assert isinstance(projection_ref, dict)
     projection_ref["sha256"] = _sha(projection)
-    _update_review_binding(
+    _update_attestation_binding(
         root,
         manifest,
-        field="reviewed_projection_sha256",
+        field="projection_sha256",
         digest=_sha(projection),
     )
     _write(manifest_path, manifest)
@@ -158,16 +200,16 @@ def test_creator_seed_pack_rejects_hash_valid_projection_leakage(
         load_creator_seed_pack(manifest_path)
 
 
-def test_creator_seed_pack_rejects_review_of_different_evidence(
+def test_creator_seed_pack_rejects_attestation_of_different_evidence(
     tmp_path: Path,
 ) -> None:
     manifest_path = _copy_pack(tmp_path)
     root = manifest_path.parent
     manifest = _read(manifest_path)
-    _update_review_binding(
+    _update_attestation_binding(
         root,
         manifest,
-        field="reviewed_trace_sha256",
+        field="trace_sha256",
         digest="0" * 64,
     )
     _write(manifest_path, manifest)

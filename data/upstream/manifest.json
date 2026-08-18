@@ -1,7 +1,7 @@
 {
   "schema_version": "v1alpha1",
   "record_type": "upstream_manifest",
-  "transformation_version": "ses-testset-candidates-v1",
+  "transformation_version": "ses-testset-candidates-v2",
   "transformation": {
     "entrypoint": "scripts/prepare_data.py",
     "stages": [
@@ -9,6 +9,7 @@
       "exact_slice",
       "scrub_deduplicate",
       "cluster_compare_labels",
+      "quantize_cluster_confidence_12dp",
       "aggregate_tau2_by_task",
       "stratify_candidates"
     ],

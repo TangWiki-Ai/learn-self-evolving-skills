@@ -6,7 +6,7 @@
 
 ## Solution
 
-实现 Scrub、Cluster、Stratify、Verify、Calibrate、Split 六阶段流水线。ABCD 提供退货退款表达和意图分布，tau2-bench 提供重复轨迹与通过率难度信号，STATE-Bench shop 环境提供可执行任务和确定性政策 oracle。流水线先产出候选，再在受控政策维度上生成变体，通过环境重放、Judge 正反试判和人工抽读后，只把合格题加入 develop。selection 和 final 从项目开始锁定，不接收后续生成题。
+实现 Scrub、Cluster、Stratify、Verify、Calibrate、Split 六阶段流水线。ABCD 提供退货退款表达和意图分布，tau2-bench 提供重复轨迹与通过率难度信号，STATE-Bench shop 环境提供可执行任务和确定性政策 oracle。流水线先产出候选，再在受控政策维度上生成变体。课程 fixed/offline 可以用绑定当前证据且明确待人审的临时目录演示后续流程；live 和 release 只有在环境重放、Judge 试判和独立签名人审都通过后才能接受题目。selection 和 final 从项目开始锁定，不接收后续生成题。
 
 ## User Stories
 
@@ -38,12 +38,24 @@
 - Variant generator 只改变 schema 允许的政策维度，生成公开用户 intent、环境 seed 和 oracle 输入，不直接生成文本答案。
 - LLM 可以起草公开表达和依赖 `tool_timeline`、`key_messages` 的语义 rubric，但不能起草金额、终态或政策 gold。模型草案必须显示在人工审核 packet 中，并在人工明确激活前保持 advisory 状态。
 - Gold 只能由同版本政策引擎计算。每个变体保存 oracle 输入、政策版本和结果 hash。
-- Calibrate 执行三步“考卷先考自己”：标准操作环境重放对账、Judge 对故意正确和错误答卷的试判、人工抽读与结论记录。
-- 只有三步都通过的 case 才获得 qualified 状态。失败 case 保存原因，可修复后作为新版本重新验证。
+- Calibrate 先执行标准操作环境重放对账和 Judge 对故意正确、错误、证据不足答卷的试判，再把结果交给集中人工 packet。课程 attestation 不能替代人工抽读结论。
+- 只有自动检查和独立签名人审都通过的 case 才能获得 live/release qualified 状态。当前 15 条 fixed/offline case 都标为 pending；课程排除也不能写成人工 rejection。
 - 初始 split 维持 PRD 数量：creator 9、develop 6、selection 6、final 12、trigger-eval 20。课程只允许把合格新题加入 develop，使其扩展到至少 15。
-- selection 和 final 的 case ID、内容与协议在课程开始前锁定。任何修改都创建新的课程数据版本并使旧参考结果不可直接比较。
+- selection 和 final 的 case ID、内容与协议在课程开始前锁定。选题使用运行环境提供的至少
+  32-byte 秘密 key 做 HMAC 排序，并使用仓库外 `0600` 的 protected semantic-group mapping
+  形成 connected components；不能使用仓库内固定 salt、内嵌 family 身份或当前 Skill 的结果。
+  builder 把 mapping 的规范化副本写入外部 bundle，并由 private inventory 的 path/SHA256
+  pointer 绑定。任何修改都创建新的课程数据版本并使旧参考结果不可直接比较。
 - Creator 只能读取 creator 成功轨迹；Updater 只能读取 develop 失败证据；Agent 只读取当前消息、当前 Skill 和工具结果。
-- 数据目录提供机器可读 manifest，记录 split、可见角色、source lineage、schema、checksum、qualification 和锁定状态。
+- 公开数据目录只保存机器可读的 opaque selection/final lock：split、数量、通用 slot、协议、
+  上游版本和整体 commitment。逐题请求、source lineage、环境 fixture、oracle、rubric、选题
+  key、semantic mapping 和完整 checksum inventory 留在仓库外的受保护 bundle。发布验证只有
+  显式注入该 bundle 时，才可以把四维 split 互斥和上游重复生成写成 PASS。
+- develop 持久化前的受信 verifier 必须逐字节绑定公开 selection/final manifest、commitment 和
+  外部 inventory commitment，再检查 source ID、semantic group、case ID 和 content hash。
+  它只返回冲突维度与 aggregate proof status，不得向 Creator/Updater 暴露 holdout 身份。
+  live/release 缺 verifier 时 fail closed；fixed/offline 必须显式标记为未重验，不能静默写成
+  split PASS。
 - 默认 CI 回放签入的固定模型响应；显式 live 模式才通过 ClaudeCLI 调用锁定 Provider，并记录模型、prompt、响应 hash、token、耗时和调用来源。两种模式共用同一解析器、schema 和确定性门。
 - LLM 可以辅助筛选、表达和 rubric 起草，但其产物必须经过相同的 oracle、重放、Judge 和人工流程，不能凭生成来源直接入库。
 
@@ -56,9 +68,10 @@
 - Variant 测试对每个政策维度做表驱动组合，并验证无效组合被明确拒绝。
 - Oracle 重放测试要求标准操作终态与政策结果完全一致。
 - Judge calibration 测试至少包含可通过、应失败和证据不足答卷，验证题目能区分这些状态。
-- Split 测试检查内容 hash 和语义来源两层互斥，禁止新题写入 selection、final 或 creator。
+- Split 测试覆盖 source ID、semantic group、case ID 和 content hash 四维互斥，禁止新题写入
+  selection、final 或 creator，并验证 opaque lock 缺少外部 verifier 时 live/release fail closed。
 - 权限测试从 Creator、Updater、Agent 和报告的视角读取数据，断言各自只能看到允许字段。
-- CLI 集成测试从候选记录运行到 qualified develop case，并验证失败阶段保留可读审计记录。
+- CLI 集成测试从候选记录运行到 fixed/offline pending develop catalog，验证 15 条纳入、7 条排除都保留可读证据，并证明 live 在 Provider 调用前关闭。
 - Curation 测试验证模型必须引用真实 source turn、确定性能力门可以否决模型误判、固定模式不读取 Key，以及 live 模式必须显式开启。
 
 ## Out of Scope

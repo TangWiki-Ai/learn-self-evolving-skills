@@ -56,3 +56,9 @@ def test_catalog_rejects_tampered_curation_evidence(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="artifact checksum mismatch"):
         load_develop_catalog(copied / "develop-manifest.json")
+
+
+@pytest.mark.parametrize("mode", ["live", "release"])
+def test_pending_course_catalog_is_fixed_only(mode: str) -> None:
+    with pytest.raises(ValueError, match="independent signed human review"):
+        load_develop_catalog(mode=mode)  # type: ignore[arg-type]

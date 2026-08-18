@@ -19,15 +19,18 @@ from ses.evaluation.calibration import (
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "judges" / "calibration.json"
 
 
-def test_fixed_calibration_set_is_explicitly_human_reviewed() -> None:
+def test_fixed_calibration_set_is_explicitly_pending_human_review() -> None:
     fixture = load_calibration_fixture(FIXTURE)
 
-    assert fixture.dataset_id == "lesson-03-human-review-v2"
+    assert fixture.dataset_id == "lesson-03-reference-labels-v3"
     assert fixture.record_type.value == "calibration_fixture"
     assert fixture.response_source == "course_authored_fixed_response"
     assert fixture.live_model_measured is False
     assert fixture.cases
-    assert {case.label.review_status for case in fixture.cases} == {"human_reviewed"}
+    assert {case.label.review_status for case in fixture.cases} == {
+        "course_authored_pending_human_review"
+    }
+    assert all(case.label.reviewer is None for case in fixture.cases)
     assert not hasattr(fixture.cases[0], "llm_status")
     assert not hasattr(fixture.cases[0], "agent_status")
 
@@ -42,6 +45,7 @@ def test_calibration_reports_confusion_matrices_disagreements_and_actual_agreeme
     assert report.measured is True
     assert report.fixed_offline_protocol_executed is True
     assert report.live_model_measured is False
+    assert report.label_review_status == "course_authored_pending_human_review"
     assert (llm.agreements, llm.total, llm.agreement) == (2, 4, Decimal("0.5"))
     assert (agent.agreements, agent.total, agent.agreement) == (
         3,
@@ -57,7 +61,7 @@ def test_calibration_reports_confusion_matrices_disagreements_and_actual_agreeme
     ]
     assert len(report.measurements) == 8
     assert {item.human_label_version for item in report.measurements} == {
-        "human-labels-v1"
+        "course-authored-labels-pending-review-v1"
     }
     assert all(item.raw_fixed_response.startswith("{") for item in report.measurements)
     assert all(len(item.evidence_sha256) == 64 for item in report.measurements)
@@ -89,10 +93,10 @@ def test_calibration_cli_emits_measured_results_without_target_claims(
     assert "accuracy_gain" not in output.lower()
 
 
-def test_fixture_rejects_unreviewed_human_labels() -> None:
+def test_fixture_rejects_a_human_review_claim_without_signoff() -> None:
     fixture = load_calibration_fixture(FIXTURE)
     data = fixture.model_dump(mode="json")
-    data["cases"][0]["label"]["review_status"] = "pending"
+    data["cases"][0]["label"]["review_status"] = "human_reviewed"
 
     with pytest.raises(ValueError):
         CalibrationFixture.model_validate(data)

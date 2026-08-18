@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -20,7 +21,7 @@ from ses.contracts import (
     ArtifactRef,
     ArtifactRoot,
     CaseGrade,
-    CreatorHumanReview,
+    CreatorSeedAttestation,
     CreatorSourceProvenance,
     CreatorSourceReplay,
     EngineExitStatus,
@@ -106,7 +107,7 @@ class CreatorSeedRecord(BaseModel):
     model_evidence: ArtifactRef
     model_grade: ArtifactRef
     model_judge_run: ArtifactRef
-    human_review: ArtifactRef
+    course_attestation: ArtifactRef
     projection: ArtifactRef
 
 
@@ -132,6 +133,11 @@ class CreatorSeedPack:
     @property
     def records(self) -> tuple[CreatorSeedRecord, ...]:
         return self.manifest.records
+
+    @property
+    def review_status(self) -> Literal["course_authored_pending_human_review"]:
+        """Return the honest release status of the fixed course seed set."""
+        return "course_authored_pending_human_review"
 
 
 def _resolve_artifact(root: Path, ref: ArtifactRef, prefix: tuple[str, ...]) -> Path:
@@ -172,8 +178,12 @@ def _validate_grade_evidence(
         raise CreatorSeedError("creator grade evidence is missing")
 
 
-def load_creator_seed_pack(manifest_path: Path) -> CreatorSeedPack:
-    """Load exactly nine triply-approved creator records and verify projections."""
+def load_creator_seed_pack(
+    manifest_path: Path, *, mode: Literal["fixed", "live"] = "fixed"
+) -> CreatorSeedPack:
+    """Verify the nine creator records; live use fails while review is pending."""
+    if mode not in {"fixed", "live"}:
+        raise CreatorSeedError("creator seed mode must be fixed or live")
 
     try:
         manifest = CreatorSeedManifest.model_validate_json(
@@ -226,8 +236,8 @@ def load_creator_seed_pack(manifest_path: Path) -> CreatorSeedPack:
             record.model_judge_run,
             ("private", "judges", "model", "judge-runs"),
         )
-        review_path = _resolve_artifact(
-            root, record.human_review, ("private", "reviews")
+        attestation_path = _resolve_artifact(
+            root, record.course_attestation, ("private", "reviews")
         )
         try:
             source_record = CreatorSourceProvenance.model_validate_json(
@@ -251,10 +261,18 @@ def load_creator_seed_pack(manifest_path: Path) -> CreatorSeedPack:
             model_run = ModelJudgeRun.model_validate_json(
                 model_run_path.read_text(encoding="utf-8")
             )
-            review = CreatorHumanReview.model_validate_json(
-                review_path.read_text(encoding="utf-8")
-            )
-        except (UnicodeError, ValidationError) as exc:
+            attestation_value = json.loads(attestation_path.read_text(encoding="utf-8"))
+            if not isinstance(attestation_value, dict):
+                raise CreatorSeedError("creator course attestation is not an object")
+            if (
+                attestation_value.get("record_type") == "creator_human_review"
+                or "delegated to codex" in json.dumps(attestation_value).casefold()
+            ):
+                raise CreatorSeedError(
+                    "legacy creator_human_review evidence is forbidden"
+                )
+            attestation = CreatorSeedAttestation.model_validate(attestation_value)
+        except (json.JSONDecodeError, UnicodeError, ValidationError) as exc:
             raise CreatorSeedError("creator audit evidence is not canonical") from exc
         if (
             source_record.repository != "https://github.com/microsoft/STATE-Bench"
@@ -297,20 +315,20 @@ def load_creator_seed_pack(manifest_path: Path) -> CreatorSeedPack:
         ):
             raise CreatorSeedError("creator model Judge provenance is inconsistent")
         if (
-            review.seed_id != record.seed_id
-            or review.reviewed_source_sha256 != record.source.sha256
-            or review.reviewed_trace_sha256 != record.trace.sha256
-            or review.reviewed_replay_sha256 != record.replay.sha256
-            or review.reviewed_state_diff_sha256 != record.state_diff.sha256
-            or review.reviewed_state_grade_sha256 != record.state_grade.sha256
-            or review.reviewed_model_evidence_sha256 != record.model_evidence.sha256
-            or review.reviewed_model_grade_sha256 != record.model_grade.sha256
-            or review.reviewed_model_run_sha256 != record.model_judge_run.sha256
-            or review.reviewed_projection_sha256 != record.projection.sha256
-            or review.decision != "approved"
+            attestation.seed_id != record.seed_id
+            or attestation.source_sha256 != record.source.sha256
+            or attestation.trace_sha256 != record.trace.sha256
+            or attestation.replay_sha256 != record.replay.sha256
+            or attestation.state_diff_sha256 != record.state_diff.sha256
+            or attestation.state_grade_sha256 != record.state_grade.sha256
+            or attestation.model_evidence_sha256 != record.model_evidence.sha256
+            or attestation.model_grade_sha256 != record.model_grade.sha256
+            or attestation.model_run_sha256 != record.model_judge_run.sha256
+            or attestation.projection_sha256 != record.projection.sha256
+            or attestation.status != "course_authored_pending_human_review"
         ):
             raise CreatorSeedError(
-                "creator human review must approve the exact evidence"
+                "creator course attestation must bind the exact evidence"
             )
         path = _resolve_artifact(root, record.projection, ("projections",))
         try:
@@ -321,11 +339,17 @@ def load_creator_seed_pack(manifest_path: Path) -> CreatorSeedPack:
     if len(source_commits) != 1:
         raise CreatorSeedError("creator seeds must use one pinned source commit")
     source_commit = source_commits.pop()
-    expected_source_version = f"state-bench:{source_commit}:creator-audit-v3"
+    expected_source_version = f"state-bench:{source_commit}:creator-audit-v4-pending"
     if manifest.source_version != expected_source_version:
         raise CreatorSeedError("creator manifest source version is inconsistent")
-    return CreatorSeedPack(
+    pack = CreatorSeedPack(
         manifest=manifest,
         manifest_path=manifest_path,
         projections=tuple(projections),
     )
+    if mode == "live":
+        raise CreatorSeedError(
+            "live creator requires an independent signed human review; "
+            "the course seed packet is pending"
+        )
+    return pack

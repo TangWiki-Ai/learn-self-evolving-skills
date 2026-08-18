@@ -6,6 +6,7 @@ import math
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import ROUND_HALF_EVEN, Decimal
 from hashlib import sha256
 from importlib.metadata import PackageNotFoundError, version
 from typing import Protocol
@@ -17,6 +18,21 @@ class ClusterContractError(ValueError):
 
 class ClusterDependencyError(RuntimeError):
     """An optional local clustering dependency is not installed."""
+
+
+CONFIDENCE_QUANTIZATION_DECIMALS = 12
+_CONFIDENCE_QUANTUM = Decimal("0.000000000001")
+
+
+def _canonical_confidence(value: float | None) -> float | None:
+    if value is None:
+        return None
+    quantized = Decimal(str(value)).quantize(
+        _CONFIDENCE_QUANTUM,
+        rounding=ROUND_HALF_EVEN,
+    )
+    result = float(quantized)
+    return 0.0 if result == 0.0 else result
 
 
 def sklearn_distribution_version() -> str:
@@ -145,7 +161,7 @@ def assign_clusters(
         ClusterAssignment(
             item_id=item_id,
             cluster_id=canonical[by_id[item_id].cluster_id],
-            confidence=by_id[item_id].confidence,
+            confidence=_canonical_confidence(by_id[item_id].confidence),
         )
         for item_id in item_ids
     )
@@ -341,12 +357,12 @@ class SklearnTfidfClusterAdapter:
     @property
     def adapter_id(self) -> str:
         return (
-            "sklearn-tfidf-kmeans:v1"
+            "sklearn-tfidf-kmeans:v2"
             f":scikit_learn={sklearn_distribution_version()}"
             f":n_clusters={self.n_clusters}"
             f":random_state={self.random_state}"
             f":max_features={self.max_features}"
-            ":ngram_range=1-2:n_init=10"
+            ":ngram_range=1-2:n_init=10:confidence_quantization=12dp"
         )
 
     def cluster(self, items: tuple[ClusterItem, ...]) -> tuple[ClusterAssignment, ...]:

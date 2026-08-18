@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from ses.foundation.config import ModelRole, load_model_lock
+from ses.foundation.credentials import read_siliconflow_credentials
+from ses.runner import LiveDevelopConfig
 from ses.skills.paired import PairCategory, compare_run_events, run_fresh_paired
 
 ROOT = Path(__file__).parents[2]
@@ -133,3 +136,34 @@ def test_fixed_paired_comparison_is_byte_reproducible(tmp_path: Path) -> None:
     assert (tmp_path / "first" / first.skill_events.path).read_bytes() == (
         tmp_path / "second" / second.skill_events.path
     ).read_bytes()
+
+
+def test_live_paired_rejects_pending_catalog_before_provider_call(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "provider-call-count.txt"
+    executable = tmp_path / "counting-provider"
+    executable.write_text(
+        f"#!/bin/sh\nprintf x >> '{marker}'\nexit 99\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    lock = load_model_lock(ROOT / "models.lock.json")
+
+    with pytest.raises(ValueError, match="independent signed human review"):
+        run_fresh_paired(
+            skill_source=_v0(tmp_path),
+            output_root=tmp_path / "live-paired",
+            project_root=ROOT,
+            live_config=LiveDevelopConfig(
+                model=lock.roles[ModelRole.MAIN],
+                credentials=read_siliconflow_credentials(
+                    {"SILICONFLOW_API_KEY": "must-not-be-used"}
+                ),
+                executable=str(executable),
+                environ={},
+                timeout_seconds=0.1,
+            ),
+        )
+
+    assert not marker.exists()

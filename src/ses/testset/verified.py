@@ -44,12 +44,21 @@ from ses.testset.curation import (
     curate_sources,
     invocation_cost,
 )
+from ses.testset.holdout import HoldoutManifest
+from ses.testset.split_guard import (
+    DevelopSplitIdentity,
+    ProtectedSplitVerifier,
+    SplitIdentityDimension,
+    SplitValidationStatus,
+    require_trusted_holdout_verifier,
+)
 
 VARIANT_VERSION = "ses-controlled-variant-v1"
 ORACLE_VERSION = "ses-shop-oracle-v1"
 REPLAY_VERSION = "ses-environment-replay-v1"
 CALIBRATION_VERSION = "ses-case-calibration-v1"
-QUALIFICATION_VERSION = "ses-case-qualification-v3"
+QUALIFICATION_VERSION = "ses-case-qualification-v4-pending"
+QualificationMode = Literal["fixed", "live", "release"]
 
 
 class PrivateModel(BaseModel):
@@ -96,36 +105,26 @@ class VariantPlan(PrivateModel):
     dimensions: VariantDimensions
 
 
-class ReviewStatus(StrEnum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
+class FixedCourseDisposition(StrEnum):
+    INCLUDE = "include_in_fixed_course"
+    EXCLUDE = "exclude_from_fixed_course"
 
 
-class HumanReview(PrivateModel):
+class CourseAttestation(PrivateModel):
     case_id: str
-    reviewed_hash: str
-    decision: ReviewStatus
-    reason: str
-    reviewed_at: str | None = None
-    reviewer: str | None = None
-
-    @model_validator(mode="after")
-    def _validate_review(self) -> HumanReview:
-        if self.decision is ReviewStatus.PENDING:
-            if self.reviewed_at is not None or self.reviewer is not None:
-                raise ValueError("pending review cannot identify a reviewer or time")
-        elif self.reviewed_at is None or self.reviewer is None:
-            raise ValueError("completed review requires reviewer and reviewed_at")
-        return self
+    qualification_hash: str
+    status: Literal["course_authored_pending_human_review"]
+    course_disposition: FixedCourseDisposition
+    rationale: str
+    review_packet: Literal["docs/release/human-review-packet.md"]
 
 
 class QualificationStage(StrEnum):
     CANDIDATE = "candidate"
     REPLAY_VERIFIED = "replay_verified"
     JUDGE_CALIBRATED = "judge_calibrated"
-    HUMAN_REVIEW_PENDING = "human_review_pending"
-    QUALIFIED = "qualified"
+    COURSE_FIXED_PENDING = "course_fixed_pending_human_review"
+    COURSE_FIXED_EXCLUDED = "course_fixed_excluded_pending_human_review"
     REJECTED = "rejected"
 
 
@@ -144,7 +143,7 @@ class VerifiedCase:
     oracle: Mapping[str, object]
     replay: Mapping[str, object]
     calibration: Mapping[str, object]
-    reviewed_hash: str
+    qualification_hash: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +152,8 @@ class QualificationSummary:
     candidate_count: int
     source_candidate_count: int
     selected_source_count: int
+    fixed_course_count: int
+    excluded_count: int
     qualified_count: int
     rejected_count: int
     pending_count: int
@@ -162,6 +163,8 @@ class QualificationSummary:
     live_provider_used: bool
     input_tokens: int
     output_tokens: int
+    protected_split_validation_status: SplitValidationStatus
+    protected_split_provenance_sha256: str | None
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -240,17 +243,34 @@ def load_variant_plan(path: Path) -> tuple[VariantPlan, ...]:
     return rows
 
 
-def load_human_reviews(path: Path) -> Mapping[str, HumanReview]:
+def load_course_attestations(path: Path) -> Mapping[str, CourseAttestation]:
     if not path.exists():
         return {}
-    rows = tuple(
-        HumanReview.model_validate_json(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    )
+    rows: list[CourseAttestation] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        value = json.loads(line)
+        if isinstance(value, dict) and (
+            {"reviewer", "reviewed_at"}.intersection(value)
+            or str(value.get("decision", "")) in {"approved", "rejected"}
+            or "ticket-owner" in line.casefold()
+        ):
+            raise ValueError("legacy unsigned human review claim is forbidden")
+        rows.append(CourseAttestation.model_validate(value))
     if len({row.case_id for row in rows}) != len(rows):
-        raise ValueError("human review case IDs must be unique")
+        raise ValueError("course attestation case IDs must be unique")
     return {row.case_id: row for row in rows}
+
+
+def enforce_course_attestation_boundary(mode: QualificationMode) -> None:
+    """Keep unsigned course attestations out of live and release acceptance."""
+
+    if mode != "fixed":
+        raise ValueError(
+            f"{mode} qualification requires an independent signed human review; "
+            "course attestations are pending"
+        )
 
 
 def generate_controlled_variant(
@@ -506,7 +526,7 @@ def _verify_case(
     calibration_path = case_root / "calibration.json"
     _write_json(calibration_path, calibration)
 
-    reviewed_hash = _sha(
+    qualification_hash = _sha(
         {
             "case_definition": _public_case(variant),
             "variant_lineage_hash": variant.lineage_hash,
@@ -521,7 +541,7 @@ def _verify_case(
         oracle=oracle,
         replay=replay,
         calibration=calibration,
-        reviewed_hash=reviewed_hash,
+        qualification_hash=qualification_hash,
     )
 
 
@@ -546,6 +566,9 @@ def _load_locked_manifest(path: Path) -> tuple[set[str], set[str], set[str]]:
     if not isinstance(raw, Mapping) or raw.get("locked") is not True:
         raise ValueError("protected split manifest must be locked")
     records = raw.get("records")
+    if records is None:
+        lock = HoldoutManifest.model_validate(raw)
+        return set(lock.slots), set(), set()
     if not isinstance(records, list):
         raise ValueError("protected split manifest records must be a list")
     ids: set[str] = set()
@@ -561,7 +584,10 @@ def _load_locked_manifest(path: Path) -> tuple[set[str], set[str], set[str]]:
 
 
 def assert_split_safe(
-    cases: Sequence[VerifiedCase], protected_manifests: Iterable[Path]
+    cases: Sequence[VerifiedCase],
+    protected_manifests: Iterable[Path],
+    *,
+    protected_split_verifier: ProtectedSplitVerifier | None = None,
 ) -> None:
     """Fail before persistence on ID, public content, or semantic overlap."""
 
@@ -577,6 +603,24 @@ def assert_split_safe(
         case_id = case.variant.fixture.case_id
         content_hash = _sha(_public_case(case.variant))
         semantic_group = case.variant.candidate.semantic_group_id
+        if protected_split_verifier is not None:
+            identity = DevelopSplitIdentity(
+                source_id=case.variant.candidate.source_id,
+                semantic_group_id=semantic_group,
+                case_id=case_id,
+                content_hash=hashlib.sha256(
+                    case.variant.fixture.user_prompt.encode("utf-8")
+                ).hexdigest(),
+            )
+            conflict = protected_split_verifier.conflict_dimension(identity)
+            reasons = {
+                SplitIdentityDimension.SOURCE_ID: "split_source_conflict",
+                SplitIdentityDimension.SEMANTIC_GROUP_ID: "split_semantic_conflict",
+                SplitIdentityDimension.CASE_ID: "split_id_conflict",
+                SplitIdentityDimension.CONTENT_HASH: "split_content_conflict",
+            }
+            if conflict is not None:
+                raise ValueError(f"{reasons[conflict]}:{case_id}")
         if case_id in protected_ids:
             raise ValueError(f"split_id_conflict:{case_id}")
         if content_hash in protected_hashes:
@@ -707,21 +751,36 @@ def qualify_cases(
     *,
     candidate_path: Path,
     variant_plan_path: Path,
-    reviews_path: Path,
+    attestations_path: Path,
     protected_manifests: Sequence[Path],
     model_calibration_fixture: Path,
     output: Path,
+    mode: QualificationMode,
     split: str = "develop",
     source_evidence_path: Path | None = None,
     curation_fixture_path: Path | None = None,
     curation_model: CurationModel | None = None,
+    protected_split_verifier: ProtectedSplitVerifier | None = None,
 ) -> QualificationSummary:
     """Run LLM-assisted candidate verification into one atomic output tree."""
 
+    if protected_split_verifier is None and mode == "fixed":
+        raise ValueError(
+            "fixed qualification requires an explicit fixed/offline holdout verifier"
+        )
+    if mode in {"live", "release"}:
+        active_split_verifier = require_trusted_holdout_verifier(
+            protected_split_verifier
+        )
+    elif protected_split_verifier is not None:
+        active_split_verifier = protected_split_verifier
+    else:  # pragma: no cover - guarded above for the finite QualificationMode values.
+        raise ValueError("qualification mode has no protected split verifier")
+    enforce_course_attestation_boundary(mode)
     reject_protected_split_write(split)
     seeds = {item.candidate_id: item for item in load_candidate_seeds(candidate_path)}
     plans = load_variant_plan(variant_plan_path)
-    reviews = load_human_reviews(reviews_path)
+    attestations = load_course_attestations(attestations_path)
     for plan in plans:
         if plan.candidate_id not in seeds:
             raise ValueError(
@@ -818,31 +877,44 @@ def qualify_cases(
                         "output_artifacts": [],
                     }
                 )
-        assert_split_safe(verified, protected_manifests)
+        assert_split_safe(
+            verified,
+            protected_manifests,
+            protected_split_verifier=active_split_verifier,
+        )
 
         review_packet: list[dict[str, object]] = []
         qualifications: list[dict[str, object]] = list(failures)
         catalog_cases: list[dict[str, object]] = []
-        qualified = rejected = pending = 0
+        fixed_course = excluded = qualified = rejected = pending = 0
         active_case_ids = {case.variant.fixture.case_id for case in verified}
         failed_case_ids = {str(item["case_id"]) for item in failures}
-        for retired_case_id in sorted(set(reviews) - active_case_ids - failed_case_ids):
-            retired_review = reviews[retired_case_id]
-            if retired_review.decision is not ReviewStatus.REJECTED:
-                raise ValueError(f"inactive review must be rejected:{retired_case_id}")
+        for retired_case_id in sorted(
+            set(attestations) - active_case_ids - failed_case_ids
+        ):
+            retired_attestation = attestations[retired_case_id]
+            if (
+                retired_attestation.course_disposition
+                is not FixedCourseDisposition.EXCLUDE
+            ):
+                raise ValueError(
+                    f"inactive course attestation must exclude:{retired_case_id}"
+                )
             qualifications.append(
                 {
                     "case_id": retired_case_id,
-                    "stage": QualificationStage.REJECTED.value,
-                    "reason_code": "human_rejected_source_mapping",
-                    "reason": retired_review.reason,
-                    "review": retired_review.model_dump(mode="json"),
+                    "stage": QualificationStage.COURSE_FIXED_EXCLUDED.value,
+                    "reason_code": (
+                        "course_authored_fixed_exclusion_pending_human_review"
+                    ),
+                    "reason": retired_attestation.rationale,
+                    "course_attestation": retired_attestation.model_dump(mode="json"),
                     "input_artifacts": [],
                     "output_artifacts": [],
                     "pipeline_version": QUALIFICATION_VERSION,
                 }
             )
-            rejected += 1
+            excluded += 1
         for case in verified:
             variant = case.variant
             case_id = variant.fixture.case_id
@@ -856,25 +928,30 @@ def qualify_cases(
                 temp / "private" / "fixtures" / f"{variant.fixture.fixture_id}.json"
             )
             _write_json(fixture_path, variant.fixture.model_dump(mode="json"))
-            review = reviews.get(case_id)
-            if review is None:
-                review = HumanReview(
-                    case_id=case_id,
-                    reviewed_hash=case.reviewed_hash,
-                    decision=ReviewStatus.PENDING,
-                    reason="owner review required",
+            attestation = attestations.get(case_id)
+            binding = (
+                "missing"
+                if attestation is None
+                else (
+                    "stale"
+                    if attestation.qualification_hash != case.qualification_hash
+                    else "current"
                 )
-            if review.reviewed_hash != case.reviewed_hash:
-                review = HumanReview(
-                    case_id=case_id,
-                    reviewed_hash=case.reviewed_hash,
-                    decision=ReviewStatus.PENDING,
-                    reason="reviewed version changed; owner re-review required",
-                )
+            )
+            if binding == "current":
+                assert attestation is not None
+                packet_attestation = attestation.model_dump(mode="json")
+            else:
+                packet_attestation = {
+                    "status": "course_authored_pending_human_review",
+                    "binding": binding,
+                    "qualification_hash": case.qualification_hash,
+                    "review_packet": "docs/release/human-review-packet.md",
+                }
             review_packet.append(
                 {
                     "case_id": case_id,
-                    "reviewed_hash": case.reviewed_hash,
+                    "qualification_hash": case.qualification_hash,
                     "public_intent": variant.fixture.user_prompt,
                     "source_candidate": variant.candidate.candidate_id,
                     "source_evidence": curated.source.model_dump(mode="json"),
@@ -903,57 +980,71 @@ def qualify_cases(
                     },
                     "replay_status": case.replay["status"],
                     "judge_statuses": case.calibration["statuses"],
-                    "current_review": review.model_dump(mode="json"),
+                    "course_attestation": packet_attestation,
                 }
             )
             private_case_root = temp / "private" / case_id
             refs = [
                 _reference(temp, path) for path in sorted(private_case_root.iterdir())
             ]
-            if review.decision is ReviewStatus.APPROVED:
-                stage = QualificationStage.QUALIFIED
-                qualified += 1
-                catalog_cases.append(
+            if binding != "current":
+                pending += 1
+                qualifications.append(
                     {
                         "case_id": case_id,
-                        "fixture": _reference(temp, fixture_path),
-                        "public_case": _reference(temp, public_path),
-                        "expected_actions": [
-                            {"tool_name": name, "arguments": dict(arguments)}
-                            for name, arguments in case.expected_actions
+                        "stage": QualificationStage.COURSE_FIXED_PENDING.value,
+                        "reason_code": f"course_attestation_{binding}",
+                        "reason": "course attestation must bind the current evidence",
+                        "course_attestation": packet_attestation,
+                        "input_artifacts": [
+                            _reference(temp, public_path),
+                            _reference(temp, fixture_path),
+                            _reference(temp, curation_manifest_path),
+                            *(
+                                value
+                                for value in source_refs.values()
+                                if value is not None
+                            ),
                         ],
-                        "policy_version": variant.fixture.policy_version,
-                        "qualification_hash": case.reviewed_hash,
-                        "curation": {
-                            "source_id": variant.candidate.source_id,
-                            "artifacts": source_refs,
-                        },
-                        "rubric_draft": curated.rubric_draft.model_dump(mode="json"),
-                        "rubric_status": "model_draft_requires_human_activation",
+                        "output_artifacts": refs,
+                        "pipeline_version": QUALIFICATION_VERSION,
                     }
                 )
-                reason_code = "all_checks_passed"
-                reason = (
-                    "source triage, replay, Judge calibration, and human approval "
-                    "passed"
-                )
-            elif review.decision is ReviewStatus.REJECTED:
-                stage = QualificationStage.REJECTED
-                rejected += 1
-                reason_code = "human_rejected"
-                reason = review.reason
-            else:
-                stage = QualificationStage.HUMAN_REVIEW_PENDING
-                pending += 1
-                reason_code = "human_review_required"
-                reason = review.reason
+                continue
+            assert attestation is not None
+            if attestation.course_disposition is not FixedCourseDisposition.INCLUDE:
+                raise ValueError(f"active course attestation must include:{case_id}")
+            catalog_cases.append(
+                {
+                    "case_id": case_id,
+                    "fixture": _reference(temp, fixture_path),
+                    "public_case": _reference(temp, public_path),
+                    "expected_actions": [
+                        {"tool_name": name, "arguments": dict(arguments)}
+                        for name, arguments in case.expected_actions
+                    ],
+                    "policy_version": variant.fixture.policy_version,
+                    "qualification_hash": case.qualification_hash,
+                    "curation": {
+                        "source_id": variant.candidate.source_id,
+                        "artifacts": source_refs,
+                    },
+                    "rubric_draft": curated.rubric_draft.model_dump(mode="json"),
+                    "rubric_status": "model_draft_requires_human_activation",
+                }
+            )
+            stage = QualificationStage.COURSE_FIXED_PENDING
+            fixed_course += 1
+            pending += 1
+            reason_code = "fixed_course_checks_passed_human_review_pending"
+            reason = attestation.rationale
             qualifications.append(
                 {
                     "case_id": case_id,
                     "stage": stage.value,
                     "reason_code": reason_code,
                     "reason": reason,
-                    "review": review.model_dump(mode="json"),
+                    "course_attestation": attestation.model_dump(mode="json"),
                     "input_artifacts": [
                         _reference(temp, public_path),
                         _reference(temp, fixture_path),
@@ -978,6 +1069,9 @@ def qualify_cases(
                 "record_type": "develop_catalog",
                 "qualification_version": QUALIFICATION_VERSION,
                 "policy_version": PINNED_CASE_FIXTURE.policy_version,
+                "review_status": "course_authored_pending_human_review",
+                "intended_use": "fixed_offline_course_only",
+                "review_packet": "docs/release/human-review-packet.md",
                 "curation_manifest": _reference(temp, curation_manifest_path),
                 "cases": sorted(catalog_cases, key=lambda item: str(item["case_id"])),
                 "qualification_manifest": _reference(temp, qualification_path),
@@ -993,6 +1087,8 @@ def qualify_cases(
             "candidate_count": len(plans),
             "source_candidate_count": len(curation.sources),
             "selected_source_count": sum(item.selected for item in curation.sources),
+            "fixed_course_count": fixed_course,
+            "excluded_count": excluded,
             "qualified_count": qualified,
             "rejected_count": rejected + len(failures),
             "pending_count": pending,
@@ -1002,6 +1098,7 @@ def qualify_cases(
             "curation_output_tokens": output_tokens,
             "network_used": curation.network_used,
             "live_provider_used": curation.live_provider_used,
+            "review_status": "course_authored_pending_human_review",
         }
         _write_json(
             temp / "summary.json",
@@ -1013,6 +1110,8 @@ def qualify_cases(
             candidate_count=len(plans),
             source_candidate_count=len(curation.sources),
             selected_source_count=sum(item.selected for item in curation.sources),
+            fixed_course_count=fixed_course,
+            excluded_count=excluded,
             qualified_count=qualified,
             rejected_count=rejected + len(failures),
             pending_count=pending,
@@ -1022,6 +1121,8 @@ def qualify_cases(
             live_provider_used=curation.live_provider_used,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            protected_split_validation_status=active_split_verifier.status,
+            protected_split_provenance_sha256=(active_split_verifier.provenance_sha256),
         )
     except Exception:
         shutil.rmtree(temp, ignore_errors=True)

@@ -11,9 +11,11 @@ from .installer import normalized_skill_sha256, write_skill_manifest
 COURSE_CREATOR_PROMPT = """\
 You are the Lesson 1 Skill Creator.
 
-Use only the approved seed traces supplied to you. They are successful seed
-traces, not hidden evaluation material. Infer reusable return-support behavior
-from them, and write one concise SKILL.md plus optional references.
+Use only the seed traces supplied by the trusted loader. Fixed/offline course
+seeds are course-authored, pass automated checks, and remain pending direct
+human review; live or release use requires signed approval. They are not hidden
+evaluation material. Infer reusable return-support behavior from them, and
+write one concise SKILL.md plus optional references.
 
 Do not copy case IDs, order IDs, customer data, fixed answers, gold, eval
 material, traces, hidden data, credentials, or unsupported tools into the
@@ -51,8 +53,8 @@ class FakeCreator:
         """Create the course candidate in a new directory.
 
         ``seed_traces`` is deliberately accepted at the seam so a live Creator
-        can later consume the approved seed set. The offline implementation
-        stays deterministic and does not open those files.
+        can later consume a signed seed set. The offline implementation stays
+        deterministic, does not open those files, and grants no approval.
         """
         del seed_traces
         if self._failure is not None:

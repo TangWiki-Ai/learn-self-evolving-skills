@@ -17,11 +17,11 @@ source evidence
   -> deterministic oracle
   -> environment replay
   -> Judge calibration
-  -> LLM-assisted human review
-  -> qualified develop
+  -> course-authored attestation (pending human review)
+  -> fixed/offline course catalog (not live-qualified)
 ```
 
-默认运行使用固定模型响应，所以课堂和 CI 不需要网络。你可以显式切到 live，观察 ClaudeCLI 如何通过硅基流动的锁定模型返回相同 schema。无论响应来自 fixture 还是 Provider，后面的验证代码完全相同。
+默认运行使用固定模型响应，所以课堂和 CI 不需要网络。当前 15 条课程 case 还没有独立真人签名；fixed/offline 可以用它们演示完整协议，但 live 和 release 会在读取凭据或调用 Provider 前关闭。
 
 ## 关键 insight
 
@@ -39,9 +39,9 @@ LLM 是候选生成器和审核助手，不是事实来源。
 - LLM 生成的公开请求模板和语义 rubric 草案
 - 受控政策维度、oracle 摘要和 replay 状态
 - 正确、错误、证据不足的 Judge 结果
-- 当前人工决定与 reviewed hash
+- 当前 evidence binding、课程纳入/排除 attestation 和明确的待人工复核状态
 
-Rubric 当前保持 `advisory_not_activated`。这很重要：课程让你体验模型辅助写 rubric，但不会在没有新一轮人审时偷偷改变评分协议。
+Rubric 当前保持 `advisory_not_activated`。课程 attestation 只表达 fixed/offline 的课程选择，不代表人工批准，也不会激活 rubric。
 
 ## Starter
 
@@ -50,7 +50,8 @@ Rubric 当前保持 `advisory_not_activated`。这很重要：课程让你体验
 1. `curate_candidate_sources`：读取来源证据，执行 fixed/live 共用的 triage 和 rubric schema。
 2. `verify_variant`：验证政策组合并生成稳定、无答案泄漏的 case。
 3. `calibrate_case`：证明正确、错误和证据不足得到预期状态。
-4. `protect_split`：写文件前检查 ID、内容 hash 和来源语义重叠。
+4. `protect_split`：受信的持久化前 verifier 检查 source ID、semantic group、case ID 和
+   content hash 四维重叠，但不向 Creator/Updater 返回 holdout 身份。
 
 [`solution/qualification.py`](solution/qualification.py) 直接调用生产模块，不复制一套简化 policy、模型 parser 或 Judge。
 
@@ -59,21 +60,18 @@ Rubric 当前保持 `advisory_not_activated`。这很重要：课程让你体验
 离线复现：
 
 ```bash
-uv run ses qualify-cases --curation-mode fixed --json
+uv run ses qualify-cases --curation-mode fixed \
+  --output .ses/lesson06-fixed --json
 uv run ses baseline --run-id run-lesson-6-expanded --iterations 2 --json
 uv run pytest course/ch06-verify-develop-cases/tests
 ```
 
-显式 live curation：
-
-```bash
-SILICONFLOW_API_KEY=... uv run ses qualify-cases \
-  --curation-mode live \
-  --curation-timeout 120 \
-  --json
-```
-
-Live 模式会产生费用并记录真实 token/耗时。它不会把 Key 写入日志或 artifact。ClaudeCLI 使用原生 JSON Schema 限制输出类型，并把 schema hash 写入 provenance。模型引用不存在的 source turn 或试图生成 oracle 数据时，Pipeline 仍会失败。
+默认 fixed/offline 命令显式使用 `fixed_offline_unverified` adapter，只演示课程流程，不声称已在
+本次生成中重验受保护 holdout 的四维互斥。你可以用仓库外完整 bundle 加
+`--protected-holdout-root PATH` 启用 commitment-verified 检查。`--curation-mode live` 缺少该
+外部 verifier 时会先关闭；提供它后，当前仍会因缺少独立签名人审而在读取
+`SILICONFLOW_API_KEY` 前关闭。未来 live 路径仍必须使用同一 schema、能力门、oracle 和 split
+protection；凭据只能来自环境，不能进入日志或 artifact。
 
 ## Judge meta-eval
 
@@ -90,9 +88,9 @@ Live 模式会产生费用并记录真实 token/耗时。它不会把 Key 写入
 
 ## 对照产物与预算
 
-- `qualification-funnel.json` 记录 source、selected source、variant、qualified、pending 和 rejected 数量。
+- `qualification-funnel.json` 记录 source、selected source、15 条 fixed course case、15 条 pending 和 7 条课程排除；`qualified_count=0`。
 - `expanded-baseline.json` 是 measured offline fixture execution，必须保留 `live_model_measured=false`。
-- 固定 curation 的费用为 0，`network_used=false`。live curation 只在显式命令中运行。
+- 固定 curation 的费用为 0，`network_used=false`。当前 live curation 因待人审状态而关闭。
 
 ## 拓展阅读
 

@@ -3,7 +3,7 @@
   "baseline_events": {
     "path": "run-ticket08-baseline-fixed/events.jsonl",
     "root": "run",
-    "sha256": "95aa9a135dc4bef620da41e94d267bb781fd90de500083f7b69bedfdaed3e2cc"
+    "sha256": "3f63fb7e9eaf8e328db68dfb1296be67c9eb05bdd9ea9a6733b5bde19947f748"
   },
   "baseline_input_tokens": 2520,
   "baseline_latency_ms": 300,
@@ -724,21 +724,21 @@
     "pass-to-fail": 0
   },
   "cost_currency": "CNY",
-  "data_version": "4887ab9bd4dfaef6ad5a15ce2611d9ff641299e493590fba4c7f8b2aaec8da93",
+  "data_version": "5044874a374e88d216a8a59110b9f70009c2a2bde184e5feaf524cb5c88c74d2",
   "engine_version": "claude-code:2.1.220",
   "measured_at": "2026-08-17T00:00:00Z",
   "measurement_kind": "synthetic_offline",
   "model_id": "deterministic-fake",
   "model_lock_sha256": "843b2fc67265aed67d1591a1f3a9f7dcfd6d6aecdb82307d834ec5548e75b472",
-  "pair_execution_sha256": "754af767a89c38b0f9dd9f18521741ff9a98a73df44e06982903fb49a647b45a",
-  "protocol_sha256": "0e02995e172a7f97649893471f9619b88a6b3f6cdbd4ea8573a65c57d657f511",
+  "pair_execution_sha256": "5596873e4bd2adf92ef380938057f965217efc4fc18151629982ed0c408d52c5",
+  "protocol_sha256": "1e404bc41bbabb33bf29ef7b9e8fb2b741c5e35918c5c0c42d24bd8d996d19c0",
   "record_type": "paired_comparison",
   "schema_version": "v1alpha1",
   "skill_cost_amount": "0",
   "skill_events": {
     "path": "run-ticket08-skill-v0-fixed/events.jsonl",
     "root": "run",
-    "sha256": "bda1dd70881a787641d56f6eb5cd0eda4d91c0291350db2c1d8a76217eafcf04"
+    "sha256": "703d89059bdd739c4d4c7604afe09497a0982cd110adc7cb2d25133bb8f2e8cd"
   },
   "skill_input_tokens": 2520,
   "skill_latency_ms": 300,

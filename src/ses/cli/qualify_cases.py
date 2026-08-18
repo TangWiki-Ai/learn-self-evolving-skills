@@ -12,7 +12,16 @@ from pathlib import Path
 from ses.foundation.config import ModelRole, load_model_lock, load_runtime_config
 from ses.foundation.credentials import read_siliconflow_credentials
 from ses.testset.curation import LiveCurationModel
-from ses.testset.verified import qualify_cases, reject_protected_split_write
+from ses.testset.split_guard import (
+    ExternalHoldoutSplitVerifier,
+    FixedOfflineSplitVerifier,
+    ProtectedSplitVerifier,
+)
+from ses.testset.verified import (
+    enforce_course_attestation_boundary,
+    qualify_cases,
+    reject_protected_split_write,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,13 +38,29 @@ def build_parser() -> argparse.ArgumentParser:
         "--candidates", type=Path, default=ticket / "candidate-seeds.jsonl"
     )
     parser.add_argument("--variants", type=Path, default=ticket / "variant-plan.json")
-    parser.add_argument("--reviews", type=Path, default=ticket / "human-reviews.jsonl")
+    parser.add_argument(
+        "--attestations",
+        type=Path,
+        default=ticket / "course-attestations.jsonl",
+        help=(
+            "Unsigned fixed-course inclusion/exclusion attestations; these never "
+            "count as human acceptance."
+        ),
+    )
     parser.add_argument(
         "--protected-manifest",
         type=Path,
         action="append",
         dest="protected",
         default=None,
+    )
+    parser.add_argument(
+        "--protected-holdout-root",
+        type=Path,
+        help=(
+            "External protected holdout used only by the trusted pre-persistence "
+            "split verifier. Required for live qualification."
+        ),
     )
     parser.add_argument(
         "--judge-fixture",
@@ -79,6 +104,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     curation_model: LiveCurationModel | None = None
     try:
         reject_protected_split_write(args.split)
+        split_verifier: ProtectedSplitVerifier
+        if args.protected_holdout_root is None:
+            if args.curation_mode == "live":
+                raise ValueError(
+                    "live qualification requires a trusted external holdout verifier"
+                )
+            split_verifier = FixedOfflineSplitVerifier()
+        else:
+            split_verifier = ExternalHoldoutSplitVerifier.from_bundle(
+                bundle_root=args.protected_holdout_root,
+                public_lock_root=root / "data" / "testset" / "protected",
+            )
+        enforce_course_attestation_boundary(args.curation_mode)
         if args.curation_mode == "live":
             config = load_runtime_config(args.config)
             lock = load_model_lock(root / config.models_lock)
@@ -94,14 +132,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary = qualify_cases(
             candidate_path=args.candidates,
             variant_plan_path=args.variants,
-            reviews_path=args.reviews,
+            attestations_path=args.attestations,
             protected_manifests=protected,
             model_calibration_fixture=args.judge_fixture,
             output=args.output,
+            mode=args.curation_mode,
             split=args.split,
             source_evidence_path=args.source_evidence,
             curation_fixture_path=args.curation_fixture,
             curation_model=curation_model,
+            protected_split_verifier=split_verifier,
         )
     except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
         # Avoid echoing arbitrary paths or private oracle values from nested errors.
@@ -117,6 +157,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "candidate_count": summary.candidate_count,
         "source_candidate_count": summary.source_candidate_count,
         "selected_source_count": summary.selected_source_count,
+        "fixed_course_count": summary.fixed_course_count,
+        "excluded_count": summary.excluded_count,
         "qualified_count": summary.qualified_count,
         "rejected_count": summary.rejected_count,
         "pending_count": summary.pending_count,
@@ -127,6 +169,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "curation_output_tokens": summary.output_tokens,
         "network_used": summary.network_used,
         "live_provider_used": summary.live_provider_used,
+        "protected_split_validation_status": (
+            summary.protected_split_validation_status.value
+        ),
+        "protected_split_provenance_sha256": (
+            summary.protected_split_provenance_sha256
+        ),
+        "review_status": "course_authored_pending_human_review",
     }
     if args.as_json:
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
