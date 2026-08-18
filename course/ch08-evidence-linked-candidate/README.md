@@ -36,7 +36,8 @@ artifact 的最小导出。它保留了比较、pair execution、事件日志和
 包含 3 个 `infrastructure_error`，所以分析器拒绝 Skill patch，也不把它们改写成六类
 教学失败。
 
-`artifacts/synthetic-failure-cards.json` 由 fixture 机械生成，不再手写。
+`artifacts/failure-evidence.json` 保存这些引用实际指向的固定 evidence bytes；
+`artifacts/synthetic-failure-cards.json` 由这份 fixture 机械生成，不再手写。
 `artifacts/evidence-linked-patch.json` 由固定 FakeUpdater 生成。两者和
 `artifacts/evidence-linked-patch-list.json` 都明确标记为 synthetic，不能冒充 live
 provenance。
@@ -70,3 +71,19 @@ Creator 模型运行 Updater。模型只能提出 operation、target、content�
 ```bash
 uv run pytest course/ch08-evidence-linked-candidate/tests
 ```
+
+## 固定参考产物与成本
+
+你可以直接检查以下四份已提交产物：
+
+- [`failure-evidence.json`](artifacts/failure-evidence.json)：所有 Failure Card 和 PatchOperation 引用共同锁定的 synthetic evidence bytes；
+- [`synthetic-failure-cards.json`](artifacts/synthetic-failure-cards.json)：固定失败证据生成的六分类卡片；
+- [`evidence-linked-patch.json`](artifacts/evidence-linked-patch.json)：FakeUpdater 提出的证据绑定补丁；
+- [`evidence-linked-patch-list.json`](artifacts/evidence-linked-patch-list.json)：本课固定 funnel 的汇总入口。
+
+这些文件全部来自 `fixed/offline` 路径。该路径使用 FakeUpdater，不访问网络、不读取 Key，外部付费调用和 Provider 费用都是 ¥0。这个数字只描述固定课程运行，不是 live measured 成本。仓库没有提交本课 live Updater 的费用或质量结果；你运行 `--mode live` 前必须另设 token 和费用上限，并把实测记录写到独立输出目录。
+
+## 拓展阅读
+
+- [`07-evolution-governance.md`](../../docs/specs/07-evolution-governance.md)：回答 Failure Card、PatchOperation、不可变 parent 和 Gate 之间的职责边界。
+- [`10-cross-module-contracts.md`](../../docs/specs/10-cross-module-contracts.md)：回答 evidence hash、candidate hash 与下游 Registry 如何连接，而不泄漏原始失败材料。

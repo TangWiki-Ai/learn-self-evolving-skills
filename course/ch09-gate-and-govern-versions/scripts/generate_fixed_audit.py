@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,16 +45,33 @@ def _candidate(root: Path, name: str) -> Path:
     return output
 
 
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=LESSON / "artifacts",
+        help="Empty directory that will receive both fixed Registry bundles.",
+    )
+    return parser
+
+
 def main() -> None:
-    artifacts = LESSON / "artifacts"
+    artifacts = _parser().parse_args().output_root.resolve(strict=False)
     acceptance = artifacts / "fixed-accept-promote-rollback"
     rejection = artifacts / "fixed-rejection"
-    if acceptance.exists() or rejection.exists():
+    outputs = (
+        acceptance,
+        rejection,
+        artifacts / "fixed-accept-promote-rollback.checkpoint.json",
+        artifacts / "fixed-rejection.checkpoint.json",
+    )
+    if any(path.exists() for path in outputs):
         raise RuntimeError("fixed audit output already exists")
 
     solution = _solution()
     with TemporaryDirectory(prefix="ses-lesson-09-") as temporary:
-        temporary_root = Path(temporary)
+        temporary_root = Path(temporary).resolve(strict=True)
         solution.govern(
             project_root=ROOT,
             governance_root=acceptance,

@@ -49,7 +49,14 @@ Producer ownership 指语义归属，不允许 producer 把实现细节塞进接
 - Registry 中的 Skill 版本按内容 hash 保存完整 manifest-declared runtime files。Promotion 和 rollback 只追加 event 并切换重放得到的 pointer，不覆盖 parent、历史版本、GateDecision 或 rejected candidate。
 - `fixed` gate 必须标记 `synthetic_offline` 且 `network_used=false`；`live` gate 必须标记 `live_measured`，并且只有真实 Provider 请求发生后才能记录 `network_used=true`。`live` Trigger 必须提供与 policy 一致的货币成本；缺失成本时必须拒绝。两类结果不能互相回填。
 - Gate 只能读取调用方显式传入并验证为 locked selection 的 manifest。它必须在读取前拒绝任何 symlink 路径组件，并同时检查词法路径和 resolved 路径中的 final split 名称；它也不能扫描 protected-data 目录寻找替代输入。
-- 运行 `live` selection 需要受信的私有 6-case runner/catalog。仓库内的 lock anchor 不包含可执行题面、gold 或 runner；运行环境未注入该私有资产时，Gate 必须 fail closed，不能用 develop catalog、fixed fixture 或 Provider smoke test 冒充 live selection。
+- 运行 `live` selection 需要受信的私有 6-case runner/catalog。公开仓库只保存数量、通用
+  slot、协议、固定上游版本和整体 commitment，不保存逐题请求、source identity、fixture、
+  oracle、rubric、选题 key、semantic mapping 或可枚举的逐题 hash。完整 holdout bundle 留在
+  仓库外，并用秘密 HMAC 选题；private inventory 通过 path/SHA256 pointer 绑定 mapping，公开
+  manifest 再绑定 inventory。Creator、Updater、候选工作区和公开报告都不能读取它。Gate 本身
+  只接收 aggregate adapter evidence，不获得私有目录能力。运行环境没有注入
+  经过验证的私有 runner，或 canonical live adapter 尚未实现时，CLI 必须 fail closed，不能
+  用 develop catalog、fixed fixture 或 Provider smoke test 冒充 live selection。
 
 ## Change Protocol
 

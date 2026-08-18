@@ -167,10 +167,13 @@ Judge、Simulator、selection lock、evaluation protocol 或 gate policy 的身�
 
 ## 实现边界和已知风险
 
-- 仓库提交的 selection manifest 是受保护数据的 lock anchor，不包含可执行私有题面、
-  gold 或 runner。`FixedGateAdapter` 只生成六个明确标记为 `synthetic_offline` 的 opaque
-  slot。完整 live Gate 仍受限于外部受信的私有 6-case runner/catalog；缺少它时，
-  任何 Provider 请求都不能被报告为 live selection 结果。
+- 公开仓库只提交 opaque selection/final lock：数量、通用 slot、协议、固定上游版本和整体
+  commitment。逐题请求、source identity、fixture、确定性 oracle、rubric、选题 key、semantic
+  mapping 和完整 inventory 全部留在仓库外。选题使用外部至少 32-byte key 做 HMAC 排序；
+  private inventory 通过 pointer/hash 绑定 mapping。实现不能内嵌 family 身份、依赖公开固定
+  salt 或读取当前 Skill 的结果。`FixedGateAdapter` 仍只生成六个明确标记为
+  `synthetic_offline` 的 opaque slot。完整 live Gate 还需要受信的私有 6-case runner；缺少
+  它时，任何 Provider 请求都不能被报告为 live selection 结果。
 - Gate 锁定 Trigger prompt set hash 和 model ID，并把 Trigger token 与货币成本纳入总预算。
   `fixed` Trigger 未提供货币成本时以明确的 synthetic zero 计量；`live` Trigger 缺失成本
   或货币不一致时直接拒绝。
@@ -179,10 +182,17 @@ Judge、Simulator、selection lock、evaluation protocol 或 gate policy 的身�
   错误 evidence 只保存 stage、异常类型和可用的 HTTP 状态码，不保存 Provider 原始消息。
   若 candidate record 本身无法解析，Gate 会在 candidate validation 前置条件处 fail closed；
   它不会为无法识别的 bytes 伪造 candidate ID 或 decision。
-- Hash chain 能检测内容改写、插入、重排和中间删除。单独依赖链内数据无法检测攻击者同时
-  干净删除整个尾部；发布系统若需要覆盖该威胁，必须在 Registry 外保存受信的 head hash
-  和 event count checkpoint，并在 promote/rollback 前比对。本 ticket 不实现该外部 checkpoint，
-  也不伪称链内数据能解决该限制。
+- Hash chain 能检测内容改写、插入、重排和中间删除。Registry 在根目录外保存 head hash 与
+  event count checkpoint；live 治理要求进程外 HMAC key，fixed/offline 默认 checkpoint 明确
+  标记为 `local_untrusted`。这能检测事件日志被单独截尾或 checkpoint 被伪造，但单机可写
+  文件无法阻止攻击者把“旧日志 + 当时真实旧 checkpoint”一起回放。需要覆盖该威胁的部署
+  必须把 checkpoint 放进外部、防回滚、版本化的存储或单调计数器；本 ticket 不把本地 HMAC
+  冒充单调新鲜度证明。
+- 锁定的 return 候选池在排除 creator/已占用语义组后只有 19 个 eligible group，而
+  selection+final 使用 18 个。protected mapping、eligible membership、精确排名、split、逐题
+  身份和 gold 都不公开；但上游 33-task return source universe 本身公开且很小，18/19 的使用
+  比例也过高。当前实现不声称强抗污染 secrecy；扩大 source pool 或加入经过验证的 keyed
+  policy variants 是 Issue #10 继续保持打开的原因之一。
 
 Registry append 使用进程锁，并在持锁后重新检查 sequence 与 head hash。Gate 与 Registry
 都会解析 paired event logs，核对 run ID、nonce、Skill hash、slot、status、score、usage、

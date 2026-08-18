@@ -125,6 +125,11 @@ def test_cli_accepts_promotes_inspects_and_rolls_back_fixed_candidate(
     assert decision["mode"] == "fixed"
     assert decision["measurement_kind"] == "synthetic_offline"
     assert decision["network_used"] is False
+    assert decision["record_type"] == "gate_decision_projection"
+    assert "candidate" not in decision
+    assert "accepted_manifest" not in decision
+    assert "gate_policy" not in decision
+    assert all("evidence" not in step for step in decision["steps"])
     assert (registry / "gates/gate-cli-accept/gate-decision.json").is_file()
 
     promoted = _run(

@@ -730,6 +730,8 @@ class GateAggregateMetrics(ContractModel):
     cost_currency: CurrencyCode = "USD"
     total_input_tokens: StrictNonNegativeInt = 0
     total_output_tokens: StrictNonNegativeInt = 0
+    cost_complete: bool = True
+    unpriced_call_count: StrictNonNegativeInt = 0
 
     @field_validator(
         "trigger_cost_amount",
@@ -764,6 +766,8 @@ class GateAggregateMetrics(ContractModel):
             or self.relative_cost_increase < 0
         ):
             raise ValueError("relative cost increase must be finite and nonnegative")
+        if self.cost_complete != (self.unpriced_call_count == 0):
+            raise ValueError("complete gate cost requires zero unpriced calls")
         return self
 
 
@@ -837,6 +841,35 @@ class GateDecision(VersionedRecord):
         if self.outcome is GateOutcome.ACCEPTED and self.mode == "live":
             if not self.network_used:
                 raise ValueError("accepted live gates require actual network use")
+        return self
+
+
+class RegistryCheckpoint(VersionedRecord):
+    """Out-of-registry anchor for one complete event-log head.
+
+    ``hmac_sha256`` checkpoints are authenticated with key material that never
+    enters the Registry. ``local_untrusted`` exists only for deterministic
+    offline course runs and must not be presented as a trusted deployment
+    checkpoint. Authentication detects modification of the checkpoint that is
+    presented; it cannot detect replay of an earlier valid checkpoint together
+    with its matching old event log. Monotonic freshness therefore requires an
+    external protected anti-rollback backend.
+    """
+
+    record_type: Literal["registry_checkpoint"]
+    registry_id: str = Field(pattern=r"^registry-[a-z0-9-]+$")
+    lineage_id: str = Field(pattern=r"^lineage-[a-z0-9-]+$")
+    event_count: Annotated[int, Field(strict=True, ge=1)]
+    head_event_sha256: Sha256Digest
+    integrity_mode: Literal["hmac_sha256", "local_untrusted"]
+    integrity_sha256: Sha256Digest | None = None
+
+    @model_validator(mode="after")
+    def _authentication_matches_mode(self) -> RegistryCheckpoint:
+        if (self.integrity_mode == "hmac_sha256") != (
+            self.integrity_sha256 is not None
+        ):
+            raise ValueError("checkpoint authentication fields do not match")
         return self
 
 

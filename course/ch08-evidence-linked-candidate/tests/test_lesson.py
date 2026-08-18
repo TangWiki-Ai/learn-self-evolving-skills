@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from types import ModuleType
 
@@ -9,6 +11,43 @@ import pytest
 
 LESSON = Path(__file__).parents[1]
 ROOT = LESSON.parents[1]
+
+
+def _artifact_refs(value: object) -> Iterator[Mapping[str, str]]:
+    if isinstance(value, Mapping):
+        if {"root", "path", "sha256"} <= set(value):
+            yield value  # type: ignore[misc]
+        for child in value.values():
+            yield from _artifact_refs(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _artifact_refs(child)
+
+
+def _evidence_pointers(value: object) -> Iterator[tuple[Mapping[str, str], str]]:
+    if isinstance(value, Mapping):
+        artifact = value.get("artifact")
+        pointer = value.get("json_pointer")
+        if isinstance(artifact, Mapping) and isinstance(pointer, str):
+            yield artifact, pointer  # type: ignore[misc]
+        for child in value.values():
+            yield from _evidence_pointers(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _evidence_pointers(child)
+
+
+def _resolve_pointer(value: object, pointer: str) -> object:
+    current = value
+    for raw in pointer.removeprefix("/").split("/"):
+        token = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, Mapping):
+            current = current[token]
+        elif isinstance(current, list):
+            current = current[int(token)]
+        else:
+            raise AssertionError(f"unresolvable JSON pointer: {pointer}")
+    return current
 
 
 def _variant(name: str) -> ModuleType:
@@ -57,6 +96,37 @@ def test_synthetic_lesson_material_explicitly_covers_six_categories_and_three_op
             (LESSON / "artifacts/evidence-linked-patch-list.json").read_text()
         )["parent_skill_sha256"]
     )
+
+
+def test_reference_artifact_links_have_real_bytes_and_resolvable_json_pointers() -> (
+    None
+):
+    artifacts = LESSON / "artifacts"
+    records = [
+        json.loads((artifacts / name).read_text(encoding="utf-8"))
+        for name in (
+            "synthetic-failure-cards.json",
+            "evidence-linked-patch.json",
+        )
+    ]
+    evidence = json.loads(
+        (artifacts / "failure-evidence.json").read_text(encoding="utf-8")
+    )
+    references = [
+        reference for record in records for reference in _artifact_refs(record)
+    ]
+    assert references
+    for reference in references:
+        assert reference["root"] == "workspace"
+        path = artifacts / reference["path"]
+        assert path.is_file() and not path.is_symlink()
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == reference["sha256"]
+    for record in records:
+        for reference, pointer in _evidence_pointers(record):
+            assert reference["path"] == "failure-evidence.json"
+            pointed = _resolve_pointer(evidence, pointer)
+            assert isinstance(pointed, Mapping)
+            assert pointed.get("kind") in {"trace", "assertion"}
 
 
 def test_solution_runs_the_complete_offline_evolution(tmp_path: Path) -> None:

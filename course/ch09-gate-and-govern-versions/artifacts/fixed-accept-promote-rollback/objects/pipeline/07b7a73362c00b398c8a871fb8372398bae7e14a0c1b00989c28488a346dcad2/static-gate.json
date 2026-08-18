@@ -1,0 +1,58 @@
+{
+  "checks": [
+    {
+      "check_id": "required_metadata",
+      "detail": "required metadata is present",
+      "passed": true
+    },
+    {
+      "check_id": "native_frontmatter",
+      "detail": "frontmatter uses Claude Code native fields",
+      "passed": true
+    },
+    {
+      "check_id": "manifest_integrity",
+      "detail": "manifest and file hashes are valid",
+      "passed": true
+    },
+    {
+      "check_id": "file_inventory",
+      "detail": "only manifest-declared runtime files exist",
+      "passed": true
+    },
+    {
+      "check_id": "supported_tools",
+      "detail": "all declared tools are supported",
+      "passed": true
+    },
+    {
+      "check_id": "forbidden_identifiers",
+      "detail": "no order, customer, or case identifiers found",
+      "passed": true
+    },
+    {
+      "check_id": "fixed_answers",
+      "detail": "no case-specific fixed answer found",
+      "passed": true
+    },
+    {
+      "check_id": "eval_content",
+      "detail": "no evaluation or hidden-answer content found",
+      "passed": true
+    },
+    {
+      "check_id": "dangerous_instructions",
+      "detail": "no dangerous instruction found",
+      "passed": true
+    },
+    {
+      "check_id": "content_length",
+      "detail": "content length is within the configured limit",
+      "passed": true
+    }
+  ],
+  "record_type": "skill_static_gate_report",
+  "schema_version": "v1alpha1",
+  "skill_sha256": "a19c423b65f9ef7960d682045832f7a8bf57fbbda759a42e102cb28ddfc8ef26",
+  "status": "pass"
+}

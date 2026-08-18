@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -30,9 +31,60 @@ class UpdaterWorkspace:
             shutil.rmtree(self.workspace.cleanup_root)
 
 
-_PRIVATE_NAME_PARTS = frozenset(
-    {"selection", "final", "gold", "judge-private", "credentials", ".env"}
+_PRIVATE_EXACT_PARTS = frozenset(
+    {
+        ".env",
+        "credentials",
+        "final",
+        "gold",
+        "judge-private",
+        "protected",
+        "selection",
+    }
 )
+_PRIVATE_SPLIT_QUALIFIERS = frozenset(
+    {"cases", "catalog", "gold", "hidden", "holdout", "locked", "manifest", "split"}
+)
+_SUPPORTED_SKILL_SPEC_NAMES = frozenset(
+    {
+        ".updater-skill-spec",
+        ".updater-skill-spec.md",
+        "updater-spec",
+        "updater-spec.md",
+    }
+)
+
+
+def _is_private_path_part(value: str) -> bool:
+    normalized = value.casefold().replace("_", "-")
+    if normalized in _PRIVATE_EXACT_PARTS or normalized.startswith(".env."):
+        return True
+    tokens = frozenset(re.findall(r"[a-z0-9]+", normalized))
+    if tokens & {"credentials", "credential", "gold", "protected", "secrets"}:
+        return True
+    split = tokens & {"selection", "final"}
+    return bool(split and tokens & _PRIVATE_SPLIT_QUALIFIERS)
+
+
+def _validated_input_file(path: Path, *, label: str) -> Path:
+    """Return one real, non-private file without following a symlink component."""
+
+    if ".." in path.parts:
+        raise UpdaterWorkspaceError(f"Updater {label} path must be canonical")
+    lexical = path if path.is_absolute() else Path.cwd() / path
+    if any(component.is_symlink() for component in (lexical, *lexical.parents)):
+        raise UpdaterWorkspaceError(f"Updater {label} path cannot contain a symlink")
+    if any(_is_private_path_part(part) for part in lexical.parts):
+        raise UpdaterWorkspaceError(f"Updater cannot read private {label} paths")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise UpdaterWorkspaceError(f"Updater {label} must be a regular file") from exc
+    if any(_is_private_path_part(part) for part in resolved.parts):
+        raise UpdaterWorkspaceError(f"Updater cannot read private {label} paths")
+    if not resolved.is_file() or resolved.is_symlink():
+        raise UpdaterWorkspaceError(f"Updater {label} must be a regular file")
+    return resolved
 
 
 def create_updater_workspace(
@@ -43,14 +95,15 @@ def create_updater_workspace(
     root: Path | None = None,
 ) -> UpdaterWorkspace:
     """Expose only reviewed cards, the Skill spec, and installable parent files."""
-    for path, label in (
-        (failure_cards_path, "Failure Card set"),
-        (skill_spec_path, "Skill spec"),
-    ):
-        if path.is_symlink() or not path.is_file():
-            raise UpdaterWorkspaceError(f"Updater {label} must be a regular file")
-        if any(part.casefold() in _PRIVATE_NAME_PARTS for part in path.parts):
-            raise UpdaterWorkspaceError(f"Updater cannot read private {label} paths")
+    failure_cards_path = _validated_input_file(
+        failure_cards_path,
+        label="Failure Card set",
+    )
+    skill_spec_path = _validated_input_file(skill_spec_path, label="Skill spec")
+    if skill_spec_path.name.casefold() not in _SUPPORTED_SKILL_SPEC_NAMES:
+        raise UpdaterWorkspaceError(
+            "Updater Skill spec must use an approved updater spec filename"
+        )
     try:
         FailureCardSet.model_validate_json(
             failure_cards_path.read_text(encoding="utf-8")

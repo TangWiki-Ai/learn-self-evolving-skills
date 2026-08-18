@@ -15,6 +15,7 @@ from ses.evolution.gate import (
     FixedGateAdapter,
     FixedGateScenario,
     GateError,
+    public_gate_decision_payload,
 )
 from ses.evolution.governance import CandidateGovernanceCommand, govern_candidate
 from ses.evolution.registry import RegistryError, RegistryState, SkillRegistry
@@ -220,7 +221,7 @@ def gate_main(argv: Sequence[str]) -> int:
     except (GateError, OSError, RegistryError, TypeError, ValueError) as exc:
         print(f"gate_error:{_safe_error(exc)}", file=sys.stderr)
         return 1
-    payload = dict(decision.model_dump(mode="json"))
+    payload = public_gate_decision_payload(decision)
     _print_payload(payload, as_json=args.as_json)
     return 0 if decision.outcome is GateOutcome.ACCEPTED else 1
 

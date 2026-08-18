@@ -53,8 +53,17 @@ network_used=false
 
 这些产物用于学习 Gate 顺序、拒绝规则和 Registry 状态机。它们不是模型线上效果证据，
 也不能改名为 `live_measured`。只有真实 Provider 和受信的私有 6-case runner 完成 Trigger
-及 selection 两侧 fresh run 后，生产流程才能生成 live 决策。仓库只提交 lock anchor，
-不包含私有题面、gold 或 runner，因此本课不会把 Provider smoke test 冒充 live Gate。
+及 selection 两侧 fresh run 后，生产流程才能生成 live 决策。公开仓库只保存 6 个通用 slot
+和整体 commitment；逐题请求、source identity、fixture、oracle、rubric、选题 key 与 semantic
+mapping 留在仓库外的受保护 bundle，private inventory 用 pointer/hash 绑定 mapping。公开课程
+产物和 Creator/Updater workspace 都不能读取该 bundle。
+当前仓库没有 canonical live adapter 或 canonical live Gate run，因此本课不会把 Provider
+smoke test 冒充 live Gate。
+
+课程把 fixed 场景中的单题费用记账为 accepted `$0.001`、candidate `$0.00105`，并用
+`$0.010` candidate 上限、20% 相对增幅和 `$0.020` Gate 总上限演示预算拒绝。这些值是
+确定性的教学计数，不是 Provider 实测价格。发布前没有得到 canonical live 费用样本，因此
+仓库没有把这些阈值描述成 live measured policy。
 
 ## Registry 为什么把 accept 和 promote 分开
 
@@ -142,11 +151,19 @@ uv run pytest course/ch09-gate-and-govern-versions/tests
 你可以调用 `SkillRegistry(path).audit()` 重放并验证它们。所有固定产物都标记为
 `synthetic_offline`。
 
-维护者可以从空目录重新生成参考产物：
+维护者可以向一个空输出目录重新生成参考产物，再与签入版本比较：
 
 ```bash
-uv run python course/ch09-gate-and-govern-versions/scripts/generate_fixed_audit.py
+uv run python course/ch09-gate-and-govern-versions/scripts/generate_fixed_audit.py \
+  --output-root .ses/lesson09-reference
 ```
 
-生成器只打开上面列出的固定 parent、失败 evidence 和 selection lock。它不会扫描或读取
-final，也不会读取环境变量、Key 或调用网络。
+生成器会在该目录下创建 `fixed-accept-promote-rollback/`、`fixed-rejection/` 及各自的
+checkpoint sidecar。目标 bundle 或 sidecar 已存在时它会失败，不会覆盖。它只打开上面列出
+的固定 parent、失败 evidence 和 selection lock；不会扫描或读取 final，也不会读取环境变量、
+Key 或调用网络。
+
+## 拓展阅读
+
+- [`07-evolution-governance.md`](../../docs/specs/07-evolution-governance.md)：回答八阶段 Gate、保守拒绝、promote/rollback 分离和 Registry 事件语义。
+- [`10-cross-module-contracts.md`](../../docs/specs/10-cross-module-contracts.md)：回答 GateDecision、Skill manifest、evidence hash 与 Registry checkpoint 如何组成可重放边界。

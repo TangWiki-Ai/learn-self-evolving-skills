@@ -51,7 +51,7 @@ from ses.evolution.evidence import (
 from ses.evolution.patches import PatchValidationError, apply_patch
 from ses.evolution.updater import UPDATER_SKILL_SPEC, FakeUpdater
 from ses.evolution.workflow import EvolutionWorkflowError, run_evolution_workflow
-from ses.evolution.workspace import create_updater_workspace
+from ses.evolution.workspace import UpdaterWorkspaceError, create_updater_workspace
 from ses.skills.installer import normalized_skill_sha256
 
 ROOT = Path(__file__).parents[2]
@@ -583,6 +583,96 @@ def test_updater_workspace_contains_cards_spec_and_parent_only(tmp_path: Path) -
     finally:
         updater.cleanup()
     assert not updater.workspace.root.exists()
+
+
+@pytest.mark.parametrize(
+    "spec_name",
+    ["selection-manifest.json", "final-manifest.json"],
+)
+def test_updater_workspace_rejects_split_manifests_as_skill_specs(
+    tmp_path: Path,
+    spec_name: str,
+) -> None:
+    spec = tmp_path / spec_name
+    spec.write_text("private split sentinel", encoding="utf-8")
+
+    with pytest.raises(UpdaterWorkspaceError, match="Skill spec"):
+        create_updater_workspace(
+            failure_cards_path=CARDS_JSON,
+            skill_spec_path=spec,
+            parent_dir=PARENT,
+            root=tmp_path / "workspaces",
+        )
+
+    assert not (tmp_path / "workspaces").exists()
+
+
+@pytest.mark.parametrize(
+    "private_directory",
+    ["protected", "hidden-selection", "selection-split", "final-split"],
+)
+def test_updater_workspace_rejects_skill_specs_below_protected_split_names(
+    tmp_path: Path,
+    private_directory: str,
+) -> None:
+    directory = tmp_path / private_directory
+    directory.mkdir()
+    spec = directory / "updater-spec.md"
+    spec.write_text(UPDATER_SKILL_SPEC, encoding="utf-8")
+
+    with pytest.raises(UpdaterWorkspaceError, match="private Skill spec"):
+        create_updater_workspace(
+            failure_cards_path=CARDS_JSON,
+            skill_spec_path=spec,
+            parent_dir=PARENT,
+            root=tmp_path / "workspaces",
+        )
+
+    assert not (tmp_path / "workspaces").exists()
+
+
+def test_updater_workspace_rejects_a_symlinked_skill_spec_ancestor(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "real-spec-directory"
+    target.mkdir()
+    (target / "updater-spec.md").write_text(UPDATER_SKILL_SPEC, encoding="utf-8")
+    alias = tmp_path / "spec-alias"
+    alias.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(UpdaterWorkspaceError, match="symlink"):
+        create_updater_workspace(
+            failure_cards_path=CARDS_JSON,
+            skill_spec_path=alias / "updater-spec.md",
+            parent_dir=PARENT,
+            root=tmp_path / "workspaces",
+        )
+
+    assert not (tmp_path / "workspaces").exists()
+
+
+@pytest.mark.parametrize("spec_name", ["updater-spec.md", ".updater-skill-spec.md"])
+def test_updater_workspace_allows_supported_skill_spec_names(
+    tmp_path: Path,
+    spec_name: str,
+) -> None:
+    release_root = tmp_path / "final-release-worktree"
+    release_root.mkdir()
+    spec = release_root / spec_name
+    spec.write_text(UPDATER_SKILL_SPEC, encoding="utf-8")
+
+    updater = create_updater_workspace(
+        failure_cards_path=CARDS_JSON,
+        skill_spec_path=spec,
+        parent_dir=PARENT,
+        root=tmp_path / "workspaces",
+    )
+    try:
+        assert (updater.workspace.root / "inputs/skill-spec.md").read_text(
+            encoding="utf-8"
+        ) == UPDATER_SKILL_SPEC
+    finally:
+        updater.cleanup()
 
 
 @pytest.mark.parametrize("overlap", ["parent", "output"])
