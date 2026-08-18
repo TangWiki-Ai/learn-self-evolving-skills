@@ -9,10 +9,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ses.cli import (
+    automation,
     baseline,
     doctor,
     evolution,
     governance,
+    judge_calibration,
     qualify_cases,
     skill_demo,
     skill_v0,
@@ -41,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("baseline", help="Run the offline develop L1 baseline.")
     commands.add_parser(
+        "judge-calibration",
+        help="Run the fixed offline Judge calibration.",
+    )
+    commands.add_parser(
         "skill-v0-pipeline",
         help="Create, gate, trigger-test, pair, and render Skill v0.",
     )
@@ -62,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("gate", help="Gate a registered candidate Skill.")
     commands.add_parser("registry", help="Manage immutable Skill version history.")
+    commands.add_parser(
+        "auto-evolve", help="Run or resume bounded automatic Skill evolution."
+    )
     return parser
 
 
@@ -142,6 +151,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return qualify_cases.main(command_args)
     if command == "baseline":
         return baseline.main(command_args)
+    if command == "judge-calibration":
+        return judge_calibration.main(command_args)
     if command == "skill-v0-pipeline":
         return skill_v0.main(command_args)
     if command == "skill":
@@ -162,6 +173,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return governance.gate_main(command_args)
     if command == "registry":
         return governance.registry_main(command_args)
+    if command == "auto-evolve":
+        return automation.main(command_args)
     build_parser().parse_args(values)
     return 2
 
