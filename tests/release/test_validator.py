@@ -22,6 +22,7 @@ from ses.release.validator import (
     _check_absolute_paths,
     _check_command_evidence,
     _check_command_syntax,
+    _check_cost_classification,
     _check_credentials,
     _check_full_data_regeneration,
     _check_historical_live_provenance,
@@ -894,6 +895,29 @@ def test_public_wording_allows_prohibitions_but_rejects_a_claim(
     assert _check_public_wording(tmp_path, {}).status is CheckStatus.PASS
 
 
+def test_cost_classification_belongs_in_release_report(tmp_path: Path) -> None:
+    lesson = tmp_path / "course/ch01-example"
+    lesson.mkdir(parents=True)
+    (lesson / "README.md").write_text("本课预算有明确边界。\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text(
+        "这是一门面向学习者的课程。\n", encoding="utf-8"
+    )
+    report = tmp_path / "docs/release/release-report.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        "measured canonical\nfixed\nestimated\nnoncanonical\n",
+        encoding="utf-8",
+    )
+
+    assert _check_cost_classification(tmp_path, {1: lesson}).status is CheckStatus.PASS
+
+    report.write_text("measured canonical\nfixed\nestimated\n", encoding="utf-8")
+    check = _check_cost_classification(tmp_path, {1: lesson})
+
+    assert check.status is CheckStatus.FAIL
+    assert "release report does not identify noncanonical cost" in check.details
+
+
 def test_historical_live_results_need_current_release_disclaimer(
     tmp_path: Path,
 ) -> None:
@@ -904,12 +928,39 @@ def test_historical_live_results_need_current_release_disclaimer(
         "# Phase 0\n\n## 当前结论\n\n| Provider | PASS |\n",
         encoding="utf-8",
     )
-    (tmp_path / "README.md").write_text("本轮未复测。\n", encoding="utf-8")
+    release_report = docs / "release/release-report.md"
+    release_report.parent.mkdir()
+    release_report.write_text("状态: live_not_rerun。\n", encoding="utf-8")
 
     check = _check_historical_live_provenance(tmp_path)
 
     assert check.status is CheckStatus.FAIL
     assert "historical section is still labeled current" in check.details
+
+
+def test_historical_live_disclaimer_belongs_in_release_report(
+    tmp_path: Path,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "phase0-validation.md").write_text(
+        "历史 smoke 记录。\n"
+        "本轮 release 本轮未复测, 不能把本页当作当前证据。\n"
+        "状态: live_not_rerun。\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "README.md").write_text("Live 端到端路径尚未完成。\n", encoding="utf-8")
+    release_report = docs / "release/release-report.md"
+    release_report.parent.mkdir()
+    release_report.write_text("状态: live_not_rerun。\n", encoding="utf-8")
+
+    assert _check_historical_live_provenance(tmp_path).status is CheckStatus.PASS
+
+    release_report.write_text("Live 路径尚未完成。\n", encoding="utf-8")
+    check = _check_historical_live_provenance(tmp_path)
+
+    assert check.status is CheckStatus.FAIL
+    assert "release report lacks the current live-not-rerun deviation" in check.details
 
 
 def test_legacy_and_unsigned_review_claims_are_detected(tmp_path: Path) -> None:
