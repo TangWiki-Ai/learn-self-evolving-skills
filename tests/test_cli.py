@@ -20,6 +20,7 @@ def test_ses_console_script_displays_help() -> None:
     assert completed.returncode == 0
     assert "usage: ses" in completed.stdout
     assert "judge-calibration" in completed.stdout
+    assert "skill-install" in completed.stdout
     assert completed.stderr == ""
 
 

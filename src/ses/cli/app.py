@@ -17,6 +17,7 @@ from ses.cli import (
     judge_calibration,
     qualify_cases,
     skill_demo,
+    skill_install,
     skill_v0,
 )
 from ses.evaluator import SingleCaseRunError, run_pinned_case
@@ -36,6 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("inspect", help="Inspect a persisted L1 case result.")
     commands.add_parser(
         "skill-demo", help="Compare a return case without and with a demo Skill."
+    )
+    commands.add_parser(
+        "skill-install", help="Install a packaged Skill into an agent workspace."
     )
     commands.add_parser(
         "qualify-cases",
@@ -147,6 +151,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _inspect_main(command_args)
     if command == "skill-demo":
         return skill_demo.main(command_args)
+    if command == "skill-install":
+        return skill_install.main(command_args)
     if command == "qualify-cases":
         return qualify_cases.main(command_args)
     if command == "baseline":
