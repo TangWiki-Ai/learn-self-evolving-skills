@@ -29,3 +29,8 @@ data/cache/
 data/testset/protected/private/
 data/testset/protected/public/
 skills/resolve-product-returns/
+website/node_modules/
+website/.vitepress/cache/
+website/.vitepress/dist/
+website/.vitepress/generated/
+website/course/lessons/

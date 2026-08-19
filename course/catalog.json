@@ -1,0 +1,335 @@
+{
+  "schema_version": "1.0",
+  "repository": {
+    "url": "https://github.com/TangWiki-Ai/learn-self-evolving-skills",
+    "default_branch": "main"
+  },
+  "phases": [
+    {
+      "id": "observe-and-grade",
+      "title": "看见与判分",
+      "question": "Skill 是否真的改变了 Agent 的行为，你要用什么证据回答？",
+      "lesson_numbers": [1, 2]
+    },
+    {
+      "id": "trust-evaluation",
+      "title": "让评测可信",
+      "question": "怎样校准判分，并让批量实验保持可恢复、可解释？",
+      "lesson_numbers": [3, 4]
+    },
+    {
+      "id": "create-v0-from-data",
+      "title": "从数据创建 v0",
+      "question": "怎样从有来源的数据构造案例，再创建一份经过验证的 Skill v0？",
+      "lesson_numbers": [5, 6, 7]
+    },
+    {
+      "id": "evolve-with-evidence",
+      "title": "有证据地进化",
+      "question": "怎样把失败变成候选修改，阻止退化，并在护栏内重复进化？",
+      "lesson_numbers": [8, 9, 10]
+    }
+  ],
+  "lessons": [
+    {
+      "number": 1,
+      "slug": "01-see-the-difference",
+      "title": "先看见 Skill 的差别",
+      "phase": "看见与判分",
+      "question": "同一个案例里，Skill 到底改变了什么？",
+      "outcome": "完成一次严格配对的无 Skill / 有 Skill 对比，并识别可比实验必须锁定的条件。",
+      "source": "course/ch01-see-the-difference/README.md",
+      "primary_artifact": {
+        "label": "同案例 fresh 对话对照",
+        "path": "course/ch01-see-the-difference/comparison-artifact.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "对照把两次独立运行的案例、工具协议、环境和 Skill 安装来源放在一起，让你检查唯一自变量是否真的是 Skill。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run ses skill-demo --reference --output-root .ses/lesson-1-reference",
+        "test_command": "uv run pytest course/ch01-see-the-difference/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "固定流程能创建两次相互隔离、条件可比的运行。",
+        "Skill 的安装来源和运行边界可以追溯。"
+      ],
+      "does_not_prove": [
+        "一次成功不能证明 Skill 稳定提升。",
+        "离线参考结果不代表在线模型表现。"
+      ]
+    },
+    {
+      "number": 2,
+      "slug": "02-grade-terminal-state",
+      "title": "从终态给一个 case 判分",
+      "phase": "看见与判分",
+      "question": "Agent 说“完成了”，系统状态就真的正确吗？",
+      "outcome": "从运行轨迹、执行前后状态和工具顺序构造确定性判分，而不是只读最终回复。",
+      "source": "course/ch02-grade-terminal-state/README.md",
+      "primary_artifact": {
+        "label": "六题终态判分基线",
+        "path": "course/ch02-grade-terminal-state/baseline-results.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "基线把每个案例的终态结果转成可统计记录，帮助你区分业务完成、调用失败和只说不做。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run ses run-case --json",
+        "test_command": "uv run pytest course/ch02-grade-terminal-state/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "固定案例可以用终态和工具证据得到可重放判分。",
+        "通过率统计会区分通过、失败和未评测。"
+      ],
+      "does_not_prove": [
+        "固定题上的通过率不代表未知任务质量。",
+        "确定性判分不能代替所有语义判断。"
+      ]
+    },
+    {
+      "number": 3,
+      "slug": "03-calibrate-judges",
+      "title": "校准证据式 AI Judges",
+      "phase": "让评测可信",
+      "question": "模型给出流畅理由时，你怎么知道这个判分值得信任？",
+      "outcome": "先抽取确定性证据，再比较 rubric Judge 与只读证据 Judge，并记录它们和参考标签的分歧。",
+      "source": "course/ch03-calibrate-judges/README.md",
+      "primary_artifact": {
+        "label": "双 Judge 一致性实验",
+        "path": "course/ch03-calibrate-judges/agreement-experiment.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "一致性实验保存两种判分协议在同一组固定证据上的输出与分歧，参考标签仍明确等待独立人工签认。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run ses judge-calibration --fixture tests/fixtures/judges/calibration.json --output .ses/lesson03-agreement-experiment.json",
+        "test_command": "uv run pytest course/ch03-calibrate-judges/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "两种固定判分协议可以在同一证据边界内比较。",
+        "证据不足和判分错误不会被混写成任务失败。"
+      ],
+      "does_not_prove": [
+        "待签认参考标签不能当作独立人工真值。",
+        "固定响应上的一致性不能外推到在线模型。"
+      ]
+    },
+    {
+      "number": 4,
+      "slug": "04-reproducible-baseline",
+      "title": "跑出可恢复的 baseline，并打开 L1 报告",
+      "phase": "让评测可信",
+      "question": "批量实验中断或触发护栏后，你还能解释每一个结果吗？",
+      "outcome": "实现可恢复 Runner，用不可变事件重建统计和 L1 报告，并区分完成、重跑与预算停止。",
+      "source": "course/ch04-reproducible-baseline/README.md",
+      "primary_artifact": {
+        "label": "可恢复 baseline 对照",
+        "path": "course/ch04-reproducible-baseline/baseline-comparison.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "对照记录固定运行计划、恢复语义和统计结果，让报告可以从已有记录重建，而不用重新判分。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run python -m ses.cli.baseline --run-id run-lesson-4 --iterations 2 --json",
+        "test_command": "uv run pytest course/ch04-reproducible-baseline/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "离线批量运行可以恢复，并从不可变记录重建报告。",
+        "统计结果能追溯到具体案例和迭代。"
+      ],
+      "does_not_prove": [
+        "离线行为不能代表在线模型的稳定性。",
+        "小样本统计不能证明长期质量趋势。"
+      ]
+    },
+    {
+      "number": 5,
+      "slug": "05-mine-benchmark-data",
+      "title": "从 benchmark 语料挖出可审计候选",
+      "phase": "从数据创建 v0",
+      "question": "自然语言对话怎样变成有来源、去重复、但还没有越权成为考题的候选？",
+      "outcome": "清洗固定 benchmark 切片、比较意图聚类，并按任务聚合重复运行后生成分层候选。",
+      "source": "course/ch05-mine-benchmark-data/README.md",
+      "primary_artifact": {
+        "label": "数据挖掘漏斗参考",
+        "path": "course/ch05-mine-benchmark-data/full-funnel-reference.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "漏斗参考把来源、清洗、聚类、按任务去重和难度分层串在一起，同时把输出明确限制为不可执行候选。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run python scripts/prepare_data.py --profile fixture --output .ses/lesson05-fixture --clusters 2 --seed 0",
+        "test_command": "uv run pytest course/ch05-mine-benchmark-data/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "固定数据来源和转换步骤可以审计。",
+        "重复运行会先按任务聚合，再参与难度分层。"
+      ],
+      "does_not_prove": [
+        "候选还不是可执行案例，也没有确定性答案。",
+        "benchmark 和角色扮演数据不是生产日志。"
+      ]
+    },
+    {
+      "number": 6,
+      "slug": "06-verify-develop-cases",
+      "title": "让 LLM 帮你造考卷，但不要让它写答案",
+      "phase": "从数据创建 v0",
+      "question": "怎样利用模型理解表达，同时不让模型决定业务事实和自己的成绩？",
+      "outcome": "把模型分流与起草放在确定性能力门、政策 oracle、环境重放、Judge 校准和 split 保护之间。",
+      "source": "course/ch06-verify-develop-cases/README.md",
+      "primary_artifact": {
+        "label": "案例资格漏斗",
+        "path": "course/ch06-verify-develop-cases/qualification-funnel.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "资格漏斗记录候选经过每一道确定性和语义检查后的状态，并把待人工复核与已合格明确分开。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run ses qualify-cases --curation-mode fixed --output .ses/lesson06-fixed --json",
+        "test_command": "uv run pytest course/ch06-verify-develop-cases/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "固定流程能演示从来源证据到案例资格判断的完整阶段。",
+        "业务答案来自确定性政策执行，而不是模型猜测。"
+      ],
+      "does_not_prove": [
+        "待人工复核案例不能声称已经在线合格。",
+        "公开固定数据不能验证受保护留出集互斥。"
+      ]
+    },
+    {
+      "number": 7,
+      "slug": "07-create-v0",
+      "title": "从 9 条成功轨迹创建 Skill v0",
+      "phase": "从数据创建 v0",
+      "question": "一份看起来合理的 Skill，怎样经过隔离生成、静态检查、触发评测和配对比较？",
+      "outcome": "从审核过的成功证据创建 Skill v0，并依次运行 Static Gate、Trigger Eval 和 fresh paired comparison。",
+      "source": "course/ch07-create-v0/README.md",
+      "primary_artifact": {
+        "label": "v0 门控与配对摘要",
+        "path": "course/ch07-create-v0/artifacts/summary.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "摘要把 Creator 输入边界、静态检查、触发结果和配对实验连接起来，并保留 fixed/offline 与 live 的来源差别。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run ses skill-v0-pipeline --output-root .ses/lesson-07-pipeline --json",
+        "test_command": "uv run pytest course/ch07-create-v0/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "离线流程可以复现 v0 的创建、验证与配对协议。",
+        "不安全候选会在进入后续评测前被拦截。"
+      ],
+      "does_not_prove": [
+        "固定引擎结果不能证明 Skill 改善在线模型。",
+        "待签认种子不能冒充独立人工批准。"
+      ]
+    },
+    {
+      "number": 8,
+      "slug": "08-evidence-linked-candidate",
+      "title": "生成有证据链接的候选 Skill",
+      "phase": "有证据地进化",
+      "question": "怎样让一次 Skill 修改指向具体失败，而不是凭感觉重写整份内容？",
+      "outcome": "把脱敏失败证据变成 Failure Card，再应用小型结构化补丁，生成不可变候选。",
+      "source": "course/ch08-evidence-linked-candidate/README.md",
+      "primary_artifact": {
+        "label": "证据链接补丁清单",
+        "path": "course/ch08-evidence-linked-candidate/artifacts/evidence-linked-patch-list.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "补丁清单把失败分类、证据引用、修改操作、父版本和候选校验串成一条可审核链。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run ses evolve --parent course/ch07-create-v0/artifacts/skill/v0 --evidence tests/fixtures/evolution/synthetic-failure-evidence.json --output .ses/lesson-08 --mode fixed --json",
+        "test_command": "uv run pytest course/ch08-evidence-linked-candidate/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "固定失败证据可以生成受限、可追溯的候选补丁。",
+        "候选不会原地覆盖已接受父版本。"
+      ],
+      "does_not_prove": [
+        "合成失败归因不能证明在线失败原因相同。",
+        "通过候选校验不代表 Gate 应该接受它。"
+      ]
+    },
+    {
+      "number": 9,
+      "slug": "09-gate-and-govern-versions",
+      "title": "门控并治理 Skill 版本",
+      "phase": "有证据地进化",
+      "question": "怎样只接受有证据的改进，并保留拒绝、提升和回滚历史？",
+      "outcome": "按固定顺序执行 Selection Gate，用 append-only Registry 保存完整版本谱系并验证回滚。",
+      "source": "course/ch09-gate-and-govern-versions/README.md",
+      "primary_artifact": {
+        "label": "接受、提升与回滚检查点",
+        "path": "course/ch09-gate-and-govern-versions/artifacts/fixed-accept-promote-rollback.checkpoint.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "检查点绑定固定 Gate 决策、Registry 事件链和当前版本，让你重放一次接受、提升与回滚流程。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run python course/ch09-gate-and-govern-versions/scripts/generate_fixed_audit.py --output-root .ses/lesson09-reference",
+        "test_command": "uv run pytest course/ch09-gate-and-govern-versions/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "固定场景能复现接受、拒绝、提升和回滚的治理语义。",
+        "Registry 可以通过事件链重放并核对当前版本。"
+      ],
+      "does_not_prove": [
+        "固定 selection 场景不代表在线候选质量。",
+        "仅靠仓库内事件链不能证明链尾从未被完整删除。"
+      ]
+    },
+    {
+      "number": 10,
+      "slug": "10-auto-evolve-and-portfolio",
+      "title": "有界自动进化与公开作品集",
+      "phase": "有证据地进化",
+      "question": "自动循环怎样复用同一套 Gate、守住 final 边界，并留下可公开证据？",
+      "outcome": "运行有轮数与预算护栏的进化循环，只在结束时验证 final，并导出经过 allowlist 的作品集。",
+      "source": "course/ch10-auto-evolve-and-portfolio/README.md",
+      "primary_artifact": {
+        "label": "公开作品集 allowlist",
+        "path": "course/ch10-auto-evolve-and-portfolio/artifacts/fixed-reference/manifest.json",
+        "tone": "fixed"
+      },
+      "evidence_summary": "作品集清单只允许公开版本谱系、聚合结果和当前 Skill，避免复制私有题面、逐题反馈和内部运行材料。",
+      "run": {
+        "kind": "fixed/offline",
+        "command": "uv run ses auto-evolve --mode fixed --output-root .ses/lesson-10 --json",
+        "test_command": "uv run pytest course/ch10-auto-evolve-and-portfolio/tests"
+      },
+      "mode": "fixed/offline",
+      "learner_test_status": "维护者测试",
+      "proves": [
+        "固定流程能在护栏内复现接受与拒绝分支。",
+        "公开导出可以遵守 allowlist，并只展示 final 聚合结果。"
+      ],
+      "does_not_prove": [
+        "离线参考循环不能证明在线模型得到提升。",
+        "公开作品集不会也不应证明私有 final 逐题内容。"
+      ]
+    }
+  ]
+}

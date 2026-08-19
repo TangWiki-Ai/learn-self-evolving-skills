@@ -4,7 +4,7 @@
 
 10 课 · Python 3.11+ · Offline-first · 首次体验不需要 API Key
 
-[从第 1 课开始](course/ch01-see-the-difference/README.md) · [5 分钟离线体验](#5-分钟离线体验) · [先看成品](#先看成品) · [学习路径](#学习路径) · [当前状态](#当前状态)
+[进入课程网站](https://tangwiki-ai.github.io/learn-self-evolving-skills/) · [从第 1 课开始](course/ch01-see-the-difference/README.md) · [5 分钟离线体验](#5-分钟离线体验) · [先看成品](#先看成品) · [当前状态](#当前状态)
 
 ## Skill 看起来变好了。证据在哪里？
 
@@ -53,19 +53,13 @@ flowchart LR
 
 ## 先看成品
 
-克隆仓库后，你可以用浏览器打开三份签入的教学报告：
+课程网站提供三份面向学习者的报告摘要。它们只保留理解课程所需的信息，不公开原始运行材料、受保护数据或维护记录。
 
 | 报告 | 它回答的问题 | 入口 |
 | --- | --- | --- |
-| L1 baseline | Agent 在 baseline 中做了什么，终态为什么通过或失败？ | [打开 L1 baseline](course/ch06-verify-develop-cases/artifacts/run-ticket07-expanded/l1.html) |
-| L2 配对比较 | 安装 Skill 前后，哪些 case 改善或退化？ | [打开 L2 paired comparison](course/ch07-create-v0/artifacts/l2.html) |
-| L3 进化过程 | 哪些候选被接受或拒绝，版本如何演进？ | [打开 L3 auto-evolve report](course/ch10-auto-evolve-and-portfolio/artifacts/fixed-reference/l3.html) |
-
-你还可以继续检查底层证据：
-
-- [GateDecision](course/ch09-gate-and-govern-versions/artifacts/fixed-accept-promote-rollback/gates/gate-reference-accept/gate-decision.json)
-- [Registry event chain](course/ch09-gate-and-govern-versions/artifacts/fixed-accept-promote-rollback/events.jsonl)
-- [Portfolio manifest](course/ch10-auto-evolve-and-portfolio/artifacts/fixed-reference/manifest.json)
+| L1 baseline | Agent 在 baseline 中做了什么，终态为什么通过或失败？ | [阅读 L1 学习摘要](https://tangwiki-ai.github.io/learn-self-evolving-skills/reports/level-1) |
+| L2 配对比较 | 安装 Skill 前后，哪些 case 改善或退化？ | [阅读 L2 学习摘要](https://tangwiki-ai.github.io/learn-self-evolving-skills/reports/level-2) |
+| L3 进化过程 | 哪些候选被接受或拒绝，版本如何演进？ | [阅读 L3 学习摘要](https://tangwiki-ai.github.io/learn-self-evolving-skills/reports/level-3) |
 
 这些是 fixed/offline 教学参考。它们帮助你理解协议和证据结构，不代表 live 模型的实际效果。
 
@@ -165,7 +159,7 @@ uv run ses auto-evolve --mode fixed --output-root .ses/readme-auto-evolve --json
 | 十课讲义、starter、solution 和参考结果 | 已提供 |
 | Fixed/offline 演示路径 | 可运行 |
 | 验证 starter 的学习者测试 | 尚未提供；当前 tests 只维护课程基线 |
-| 课程网站 | 规划中 |
+| [课程网站](https://tangwiki-ai.github.io/learn-self-evolving-skills/) | 已提供 |
 | Live 端到端路径 | 尚未完成 |
 
 Live 路径尚未完成，集中人工复核也待签署。因此，仓库中的 fixed 报告只证明流程和证据结构可以工作，不能替代 live 模型成绩。维护者需要的运行记录和完整偏差清单统一放在[首发验证报告](docs/release/release-report.md)。
@@ -180,6 +174,7 @@ data/                固定课程数据、来源和公开 manifest
 docs/specs/          系统与课程规格
 docs/release/        发布验证、人工复核与已知偏差
 scripts/             数据准备、参考结果和 clean-room 验证工具
+website/             课程网站、学习进度与公开信息检查
 ```
 
 ## 文档

@@ -1,0 +1,24 @@
+{
+  "name": "learn-self-evolving-skills-website",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Learner-facing course site for Learn Self-Evolving Skills.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "site:sync": "node scripts/sync-course.mjs",
+    "site:dev": "npm run site:sync && vitepress dev . --host 127.0.0.1",
+    "site:build": "npm run site:sync && vitepress build .",
+    "site:preview": "vitepress preview . --host 127.0.0.1",
+    "site:test": "node --test scripts/*.test.mjs",
+    "site:check": "npm run site:test && npm run site:build && node scripts/check-public-output.mjs"
+  },
+  "devDependencies": {
+    "mermaid": "11.16.1",
+    "vitepress": "1.6.4",
+    "vitepress-plugin-mermaid": "2.0.17",
+    "vue": "3.5.41"
+  }
+}
