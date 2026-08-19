@@ -292,7 +292,9 @@ ses portfolio <run-id>
 
 ## 10. 课程规则（诚实性）
 
-- 代码与数据全开源，隔离只防意外泄漏——**荣誉守则**：翻答案只欺骗自己的作品集；
+- 公开代码、可公开的上游数据与教学数据开源；protected selection/final 的 semantic mapping、
+  逐题身份、环境、gold、ranking key 和完整 inventory 不进入 Git。隔离降低意外泄漏和直接
+  调题风险，但不等同于强抗污染 secrecy；
 - **final 一次性原则**：final 运行后再改 Skill 即视为新实验，报告须重新声明；
 - `learn` 模式（每题 1 次）只能叫「教学结果」；写进简历的数字必须来自 `portfolio` 模式（每题 2-3 次，报均值与波动）；
 - final 只有 12 题，讲义明说：「这是教学规模，方法论是工业级的」，报告必须写波动区间。

@@ -56,7 +56,8 @@
 - 主 Agent 与 Creator 使用 DeepSeek 系模型；Simulator 与 Judge 使用 Qwen 系低成本模型。实际模型标识由锁文件固定，不写死在业务逻辑中。
 - 系统把运行、Trace、Skill 版本、补丁和 gate 决策视为不可变记录。新实验产生新标识，不覆盖历史结果。
 - 跨模块记录采用 producer-owned contract。消费者导入 canonical schema，不复制相似模型；持久化记录遵守 `v1alpha1` 版本、规范 JSON、相对 artifact reference 和稳定 hash 规则。
-- 所有 modifying agent 与 creator 都不能读取 selection/final 的题面之外信息、gold、参考轨迹或 Judge 私有材料。
+- 所有 modifying agent 与 Creator 都不能读取 selection/final 题面、gold、参考轨迹、逐题反馈
+  或 Judge 私有材料。只有受信 runner 在执行对应 slot 时，才向被测 Agent 提供该题公开请求。
 - 报告只展示允许给当前角色看的证据。公开作品集不能包含凭据、隐藏答案或可反推 final 的私有数据。
 - 预算护栏覆盖 case 数、轮数、token 和费用。中断保留完整的已完成记录和标记清楚的部分记录。
 - 数据来源严格按 PRD 分工：STATE-Bench 执行；ABCD 提供语言和意图；tau2-bench 提供去重与难度信号。
