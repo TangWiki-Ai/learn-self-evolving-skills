@@ -1,0 +1,48 @@
+name: Course site checks
+
+on:
+  pull_request:
+    paths:
+      - "course/catalog.json"
+      - "course/ch*/README.md"
+      - "website/**"
+      - ".github/workflows/site-check.yml"
+      - ".github/workflows/deploy-pages.yml"
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - "course/catalog.json"
+      - "course/ch*/README.md"
+      - "website/**"
+      - ".github/workflows/site-check.yml"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate and build course site
+        env:
+          DOCS_BASE_PATH: /${{ github.event.repository.name }}/
+        run: npm run site:check
