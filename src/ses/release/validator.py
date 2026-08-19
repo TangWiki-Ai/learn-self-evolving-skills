@@ -1666,10 +1666,10 @@ def _check_cost_classification(root: Path, lessons: Mapping[int, Path]) -> Relea
         text = (lesson / "README.md").read_text(encoding="utf-8")
         if not any(marker in text for marker in ("预算", "成本", "费用")):
             failures.append(f"lesson-{number:02d}: no cost or budget statement")
-    root_readme = root / "README.md"
-    root_text = (
-        root_readme.read_text(encoding="utf-8").casefold()
-        if root_readme.is_file()
+    release_report = root / "docs/release/release-report.md"
+    release_text = (
+        release_report.read_text(encoding="utf-8").casefold()
+        if release_report.is_file()
         else ""
     )
     required = {
@@ -1679,19 +1679,19 @@ def _check_cost_classification(root: Path, lessons: Mapping[int, Path]) -> Relea
         "noncanonical": ("noncanonical", "非 canonical", "非canonical"),
     }
     for label, markers in required.items():
-        if not any(marker.casefold() in root_text for marker in markers):
-            failures.append(f"root README does not identify {label} cost")
+        if not any(marker.casefold() in release_text for marker in markers):
+            failures.append(f"release report does not identify {label} cost")
     if failures:
         return ReleaseCheck(
             "cost.classification",
             CheckStatus.FAIL,
-            "The root cost summary does not fully distinguish measured, fixed, estimated, and noncanonical values.",
+            "The release report does not fully distinguish measured, fixed, estimated, and noncanonical values.",
             tuple(failures),
         )
     return ReleaseCheck(
         "cost.classification",
         CheckStatus.PASS,
-        "The root README distinguishes measured, fixed, estimated, and noncanonical costs, and every lesson gives a budget statement.",
+        "The release report distinguishes measured, fixed, estimated, and noncanonical costs, and every lesson gives a budget statement.",
     )
 
 
@@ -1760,9 +1760,10 @@ def _check_public_wording(root: Path, lessons: Mapping[int, Path]) -> ReleaseChe
 
 def _check_historical_live_provenance(root: Path) -> ReleaseCheck:
     path = root / "docs/phase0-validation.md"
+    release_report = root / "docs/release/release-report.md"
     try:
         text = path.read_text(encoding="utf-8")
-        root_text = (root / "README.md").read_text(encoding="utf-8")
+        release_text = release_report.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         return ReleaseCheck(
             "docs.live_provenance",
@@ -1780,8 +1781,8 @@ def _check_historical_live_provenance(root: Path) -> ReleaseCheck:
     missing = [label for label, marker in required_claims.items() if marker not in text]
     if "## 当前结论" in text:
         missing.append("historical section is still labeled current")
-    if not any(marker in root_text for marker in ("live_not_rerun", "本轮未复测")):
-        missing.append("root README lacks the current live-not-rerun deviation")
+    if not any(marker in release_text for marker in ("live_not_rerun", "本轮未复测")):
+        missing.append("release report lacks the current live-not-rerun deviation")
     if missing:
         return ReleaseCheck(
             "docs.live_provenance",
