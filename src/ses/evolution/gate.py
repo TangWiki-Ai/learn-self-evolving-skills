@@ -30,6 +30,7 @@ from ses.contracts import (
     GateStep,
     GateStepStatus,
     MeasurementKind,
+    OpaqueProtectedSplitLock,
     RunnerStatus,
     SchemaVersion,
     SelectionPairCase,
@@ -52,7 +53,12 @@ from ses.evolution.selection_evidence import (
 )
 from ses.foundation.credentials import credential_values, redact
 from ses.skills.installer import load_skill_manifest, normalized_skill_sha256
-from ses.skills.static_gate import StaticGateStatus, run_static_gate
+from ses.skills.static_gate import (
+    DEFAULT_STATIC_GATE_POLICY,
+    StaticGatePolicy,
+    StaticGateStatus,
+    run_static_gate,
+)
 from ses.skills.trigger_eval import (
     TRIGGER_PROMPTS,
     SyntheticDiscoveryFixture,
@@ -101,6 +107,7 @@ class GateRequest:
     policy: GatePolicy
     mode: Literal["fixed", "live"]
     measured_at: datetime
+    static_gate_policy: StaticGatePolicy = DEFAULT_STATIC_GATE_POLICY
 
     def __post_init__(self) -> None:
         if not _SAFE_GATE_ID.fullmatch(self.gate_id):
@@ -445,11 +452,26 @@ def _load_selection_lock(path: Path) -> str:
         raise ValueError("selection lock must be a regular file")
     try:
         content = resolved.read_bytes()
-        lock = HoldoutManifest.model_validate_json(content)
-    except (OSError, UnicodeError, ValueError) as exc:
+    except OSError as exc:
         raise ValueError("selection lock is invalid") from exc
-    if lock.split != "selection":
-        raise ValueError("selection lock must identify a locked selection split")
+    try:
+        lock = HoldoutManifest.model_validate_json(content)
+    except ValueError:
+        try:
+            opaque_lock = OpaqueProtectedSplitLock.model_validate_json(content)
+        except ValueError as exc:
+            raise ValueError("selection lock is invalid") from exc
+        if artifact_json_bytes(opaque_lock) != content:
+            raise ValueError(
+                "shopping selection lock must use canonical JSON"
+            ) from None
+        if opaque_lock.split != "selection":
+            raise ValueError(
+                "selection lock must identify a locked selection split"
+            ) from None
+    else:
+        if lock.split != "selection":
+            raise ValueError("selection lock must identify a locked selection split")
     return hashlib.sha256(content).hexdigest()
 
 
@@ -755,6 +777,36 @@ def _selection_metrics(
         and row.candidate_status is not RunnerStatus.PASS
         for row in pair.cases
     )
+    accepted_full_successes: int | None = None
+    candidate_full_successes: int | None = None
+    accepted_mean_strict: Decimal | None = None
+    candidate_mean_strict: Decimal | None = None
+    accepted_safety: int | None = None
+    candidate_safety: int | None = None
+    if pair.schema_version is SchemaVersion.V1ALPHA2 and all(
+        row.accepted_full_success is not None for row in pair.cases
+    ):
+        accepted_full_successes = 0
+        candidate_full_successes = 0
+        accepted_strict_total = Decimal(0)
+        candidate_strict_total = Decimal(0)
+        accepted_safety = 0
+        candidate_safety = 0
+        for row in pair.cases:
+            assert row.accepted_full_success is not None
+            assert row.candidate_full_success is not None
+            assert row.accepted_strict_reward is not None
+            assert row.candidate_strict_reward is not None
+            assert row.accepted_safety_violation_count is not None
+            assert row.candidate_safety_violation_count is not None
+            accepted_full_successes += int(row.accepted_full_success)
+            candidate_full_successes += int(row.candidate_full_success)
+            accepted_strict_total += row.accepted_strict_reward
+            candidate_strict_total += row.candidate_strict_reward
+            accepted_safety += row.accepted_safety_violation_count
+            candidate_safety += row.candidate_safety_violation_count
+        accepted_mean_strict = accepted_strict_total / Decimal(count)
+        candidate_mean_strict = candidate_strict_total / Decimal(count)
     return GateAggregateMetrics(
         trigger_precision=trigger.precision,
         trigger_recall=trigger.recall,
@@ -766,6 +818,12 @@ def _selection_metrics(
         candidate_pass_rate=candidate_passes / count,
         quality_delta=(candidate_passes - accepted_passes) / count,
         critical_regression_count=critical,
+        accepted_full_success_count=accepted_full_successes,
+        candidate_full_success_count=candidate_full_successes,
+        accepted_mean_strict_reward=accepted_mean_strict,
+        candidate_mean_strict_reward=candidate_mean_strict,
+        accepted_safety_violation_count=accepted_safety,
+        candidate_safety_violation_count=candidate_safety,
         trigger_cost_amount=trigger_cost,
         accepted_cost_amount=accepted_cost,
         candidate_cost_amount=candidate_cost,
@@ -819,7 +877,7 @@ class _GateDecisionWriter:
         reasons: tuple[GateReason, ...],
     ) -> GateDecision:
         decision = GateDecision(
-            schema_version=SchemaVersion.V1ALPHA1,
+            schema_version=self.request.policy.schema_version,
             record_type="gate_decision",
             decision_id=(f"decision-{self.request.gate_id.removeprefix('gate-')}"),
             gate_id=self.request.gate_id,
@@ -974,7 +1032,11 @@ def run_candidate_gate(
 
         static_path = gate_root / "static-gate.json"
         try:
-            static = run_static_gate(candidate_skill, audit_path=static_path)
+            static = run_static_gate(
+                candidate_skill,
+                audit_path=static_path,
+                policy=request.static_gate_policy,
+            )
         except (OSError, RuntimeError, UnicodeError, ValueError) as exc:
             error_ref = _error_evidence(
                 request.workspace_root,
@@ -1280,6 +1342,25 @@ def run_candidate_gate(
                 reasons=reasons,
             )
 
+        if (
+            request.policy.schema_version is SchemaVersion.V1ALPHA2
+            and metrics.candidate_safety_violation_count is not None
+            and metrics.candidate_safety_violation_count > 0
+        ):
+            steps.append(
+                GateStep(
+                    stage=GateStage.CRITICAL_REGRESSION,
+                    status=GateStepStatus.FAIL,
+                    reason_codes=(GateReason.SAFETY_VIOLATION,),
+                    evidence=(pair_ref,),
+                )
+            )
+            return terminal.finish(
+                steps=steps,
+                metrics=metrics,
+                outcome=GateOutcome.REJECTED,
+                reasons=(GateReason.SAFETY_VIOLATION,),
+            )
         if metrics.critical_regression_count > request.policy.max_critical_regressions:
             steps.append(
                 GateStep(
@@ -1303,17 +1384,39 @@ def run_candidate_gate(
             )
         )
 
-        if metrics.quality_delta <= request.policy.min_quality_delta:
-            reason = (
+        quality_reason: GateReason | None = None
+        if request.policy.schema_version is SchemaVersion.V1ALPHA2:
+            assert metrics.accepted_full_success_count is not None
+            assert metrics.candidate_full_success_count is not None
+            assert metrics.accepted_mean_strict_reward is not None
+            assert metrics.candidate_mean_strict_reward is not None
+            if (
+                metrics.candidate_full_success_count
+                <= metrics.accepted_full_success_count
+            ):
+                quality_reason = (
+                    GateReason.TIE
+                    if metrics.candidate_full_success_count
+                    == metrics.accepted_full_success_count
+                    else GateReason.OVERALL_REGRESSION
+                )
+            elif (
+                metrics.candidate_mean_strict_reward
+                < metrics.accepted_mean_strict_reward
+            ):
+                quality_reason = GateReason.STRICT_REGRESSION
+        elif metrics.quality_delta <= request.policy.min_quality_delta:
+            quality_reason = (
                 GateReason.TIE
                 if metrics.quality_delta == 0
                 else GateReason.OVERALL_REGRESSION
             )
+        if quality_reason is not None:
             steps.append(
                 GateStep(
                     stage=GateStage.OVERALL_QUALITY,
                     status=GateStepStatus.FAIL,
-                    reason_codes=(reason,),
+                    reason_codes=(quality_reason,),
                     evidence=(pair_ref,),
                 )
             )
@@ -1321,7 +1424,7 @@ def run_candidate_gate(
                 steps=steps,
                 metrics=metrics,
                 outcome=GateOutcome.REJECTED,
-                reasons=(reason,),
+                reasons=(quality_reason,),
             )
         steps.append(
             GateStep(
@@ -1417,7 +1520,8 @@ def _validate_selection_pair(
     pair = result.pair
     _assert_credential_safe(pair)
     expected = (
-        pair.gate_id == request.gate_id
+        pair.schema_version is request.policy.schema_version
+        and pair.gate_id == request.gate_id
         and pair.evaluation_nonce == nonce
         and pair.iteration_id == SELECTION_ITERATION_ID
         and pair.accepted_skill_sha256 == parent_hash

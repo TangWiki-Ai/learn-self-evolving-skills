@@ -1,0 +1,1 @@
+{"projection_id":"shopping-creator-projection-001","scenario":"single","reusable_behaviors":["先记录用户的硬约束，再开始搜索","购买前打开详情并核对规格和价格","只有当前明确授权才能购买"],"action_sequence":["search","click","purchase"]}

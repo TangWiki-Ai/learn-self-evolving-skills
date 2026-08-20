@@ -16,6 +16,13 @@
 | `EngineRequest`, `EngineEvent`, `EngineResult`, `Usage` | Foundation Runtime | Evaluation、Runner、Simulator、Creator |
 | `CaseDefinition`, `DataLineage`, `SplitVisibility` | Testset Pipeline | Shop、Evaluator、Creator、Gate |
 | `Money`, `ShopSnapshot`, `StateDiff`, `PolicyDecision`, `ToolResult` | Shop Environment | Evaluation、Testset、Reports |
+| `ShopSimulatorSourceManifest`, `ShoppingTaskRef` | Testset Pipeline | Shopping Adapter、Course Delivery、Gate |
+| `ShoppingProfile`, `CapstoneIndex`, `CapstoneMilestonePolicyCheck` | Course Delivery | Shopping Evaluator、Automation、Release |
+| `EpisodeStart`, `EpisodeStep`, `RawShopSimulatorReward` | ShopSimulator Adapter | Evaluation、Runner、Reports |
+| `ShoppingActionReceipt`, `PurchaseAttemptReceipt` | Shopping MCP Gateway | Evaluation、Failure Analysis、Gate |
+| `ShoppingMetricProjection`, `ShopSimulatorEpisodeResult` | Evaluation & Judges | Runner、Reports、Evolution |
+| `ShoppingPairMetrics` | Simulation/Runner | Reports、Gate、Automation |
+| `AcceptedSkillReleaseManifest` | Skill Creation | Installer、Reports、Course Delivery |
 | `Trace`, `EvidenceRef`, `AssertionResult`, `CaseGrade` | Evaluation & Judges | Runner、Reports、Evolution |
 | `RunRecord`, `BudgetState`, `ComparisonRecord` | Simulation/Runner | Reports、Gate、Automation |
 | `SkillArtifact`, `TriggerResult` | Skill Creation | Runner、Evolution、Portfolio |
@@ -28,7 +35,7 @@ Producer ownership 指语义归属，不允许 producer 把实现细节塞进接
 ## Serialization Rules
 
 - 跨模块记录使用 Pydantic v2，默认 `frozen=True`、`extra="forbid"`。模块内部临时结构不强制使用 Pydantic。
-- 每个持久化顶层记录包含 `schema_version` 和 `record_type`。首版使用 `v1alpha1`；不兼容变更创建新版本和显式迁移器。
+- 每个持久化顶层记录包含 `schema_version` 和 `record_type`。退货主线继续使用 `v1alpha1`。ShopSimulator capstone 只对 `CaseGrade`、`PairedComparison`、`GatePolicy`、`SelectionPairEvaluation`、`GateDecision` 和 `FinalAggregateReport` 发布显式 `v1alpha2`；reader 必须按记录类型声明支持的版本，不能让其他旧记录静默接受 `v1alpha2`。不兼容变更创建新版本和显式迁移器。
 - ID 是 opaque string。源数据 ID 保留上游 ID；run、iteration、candidate 和 event ID 在各自作用域唯一。
 - 事件顺序由单调递增的 `sequence` 决定，不依赖 wall-clock timestamp。时间统一为 UTC RFC 3339。
 - 业务金额使用 `Money(amount_minor: int, currency: str)`；退款和 Judge 不使用二进制浮点。模型费用使用十进制字符串和货币代码，保留低于最小货币单位的精度。
@@ -42,6 +49,12 @@ Producer ownership 指语义归属，不允许 producer 把实现细节塞进接
 - `GatePolicy` 必须锁定 Trigger prompt set 的有序内容 hash 和 Trigger model ID。`TriggerEvalResult` 必须与该 prompt set、model ID、candidate Skill hash、measurement kind 和测量时间一致；证据漂移时 Gate 必须在 selection 前拒绝。
 - `GateErrorEvidence` 是 Gate 与 Registry 共享的 canonical Pydantic record。它只能保存 gate stage、异常类型和可选 HTTP 状态码，不能保存 Provider 原始消息、路径、请求头或凭据。
 - `GateDecision` 固定记录 candidate validation、Static、Trigger、fresh selection pair、关键回归、总体质量、成本和预算八个 stage，并通过 `ArtifactRef` 绑定完整 canonical `GatePolicy`。短路后的 stage 必须显式保存为 `not_evaluated`，不能复用旧 run 补齐。`GateDecision.metrics.total_cost_amount` 必须等于 Trigger、accepted selection 和 candidate selection 三部分成本之和。
+- shopping `v1alpha2` 在既有八个 Gate stage 上增加 safety-qualified full-success、strict reward 和 safety violation aggregate；selection 数量由 policy 锁定。它不得新增 shopping-only stage，也不得创建第二份完整 `GateDecision`。
+- `RawShopSimulatorReward`、`ShoppingMetricProjection` 和 `CaseGrade v1alpha2` 必须分别持久化。Adapter 只保存上游 reward；Evaluation 拥有版本化 metric 公式；`CaseGrade` 只通过 `ArtifactRef` 关联二者和 safety evidence，任何层都不能改写上游 raw reward。
+- `PairedComparison v1alpha2` 继续保存既有 pair identity、freshness、成本、status 和 case rows，并通过一个 typed `ArtifactRef` 关联 `ShoppingPairMetrics`。`ShoppingPairMetrics` 必须绑定同一个 pair execution hash，不能成为第二套 pair 真相来源。
+- `FinalAggregateReport v1alpha2` 只用于独立 shopping final。它保存 12 个 case 的 safety-qualified full-success、strict reward 和 safety violation aggregate，并按四个 scenario 各保存 3 个 case 的同类聚合；它不能保存逐题结果、task、persona、商品或 hidden identity。退货 inline final 继续写原样 `v1alpha1` wire。`CapstoneFinalReceipt.safety_violation_count` 必须等于它引用的 final aggregate，verifier、package 和 index 都必须机械复验。
+- `SkillArtifactManifest` 只描述 runtime 文件和内容 identity。Gate、Registry、final 与 package eligibility 只进入 `AcceptedSkillReleaseManifest`；任何 Gate 后回写 runtime manifest 的实现都必须拒绝。
+- fixed 和 live 使用独立 experiment root、profile hash 与 lineage。跨 root receipt 即使内容 hash 相同也不能回填 measurement evidence。
 - 每个 `GateStep` 的 stage、status、reason 和 evidence 数量必须匹配固定矩阵。例如 selection `judge_error` 必须是带完整 pair evidence 的 `error`，adapter error 才能使用单份脱敏 error receipt；调用方不能把二者换标。
 - Registry 必须对 accepted 和 rejected `GateDecision` 都重算可用 evidence 的 aggregate metrics，并核对首个终止 stage、status 和 reason。拒绝决定不能因为“不提升”而跳过语义验证。
 - `RegistryEvent` 使用连续 `sequence`、`previous_event_sha256` 和覆盖完整 event payload 的 `event_sha256` 建立 hash chain。Registry state 只能通过验证并重放完整 event log 得到，不能把可变 accepted pointer 文件当成事实来源。
@@ -76,6 +89,7 @@ Producer ownership 指语义归属，不允许 producer 把实现细节塞进接
 - Gate contract 测试拒绝 Trigger prompt/model 漂移、live 成本缺失、selection symlink 和 final 路径，并证明 fixed 证据不能通过 live 标记约束。
 - 脱敏测试递归扫描序列化结果，不允许凭据和隐藏字段进入记录。
 - 版本测试读取当前版本，并对未来版本返回明确的 unsupported-version 错误。
+- `v1alpha2` 迁移测试证明旧 `v1alpha1` 退货 lineage 保持原义，并证明只有明确列出的六类扩展记录接受 shopping 字段。
 
 ## Out of Scope
 

@@ -8,8 +8,11 @@ from ses.evolution.candidate import (
 )
 from ses.evolution.diagnosis import (
     ATTRIBUTION_ORDER,
+    RETURN_DIAGNOSIS_POLICY,
+    SHOPPING_DIAGNOSIS_POLICY,
     Diagnosis,
     DiagnosisError,
+    FailureDiagnosisPolicy,
     FailureObservation,
     FixtureAnalysis,
     analyze_failure_evidence,
@@ -50,9 +53,12 @@ from ses.evolution.registry import (
     SkillRegistry,
 )
 from ses.evolution.updater import (
+    RETURN_UPDATER_POLICY,
+    SHOPPING_UPDATER_POLICY,
     ClaudeCodeUpdater,
     FakeUpdater,
     UpdaterError,
+    UpdaterPolicy,
     UpdaterRequest,
     build_patch,
 )
@@ -65,6 +71,10 @@ from ses.evolution.workflow import (
 __all__ = [
     "ATTRIBUTION_ORDER",
     "EMPTY_CONTENT_SHA256",
+    "RETURN_DIAGNOSIS_POLICY",
+    "RETURN_UPDATER_POLICY",
+    "SHOPPING_DIAGNOSIS_POLICY",
+    "SHOPPING_UPDATER_POLICY",
     "CandidateError",
     "CandidateGovernanceCommand",
     "ClaudeCodeUpdater",
@@ -72,6 +82,7 @@ __all__ = [
     "DiagnosisError",
     "EvidenceError",
     "EvolutionWorkflowError",
+    "FailureDiagnosisPolicy",
     "FailureObservation",
     "FakeUpdater",
     "FixedGateAdapter",
@@ -87,6 +98,7 @@ __all__ = [
     "RegistryVersion",
     "SkillRegistry",
     "UpdaterError",
+    "UpdaterPolicy",
     "UpdaterRequest",
     "analyze_failure_evidence",
     "analyze_fixture",

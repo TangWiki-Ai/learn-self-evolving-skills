@@ -1,0 +1,19 @@
+{
+  "files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "ff3738fe3816e54f7abdb99fe7958e0cf35224fde8e8c74059da973ff6a8947e"
+    }
+  ],
+  "name": "shopping-assistant",
+  "content_sha256": "c41c837a692b2a2c5f943ec043866bf8750d950d2753b6c076b6ecf894fd0702",
+  "provider_compatibility": [
+    "claude-code-native"
+  ],
+  "record_type": "skill_artifact_manifest",
+  "schema_version": "v1alpha1",
+  "source_kind": "reference_fallback",
+  "source_version": "shopping-reference-fallback-v1",
+  "tool_protocol_sha256": "b11067edbc014651fb9576c03ea20f728e98e24aaa76d22a030ebfc3b4bb1a80",
+  "version": "shopping-assistant-v1"
+}

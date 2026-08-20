@@ -1,0 +1,1 @@
+{"projection_id":"shopping-creator-projection-008","scenario":"multi_persona","reusable_behaviors":["授权撤销后不能继续购买","先核对数量选项和价格再执行独立购买动作"],"action_sequence":["search","click","ask_shopper","finish_without_purchase"]}

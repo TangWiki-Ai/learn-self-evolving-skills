@@ -71,3 +71,22 @@ def test_skill_demo_runs_from_an_installed_wheel_without_the_repository(
     assert comparison["source"]["kind"] == "current_run"
     assert comparison["skill"]["source"] == "reference"
     assert comparison["runs"]["with_skill"]["outcome"] == "pass"
+
+    shopping_destination = isolated_working_directory / ".claude/skills/shopping"
+    installed_skill = _run(
+        [
+            str(environment / "bin" / "ses"),
+            "skill-install",
+            "shopping-assistant",
+            "--destination",
+            str(shopping_destination),
+            "--json",
+        ],
+        cwd=isolated_working_directory,
+    )
+
+    assert installed_skill.returncode == 0, installed_skill.stderr
+    installation = json.loads(installed_skill.stdout)
+    assert installation["name"] == "shopping-assistant"
+    assert installation["installed_files"] == ["SKILL.md"]
+    assert (shopping_destination / "SKILL.md").is_file()

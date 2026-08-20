@@ -66,10 +66,16 @@ def _content_projection(value: object) -> JsonValue:
         excluded: frozenset[str] = getattr(
             type(value), "content_hash_exclude", frozenset()
         )
+        excluded_if_none: frozenset[str] = getattr(
+            type(value), "content_hash_exclude_if_none", frozenset()
+        )
         return {
             field_name: _content_projection(getattr(value, field_name))
             for field_name in type(value).model_fields
             if field_name not in excluded
+            and not (
+                field_name in excluded_if_none and getattr(value, field_name) is None
+            )
         }
     if isinstance(value, Mapping):
         result: dict[str, JsonValue] = {}

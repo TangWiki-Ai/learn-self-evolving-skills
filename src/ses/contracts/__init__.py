@@ -8,6 +8,7 @@ from ses.contracts.artifact import (
     Sha256Digest,
 )
 from ses.contracts.automation import (
+    CAPSTONE_FINAL_REPORT_PROTOCOL_SHA256,
     FINAL_REPORT_PROTOCOL_SHA256,
     AutoEvolveConfig,
     AutoEvolveState,
@@ -15,13 +16,23 @@ from ses.contracts.automation import (
     AutoRolloutReceipt,
     AutoRoundRecord,
     AutoStopReason,
+    CapstoneFinalReceipt,
     FinalAggregateReport,
     FinalConsumedCheckpoint,
+    FinalLifecycle,
     FinalRunReceipt,
+    OpaqueProtectedSplitLock,
     PortfolioFile,
     PortfolioManifest,
+    ShoppingFinalScenarioMetrics,
+    SplitLockFormat,
 )
 from ses.contracts.base import ContractModel, VersionedRecord
+from ses.contracts.capstone import (
+    CapstoneIndex,
+    CapstoneMilestonePolicyCheck,
+    CapstoneReviewReceipt,
+)
 from ses.contracts.case import CaseDefinition, CaseSplit
 from ses.contracts.engine import (
     CompletedPayload,
@@ -49,6 +60,7 @@ from ses.contracts.evaluation import (
 from ses.contracts.evolution import (
     FAILURE_ATTRIBUTION_ORDER,
     SELECTION_ITERATION_ID,
+    SHOPPING_FAILURE_CATEGORY_BY_SUBCODE,
     AddPatchOperation,
     CandidateArtifact,
     DeletePatchOperation,
@@ -79,6 +91,7 @@ from ses.contracts.evolution import (
     RegistryEventType,
     SelectionPairCase,
     SelectionPairEvaluation,
+    ShoppingFailureSubcode,
     UpdatePatchOperation,
     VersionStatus,
     normalized_files_sha256,
@@ -123,6 +136,7 @@ from ses.contracts.shop import (
     ToolResultStatus,
 )
 from ses.contracts.skill import (
+    AcceptedSkillReleaseManifest,
     CreatorReplayCall,
     CreatorSeedAttestation,
     CreatorSourceProvenance,
@@ -137,9 +151,12 @@ from ses.contracts.skill import (
 )
 
 __all__ = [
+    "CAPSTONE_FINAL_REPORT_PROTOCOL_SHA256",
     "FAILURE_ATTRIBUTION_ORDER",
     "FINAL_REPORT_PROTOCOL_SHA256",
     "SELECTION_ITERATION_ID",
+    "SHOPPING_FAILURE_CATEGORY_BY_SUBCODE",
+    "AcceptedSkillReleaseManifest",
     "AddPatchOperation",
     "ArtifactRef",
     "ArtifactRoot",
@@ -152,6 +169,10 @@ __all__ = [
     "AutoRoundRecord",
     "AutoStopReason",
     "CandidateArtifact",
+    "CapstoneFinalReceipt",
+    "CapstoneIndex",
+    "CapstoneMilestonePolicyCheck",
+    "CapstoneReviewReceipt",
     "CaseDefinition",
     "CaseGrade",
     "CaseId",
@@ -186,6 +207,7 @@ __all__ = [
     "FailureProvenance",
     "FinalAggregateReport",
     "FinalConsumedCheckpoint",
+    "FinalLifecycle",
     "FinalRunReceipt",
     "GateAggregateMetrics",
     "GateDecision",
@@ -207,6 +229,7 @@ __all__ = [
     "Money",
     "NonEmptyStr",
     "OpaqueId",
+    "OpaqueProtectedSplitLock",
     "PairCategory",
     "PairedCaseResult",
     "PairedComparison",
@@ -230,10 +253,13 @@ __all__ = [
     "SessionId",
     "Sha256Digest",
     "ShopSnapshot",
+    "ShoppingFailureSubcode",
+    "ShoppingFinalScenarioMetrics",
     "SkillArtifactManifest",
     "SkillManifestFile",
     "SkillV0PipelineSummary",
     "SnapshotId",
+    "SplitLockFormat",
     "StateChange",
     "StateDiff",
     "StrictNonNegativeInt",

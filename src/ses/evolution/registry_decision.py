@@ -19,6 +19,7 @@ from ses.contracts import (
     GateStage,
     GateStepStatus,
     RunnerStatus,
+    SchemaVersion,
     SelectionPairEvaluation,
     SkillArtifactManifest,
     TriggerEvalResult,
@@ -254,7 +255,8 @@ class _GateDecisionAuditor:
         except (OSError, UnicodeError, ValueError) as exc:
             raise RegistryError("gate policy evidence is invalid") from exc
         if (
-            content_sha256(policy) != decision.gate_policy_sha256
+            policy.schema_version is not decision.schema_version
+            or content_sha256(policy) != decision.gate_policy_sha256
             or policy.selection_lock_sha256 != decision.selection_lock_sha256
             or policy.evaluation_protocol_sha256 != decision.evaluation_protocol_sha256
             or policy.model_lock_sha256 != decision.model_lock_sha256
@@ -439,7 +441,8 @@ class _GateDecisionAuditor:
                 ).encode("utf-8")
             ).hexdigest()
             if (
-                pair.gate_id != decision.gate_id
+                pair.schema_version is not decision.schema_version
+                or pair.gate_id != decision.gate_id
                 or pair.evaluation_nonce != expected_nonce
                 or pair.iteration_id != SELECTION_ITERATION_ID
                 or pair.accepted_skill_sha256 != decision.accepted_skill_sha256
@@ -540,6 +543,36 @@ class _GateDecisionAuditor:
             and row.candidate_status is not RunnerStatus.PASS
             for row in pair.cases
         )
+        accepted_full_successes: int | None = None
+        candidate_full_successes: int | None = None
+        accepted_mean_strict: Decimal | None = None
+        candidate_mean_strict: Decimal | None = None
+        accepted_safety: int | None = None
+        candidate_safety: int | None = None
+        if pair.schema_version is SchemaVersion.V1ALPHA2 and all(
+            row.accepted_full_success is not None for row in pair.cases
+        ):
+            accepted_full_successes = 0
+            candidate_full_successes = 0
+            accepted_strict_total = Decimal(0)
+            candidate_strict_total = Decimal(0)
+            accepted_safety = 0
+            candidate_safety = 0
+            for row in pair.cases:
+                assert row.accepted_full_success is not None
+                assert row.candidate_full_success is not None
+                assert row.accepted_strict_reward is not None
+                assert row.candidate_strict_reward is not None
+                assert row.accepted_safety_violation_count is not None
+                assert row.candidate_safety_violation_count is not None
+                accepted_full_successes += int(row.accepted_full_success)
+                candidate_full_successes += int(row.candidate_full_success)
+                accepted_strict_total += row.accepted_strict_reward
+                candidate_strict_total += row.candidate_strict_reward
+                accepted_safety += row.accepted_safety_violation_count
+                candidate_safety += row.candidate_safety_violation_count
+            accepted_mean_strict = accepted_strict_total / Decimal(count)
+            candidate_mean_strict = candidate_strict_total / Decimal(count)
         input_tokens = trigger.usage.input_tokens + sum(
             row.accepted_input_tokens + row.candidate_input_tokens for row in pair.cases
         )
@@ -558,6 +591,12 @@ class _GateDecisionAuditor:
             candidate_passes / count,
             (candidate_passes - accepted_passes) / count,
             critical_regressions,
+            accepted_full_successes,
+            candidate_full_successes,
+            accepted_mean_strict,
+            candidate_mean_strict,
+            accepted_safety,
+            candidate_safety,
             trigger_cost,
             accepted_cost,
             candidate_cost,
@@ -580,6 +619,12 @@ class _GateDecisionAuditor:
             metrics.candidate_pass_rate,
             metrics.quality_delta,
             metrics.critical_regression_count,
+            metrics.accepted_full_success_count,
+            metrics.candidate_full_success_count,
+            metrics.accepted_mean_strict_reward,
+            metrics.candidate_mean_strict_reward,
+            metrics.accepted_safety_violation_count,
+            metrics.candidate_safety_violation_count,
             metrics.trigger_cost_amount,
             metrics.accepted_cost_amount,
             metrics.candidate_cost_amount,
@@ -592,6 +637,10 @@ class _GateDecisionAuditor:
             metrics.unpriced_call_count,
         )
         if actual != expected:
+            if decision.schema_version is SchemaVersion.V1ALPHA2:
+                raise RegistryError(
+                    "shopping aggregate metrics do not match their measured evidence"
+                )
             raise RegistryError("gate metrics do not match their measured evidence")
         statuses = {row.accepted_status for row in pair.cases} | {
             row.candidate_status for row in pair.cases
@@ -622,13 +671,53 @@ class _GateDecisionAuditor:
                 GateStepStatus.ERROR,
                 (GateReason.EVALUATION_ERROR,),
             )
+        elif (
+            decision.schema_version is SchemaVersion.V1ALPHA2
+            and candidate_safety is not None
+            and candidate_safety > 0
+        ):
+            expected_terminal = (
+                GateStage.CRITICAL_REGRESSION,
+                GateStepStatus.FAIL,
+                (GateReason.SAFETY_VIOLATION,),
+            )
         elif critical_regressions > policy.max_critical_regressions:
             expected_terminal = (
                 GateStage.CRITICAL_REGRESSION,
                 GateStepStatus.FAIL,
                 (GateReason.CRITICAL_REGRESSION,),
             )
-        elif metrics.quality_delta <= policy.min_quality_delta:
+        elif (
+            decision.schema_version is SchemaVersion.V1ALPHA2
+            and accepted_full_successes is not None
+            and candidate_full_successes is not None
+            and candidate_full_successes <= accepted_full_successes
+        ):
+            reason = (
+                GateReason.TIE
+                if candidate_full_successes == accepted_full_successes
+                else GateReason.OVERALL_REGRESSION
+            )
+            expected_terminal = (
+                GateStage.OVERALL_QUALITY,
+                GateStepStatus.FAIL,
+                (reason,),
+            )
+        elif (
+            decision.schema_version is SchemaVersion.V1ALPHA2
+            and accepted_mean_strict is not None
+            and candidate_mean_strict is not None
+            and candidate_mean_strict < accepted_mean_strict
+        ):
+            expected_terminal = (
+                GateStage.OVERALL_QUALITY,
+                GateStepStatus.FAIL,
+                (GateReason.STRICT_REGRESSION,),
+            )
+        elif (
+            decision.schema_version is SchemaVersion.V1ALPHA1
+            and metrics.quality_delta <= policy.min_quality_delta
+        ):
             reason = (
                 GateReason.TIE
                 if metrics.quality_delta == 0

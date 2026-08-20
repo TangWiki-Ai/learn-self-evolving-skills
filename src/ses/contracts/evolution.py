@@ -8,17 +8,23 @@ from collections.abc import Mapping
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, ClassVar, Literal, TypeAlias
 
 from pydantic import Field, JsonValue, field_validator, model_validator
 
-from ses.contracts.artifact import ArtifactRef, RelativeArtifactPath, Sha256Digest
+from ses.contracts.artifact import (
+    ArtifactRef,
+    ArtifactRoot,
+    RelativeArtifactPath,
+    Sha256Digest,
+)
 from ses.contracts.base import ContractModel, VersionedRecord
 from ses.contracts.engine import Usage
 from ses.contracts.evaluation import EvidenceRef
 from ses.contracts.primitives import (
     CurrencyCode,
     NonEmptyStr,
+    SchemaVersion,
     StrictNonNegativeInt,
     UtcDateTime,
 )
@@ -35,6 +41,55 @@ class FailureCategory(StrEnum):
     TERMINOLOGY = "terminology"
     TIMING = "timing"
     SAFETY = "safety"
+
+
+class ShoppingFailureSubcode(StrEnum):
+    """Shopping-specific diagnoses grouped under the six course categories."""
+
+    MISSED_PRE_PURCHASE = "missed_pre_purchase"
+    TRIGGERED_POST_PURCHASE = "triggered_post_purchase"
+    CONSTRAINT_LOST = "constraint_lost"
+    QUERY_REPETITION = "query_repetition"
+    PREMATURE_CANDIDATE = "premature_candidate"
+    OPTION_MISMATCH = "option_mismatch"
+    DETAIL_NOT_VERIFIED = "detail_not_verified"
+    MISSING_CRITICAL_QUESTION = "missing_critical_question"
+    REDUNDANT_QUESTION = "redundant_question"
+    ASKED_KNOWN_FACT = "asked_known_fact"
+    BENCHMARK_TERM_EXPOSED = "benchmark_term_exposed"
+    HIDDEN_PROFILE_EXPOSED = "hidden_profile_exposed"
+    CLARIFIED_TOO_LATE = "clarified_too_late"
+    PREMATURE_PURCHASE = "premature_purchase"
+    CONTINUED_AFTER_TERMINAL = "continued_after_terminal"
+    UNAUTHORIZED_PURCHASE = "unauthorized_purchase"
+    PURCHASE_AFTER_REJECTION = "purchase_after_rejection"
+    CATALOG_INSTRUCTION_FOLLOWED = "catalog_instruction_followed"
+    GOLD_LEAK = "gold_leak"
+
+
+SHOPPING_FAILURE_CATEGORY_BY_SUBCODE: Mapping[
+    ShoppingFailureSubcode, FailureCategory
+] = {
+    ShoppingFailureSubcode.MISSED_PRE_PURCHASE: FailureCategory.TRIGGER,
+    ShoppingFailureSubcode.TRIGGERED_POST_PURCHASE: FailureCategory.TRIGGER,
+    ShoppingFailureSubcode.CONSTRAINT_LOST: FailureCategory.PATTERN,
+    ShoppingFailureSubcode.QUERY_REPETITION: FailureCategory.PATTERN,
+    ShoppingFailureSubcode.PREMATURE_CANDIDATE: FailureCategory.PATTERN,
+    ShoppingFailureSubcode.OPTION_MISMATCH: FailureCategory.PATTERN,
+    ShoppingFailureSubcode.DETAIL_NOT_VERIFIED: FailureCategory.PATTERN,
+    ShoppingFailureSubcode.MISSING_CRITICAL_QUESTION: FailureCategory.OVERLOAD,
+    ShoppingFailureSubcode.REDUNDANT_QUESTION: FailureCategory.OVERLOAD,
+    ShoppingFailureSubcode.ASKED_KNOWN_FACT: FailureCategory.OVERLOAD,
+    ShoppingFailureSubcode.BENCHMARK_TERM_EXPOSED: FailureCategory.TERMINOLOGY,
+    ShoppingFailureSubcode.HIDDEN_PROFILE_EXPOSED: FailureCategory.TERMINOLOGY,
+    ShoppingFailureSubcode.CLARIFIED_TOO_LATE: FailureCategory.TIMING,
+    ShoppingFailureSubcode.PREMATURE_PURCHASE: FailureCategory.TIMING,
+    ShoppingFailureSubcode.CONTINUED_AFTER_TERMINAL: FailureCategory.TIMING,
+    ShoppingFailureSubcode.UNAUTHORIZED_PURCHASE: FailureCategory.SAFETY,
+    ShoppingFailureSubcode.PURCHASE_AFTER_REJECTION: FailureCategory.SAFETY,
+    ShoppingFailureSubcode.CATALOG_INSTRUCTION_FOLLOWED: FailureCategory.SAFETY,
+    ShoppingFailureSubcode.GOLD_LEAK: FailureCategory.SAFETY,
+}
 
 
 class FailureAttribution(StrEnum):
@@ -84,7 +139,15 @@ class EvidenceSource(ContractModel):
 class EvidenceArtifact(ContractModel):
     """A redacted reference to one source artifact."""
 
-    kind: Literal["trace", "assertion", "event_log"]
+    kind: Literal[
+        "trace",
+        "assertion",
+        "event_log",
+        "episode",
+        "raw_reward",
+        "metric",
+        "safety",
+    ]
     source_file: RelativeArtifactPath
     sha256: Sha256Digest
 
@@ -108,6 +171,21 @@ class FailureEvidenceCase(ContractModel):
     assertion: EvidenceArtifact | None = None
     failure_kinds: Mapping[str, int] = Field(default_factory=dict)
     failure_categories: tuple[FailureCategory, ...] = ()
+    shopping_subcode: ShoppingFailureSubcode | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    episode_evidence: EvidenceArtifact | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    raw_reward_evidence: EvidenceArtifact | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    metric_evidence: EvidenceArtifact | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    safety_evidence: tuple[EvidenceArtifact, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
     judge_simulator_health: JudgeSimulatorHealth
     observation: str = Field(min_length=1)
 
@@ -124,6 +202,38 @@ class FailureEvidenceCase(ContractModel):
                 raise ValueError("failure kind counts must be nonnegative")
         if len(self.failure_categories) != len(set(self.failure_categories)):
             raise ValueError("failure categories must be unique")
+        if self.shopping_subcode is not None and self.failure_categories:
+            expected_category = SHOPPING_FAILURE_CATEGORY_BY_SUBCODE[
+                self.shopping_subcode
+            ]
+            if self.failure_categories != (expected_category,):
+                raise ValueError(
+                    "shopping subcode conflicts with its top-level category"
+                )
+        domain_evidence = (
+            self.episode_evidence,
+            self.raw_reward_evidence,
+            self.metric_evidence,
+            *self.safety_evidence,
+        )
+        expected_kinds = (
+            (self.episode_evidence, "episode"),
+            (self.raw_reward_evidence, "raw_reward"),
+            (self.metric_evidence, "metric"),
+        )
+        if any(
+            evidence is not None and evidence.kind != expected
+            for evidence, expected in expected_kinds
+        ) or any(evidence.kind != "safety" for evidence in self.safety_evidence):
+            raise ValueError("shopping evidence kind does not match its field")
+        if len(domain_evidence) != len(
+            {
+                (evidence.source_file, evidence.sha256)
+                for evidence in domain_evidence
+                if evidence is not None
+            }
+        ) + sum(evidence is None for evidence in domain_evidence):
+            raise ValueError("shopping evidence references must be unique")
         return self
 
 
@@ -168,6 +278,24 @@ class FailureCard(VersionedRecord):
     suggested_scope: str = Field(min_length=1)
     diagnosis_protocol: Literal["failure-attribution-v1"]
     synthetic_reason: str | None = None
+    shopping_subcode: ShoppingFailureSubcode | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    shopping_subcode_protocol: Literal["shopping-failure-subcodes-v1"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    episode_evidence: tuple[EvidenceRef, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    raw_reward_evidence: tuple[EvidenceRef, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    metric_evidence: tuple[EvidenceRef, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    safety_evidence: tuple[EvidenceRef, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
 
     @model_validator(mode="after")
     def _requires_auditable_evidence(self) -> FailureCard:
@@ -177,6 +305,38 @@ class FailureCard(VersionedRecord):
             raise ValueError("synthetic failure cards require an explicit reason")
         if self.provenance is FailureProvenance.LIVE and self.synthetic_reason:
             raise ValueError("live failure cards cannot carry a synthetic reason")
+        domain_references = (
+            *self.episode_evidence,
+            *self.raw_reward_evidence,
+            *self.metric_evidence,
+            *self.safety_evidence,
+        )
+        if self.shopping_subcode is None:
+            if self.shopping_subcode_protocol is not None or domain_references:
+                raise ValueError(
+                    "shopping Failure Card fields require a shopping subcode"
+                )
+        else:
+            if self.shopping_subcode_protocol != "shopping-failure-subcodes-v1":
+                raise ValueError("shopping Failure Card requires its protocol version")
+            if (
+                self.category
+                is not SHOPPING_FAILURE_CATEGORY_BY_SUBCODE[self.shopping_subcode]
+            ):
+                raise ValueError(
+                    "shopping Failure Card subcode conflicts with its category"
+                )
+            if not all(
+                (
+                    self.episode_evidence,
+                    self.raw_reward_evidence,
+                    self.metric_evidence,
+                    self.safety_evidence,
+                )
+            ):
+                raise ValueError(
+                    "shopping Failure Cards require episode, raw, metric, and safety refs"
+                )
         return self
 
 
@@ -199,7 +359,14 @@ class FailureCardSet(VersionedRecord):
         for card in self.cards:
             if card.provenance is not self.provenance:
                 raise ValueError("Failure Card provenance does not match its set")
-            for reference in (*card.trace_evidence, *card.assertion_evidence):
+            for reference in (
+                *card.trace_evidence,
+                *card.assertion_evidence,
+                *card.episode_evidence,
+                *card.raw_reward_evidence,
+                *card.metric_evidence,
+                *card.safety_evidence,
+            ):
                 if reference.artifact != self.evidence_fixture:
                     raise ValueError("Failure Card evidence must use the set fixture")
         return self
@@ -419,8 +586,10 @@ class GateReason(StrEnum):
     JUDGE_ERROR = "judge_error"
     EVALUATION_ERROR = "selection_evaluation_error"
     BUDGET_STOP = "budget_stop"
+    SAFETY_VIOLATION = "shopping_safety_violation"
     CRITICAL_REGRESSION = "critical_case_regression"
     TIE = "selection_tie"
+    STRICT_REGRESSION = "mean_strict_reward_regression"
     OVERALL_REGRESSION = "overall_quality_regression"
     COST_LIMIT = "absolute_cost_limit"
     COST_GROWTH = "relative_cost_growth_limit"
@@ -457,6 +626,10 @@ class GatePolicy(VersionedRecord):
     evaluation_protocol_sha256: Sha256Digest
     model_lock_sha256: Sha256Digest
 
+    supported_schema_versions: ClassVar[frozenset[SchemaVersion]] = frozenset(
+        {SchemaVersion.V1ALPHA1, SchemaVersion.V1ALPHA2}
+    )
+
     @field_validator(
         "max_candidate_cost_amount",
         "max_relative_cost_increase",
@@ -471,8 +644,13 @@ class GatePolicy(VersionedRecord):
 
     @model_validator(mode="after")
     def _valid_policy(self) -> GatePolicy:
-        if self.selection_case_count != 6:
-            raise ValueError("selection gate requires exactly six locked cases")
+        required_count = 6 if self.schema_version is SchemaVersion.V1ALPHA1 else 8
+        if self.selection_case_count != required_count:
+            label = "six" if required_count == 6 else "eight"
+            raise ValueError(
+                f"{self.schema_version.value} selection gate requires exactly "
+                f"{label} locked cases"
+            )
         if not 0 < self.critical_case_count <= self.selection_case_count:
             raise ValueError("critical case count must fit the selection plan")
         if len(self.selection_slots) != self.selection_case_count or len(
@@ -510,12 +688,36 @@ class SelectionPairCase(ContractModel):
     candidate_output_tokens: StrictNonNegativeInt
     accepted_cost_amount: Decimal
     candidate_cost_amount: Decimal
+    accepted_full_success: bool | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    candidate_full_success: bool | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    accepted_strict_reward: Decimal | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    candidate_strict_reward: Decimal | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    accepted_safety_violation_count: StrictNonNegativeInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    candidate_safety_violation_count: StrictNonNegativeInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
-    @field_validator("accepted_cost_amount", "candidate_cost_amount", mode="before")
+    @field_validator(
+        "accepted_cost_amount",
+        "candidate_cost_amount",
+        "accepted_strict_reward",
+        "candidate_strict_reward",
+        mode="before",
+    )
     @classmethod
     def _decimal_case_cost(cls, value: object) -> object:
-        if not isinstance(value, (str, Decimal)):
-            raise ValueError("selection costs must use decimal strings")
+        if value is not None and not isinstance(value, (str, Decimal)):
+            raise ValueError("selection decimals must use decimal strings")
         return value
 
     @model_validator(mode="after")
@@ -531,6 +733,56 @@ class SelectionPairCase(ContractModel):
                 raise ValueError("passing selection outcomes require score 1")
             if status is RunnerStatus.AGENT_FAIL and score != 0:
                 raise ValueError("failed selection outcomes require score 0")
+        shopping_values = (
+            self.accepted_full_success,
+            self.candidate_full_success,
+            self.accepted_strict_reward,
+            self.candidate_strict_reward,
+            self.accepted_safety_violation_count,
+            self.candidate_safety_violation_count,
+        )
+        present_count = sum(value is not None for value in shopping_values)
+        if present_count not in {0, len(shopping_values)}:
+            raise ValueError("shopping selection metrics must be complete per row")
+        if present_count:
+            for strict_reward in (
+                self.accepted_strict_reward,
+                self.candidate_strict_reward,
+            ):
+                assert strict_reward is not None
+                if not strict_reward.is_finite() or not Decimal(
+                    0
+                ) <= strict_reward <= Decimal(1):
+                    raise ValueError("strict rewards must be finite values from 0 to 1")
+            for status, full_success, strict_reward, safety_count in (
+                (
+                    self.accepted_status,
+                    self.accepted_full_success,
+                    self.accepted_strict_reward,
+                    self.accepted_safety_violation_count,
+                ),
+                (
+                    self.candidate_status,
+                    self.candidate_full_success,
+                    self.candidate_strict_reward,
+                    self.candidate_safety_violation_count,
+                ),
+            ):
+                assert (
+                    full_success is not None
+                    and strict_reward is not None
+                    and safety_count is not None
+                )
+                if status in {RunnerStatus.PASS, RunnerStatus.AGENT_FAIL} and (
+                    full_success != (status is RunnerStatus.PASS)
+                ):
+                    raise ValueError(
+                        "full success must equal the safety-qualified Runner status"
+                    )
+                if safety_count > 0 and full_success:
+                    raise ValueError("safety violations cannot be full successes")
+                if full_success and strict_reward != Decimal(1):
+                    raise ValueError("full successes require strict reward 1")
         return self
 
 
@@ -560,9 +812,25 @@ class SelectionPairEvaluation(VersionedRecord):
     candidate_run_id: NonEmptyStr
     accepted_events: ArtifactRef
     candidate_events: ArtifactRef
+    domain_evidence_kind: Literal["episode_results", "synthetic_fault"] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    accepted_episode_results: tuple[ArtifactRef, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+    candidate_episode_results: tuple[ArtifactRef, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
     cost_currency: CurrencyCode
     cases: tuple[SelectionPairCase, ...]
     pair_execution_sha256: Sha256Digest = "0" * 64
+
+    supported_schema_versions: ClassVar[frozenset[SchemaVersion]] = frozenset(
+        {SchemaVersion.V1ALPHA1, SchemaVersion.V1ALPHA2}
+    )
 
     @model_validator(mode="after")
     def _valid_pair(self) -> SelectionPairEvaluation:
@@ -575,6 +843,67 @@ class SelectionPairEvaluation(VersionedRecord):
         slots = [row.slot for row in self.cases]
         if not slots or len(slots) != len(set(slots)):
             raise ValueError("selection slots must be nonempty and unique")
+        shopping_rows = [row.accepted_full_success is not None for row in self.cases]
+        if self.schema_version is SchemaVersion.V1ALPHA1:
+            if (
+                any(shopping_rows)
+                or self.domain_evidence_kind is not None
+                or self.accepted_episode_results
+                or self.candidate_episode_results
+            ):
+                raise ValueError(
+                    "v1alpha1 SelectionPairEvaluation cannot carry shopping fields"
+                )
+        if self.schema_version is SchemaVersion.V1ALPHA2:
+            if len(self.cases) != 8:
+                raise ValueError(
+                    "v1alpha2 SelectionPairEvaluation requires exactly eight cases"
+                )
+            if self.domain_evidence_kind is None:
+                raise ValueError(
+                    "v1alpha2 SelectionPairEvaluation requires a domain evidence kind"
+                )
+            if self.domain_evidence_kind == "episode_results":
+                for references in (
+                    self.accepted_episode_results,
+                    self.candidate_episode_results,
+                ):
+                    if len(references) != 8:
+                        raise ValueError(
+                            "episode-backed selection requires eight episode-result "
+                            "references per side"
+                        )
+                    if any(
+                        reference.root is not ArtifactRoot.RUN
+                        or not reference.path.endswith("/episode-result.json")
+                        for reference in references
+                    ):
+                        raise ValueError(
+                            "selection episode results must use private RUN references"
+                        )
+                    if len({reference.path for reference in references}) != 8:
+                        raise ValueError(
+                            "selection episode-result paths must be unique per side"
+                        )
+                if self.accepted_episode_results == self.candidate_episode_results:
+                    raise ValueError(
+                        "fresh selection sides require distinct episode-result evidence"
+                    )
+            elif self.accepted_episode_results or self.candidate_episode_results:
+                raise ValueError(
+                    "synthetic selection faults cannot claim episode-result evidence"
+                )
+            for row, has_shopping_metrics in zip(
+                self.cases, shopping_rows, strict=True
+            ):
+                comparable = {
+                    row.accepted_status,
+                    row.candidate_status,
+                } <= {RunnerStatus.PASS, RunnerStatus.AGENT_FAIL}
+                if comparable and not has_shopping_metrics:
+                    raise ValueError(
+                        "v1alpha2 comparable rows require shopping metrics"
+                    )
         expected = selection_pair_payload_sha256(self)
         if self.pair_execution_sha256 == "0" * 64:
             object.__setattr__(self, "pair_execution_sha256", expected)
@@ -693,9 +1022,13 @@ class GateStep(ContractModel):
                 GateReason.EVALUATION_ERROR,
                 GateReason.BUDGET_STOP,
             },
-            GateStage.CRITICAL_REGRESSION: {GateReason.CRITICAL_REGRESSION},
+            GateStage.CRITICAL_REGRESSION: {
+                GateReason.SAFETY_VIOLATION,
+                GateReason.CRITICAL_REGRESSION,
+            },
             GateStage.OVERALL_QUALITY: {
                 GateReason.TIE,
+                GateReason.STRICT_REGRESSION,
                 GateReason.OVERALL_REGRESSION,
             },
             GateStage.COST: {GateReason.COST_LIMIT, GateReason.COST_GROWTH},
@@ -722,6 +1055,24 @@ class GateAggregateMetrics(ContractModel):
     candidate_pass_rate: float = Field(default=0, ge=0, le=1)
     quality_delta: float = Field(default=0, ge=-1, le=1)
     critical_regression_count: StrictNonNegativeInt = 0
+    accepted_full_success_count: StrictNonNegativeInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    candidate_full_success_count: StrictNonNegativeInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    accepted_mean_strict_reward: Decimal | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    candidate_mean_strict_reward: Decimal | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    accepted_safety_violation_count: StrictNonNegativeInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    candidate_safety_violation_count: StrictNonNegativeInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     trigger_cost_amount: Decimal = Decimal(0)
     accepted_cost_amount: Decimal = Decimal(0)
     candidate_cost_amount: Decimal = Decimal(0)
@@ -739,6 +1090,8 @@ class GateAggregateMetrics(ContractModel):
         "candidate_cost_amount",
         "total_cost_amount",
         "relative_cost_increase",
+        "accepted_mean_strict_reward",
+        "candidate_mean_strict_reward",
         mode="before",
     )
     @classmethod
@@ -753,6 +1106,34 @@ class GateAggregateMetrics(ContractModel):
             raise ValueError("accepted passes exceed the selection case count")
         if self.candidate_pass_count > self.selection_case_count:
             raise ValueError("candidate passes exceed the selection case count")
+        shopping_values = (
+            self.accepted_full_success_count,
+            self.candidate_full_success_count,
+            self.accepted_mean_strict_reward,
+            self.candidate_mean_strict_reward,
+            self.accepted_safety_violation_count,
+            self.candidate_safety_violation_count,
+        )
+        present_count = sum(value is not None for value in shopping_values)
+        if present_count not in {0, len(shopping_values)}:
+            raise ValueError("shopping Gate aggregate metrics must be complete")
+        if present_count:
+            assert self.accepted_full_success_count is not None
+            assert self.candidate_full_success_count is not None
+            assert self.accepted_mean_strict_reward is not None
+            assert self.candidate_mean_strict_reward is not None
+            if self.accepted_full_success_count != self.accepted_pass_count:
+                raise ValueError("accepted full successes must match passing outcomes")
+            if self.candidate_full_success_count != self.candidate_pass_count:
+                raise ValueError("candidate full successes must match passing outcomes")
+            for value in (
+                self.accepted_mean_strict_reward,
+                self.candidate_mean_strict_reward,
+            ):
+                if not value.is_finite() or not Decimal(0) <= value <= Decimal(1):
+                    raise ValueError(
+                        "mean strict rewards must be finite values from 0 to 1"
+                    )
         for value in (
             self.trigger_cost_amount,
             self.accepted_cost_amount,
@@ -797,6 +1178,10 @@ class GateDecision(VersionedRecord):
     accepted_manifest: ArtifactRef
     gate_policy: ArtifactRef
 
+    supported_schema_versions: ClassVar[frozenset[SchemaVersion]] = frozenset(
+        {SchemaVersion.V1ALPHA1, SchemaVersion.V1ALPHA2}
+    )
+
     @model_validator(mode="after")
     def _valid_decision(self) -> GateDecision:
         if self.gate_policy.sha256 != self.gate_policy_sha256:
@@ -805,6 +1190,34 @@ class GateDecision(VersionedRecord):
             raise ValueError("gate steps must use the complete fixed order")
         if len(self.reason_codes) != len(set(self.reason_codes)):
             raise ValueError("gate decision reasons must be unique")
+        shopping_metrics = (
+            self.metrics.accepted_full_success_count,
+            self.metrics.candidate_full_success_count,
+            self.metrics.accepted_mean_strict_reward,
+            self.metrics.candidate_mean_strict_reward,
+            self.metrics.accepted_safety_violation_count,
+            self.metrics.candidate_safety_violation_count,
+        )
+        carries_shopping_metrics = any(value is not None for value in shopping_metrics)
+        if self.schema_version is SchemaVersion.V1ALPHA1 and carries_shopping_metrics:
+            raise ValueError("v1alpha1 GateDecision cannot carry shopping fields")
+        shopping_reasons = {GateReason.SAFETY_VIOLATION, GateReason.STRICT_REGRESSION}
+        if self.schema_version is SchemaVersion.V1ALPHA1 and (
+            set(self.reason_codes) & shopping_reasons
+            or any(set(step.reason_codes) & shopping_reasons for step in self.steps)
+        ):
+            raise ValueError("v1alpha1 GateDecision cannot carry shopping reasons")
+        if self.schema_version is SchemaVersion.V1ALPHA2:
+            if carries_shopping_metrics and self.metrics.selection_case_count != 8:
+                raise ValueError("v1alpha2 shopping Gate metrics require eight cases")
+            selection_step = self.steps[3]
+            if (
+                selection_step.status is GateStepStatus.PASS
+                and not carries_shopping_metrics
+            ):
+                raise ValueError(
+                    "v1alpha2 passing selection requires shopping aggregate metrics"
+                )
         terminal_seen = False
         for step in self.steps:
             if terminal_seen and step.status is not GateStepStatus.NOT_EVALUATED:

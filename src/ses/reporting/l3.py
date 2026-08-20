@@ -14,6 +14,7 @@ from ses.contracts import (
     FinalAggregateReport,
     GateDecision,
     GateOutcome,
+    SchemaVersion,
     artifact_json_bytes,
 )
 from ses.contracts.security import validate_public_data
@@ -54,6 +55,7 @@ def load_l3_inputs(
     experiment_root: Path,
     *,
     registry_root: Path | None = None,
+    registry: SkillRegistry | None = None,
 ) -> L3ReportInputs:
     """Load and cross-check public report inputs from one experiment."""
 
@@ -68,8 +70,15 @@ def load_l3_inputs(
     if artifact_json_bytes(state) != state_bytes:
         raise ValueError("L3 state is not canonical")
 
+    if registry is not None and registry_root is not None:
+        raise ValueError("L3 accepts either a Registry or a Registry path")
     registry_path = registry_root or root / "registry"
-    registry = SkillRegistry(registry_path).audit()
+    registry_instance = registry or SkillRegistry(registry_path)
+    if registry_instance.root.resolve(strict=True) != registry_path.resolve(
+        strict=True
+    ):
+        raise ValueError("L3 Registry does not match the selected experiment")
+    registry_state = registry_instance.audit()
     decisions: list[GateDecision] = []
     for round_record in state.rounds:
         decision_bytes = _read_ref(root, round_record.gate_decision.path)
@@ -95,7 +104,7 @@ def load_l3_inputs(
 
     inputs = L3ReportInputs(
         state=state,
-        registry=registry,
+        registry=registry_state,
         decisions=tuple(decisions),
         final_report=final_report,
     )
@@ -139,9 +148,12 @@ def _validate_inputs(inputs: L3ReportInputs) -> None:
         version = registry.versions.get(record.candidate_skill_sha256)
         if version is None or version.parent_skill_sha256 != record.parent_skill_sha256:
             raise ValueError("L3 candidate is missing from the Registry lineage")
-    if state.status is AutoLoopStatus.FINAL_COMPLETE:
+    if state.status in {
+        AutoLoopStatus.FINAL_COMPLETE,
+        AutoLoopStatus.FAILED_FINAL,
+    }:
         if inputs.final_report is None:
-            raise ValueError("L3 final-complete state lacks its aggregate result")
+            raise ValueError("L3 terminal final state lacks its aggregate result")
         final = inputs.final_report
         if (
             final.experiment_id != state.experiment_id
@@ -182,6 +194,46 @@ def build_l3_data(inputs: L3ReportInputs) -> dict[str, object]:
             else decision.metrics.accepted_pass_rate
         )
         accepted_curve.append(accepted_after)
+        selection: dict[str, object] = {
+            "case_count": decision.metrics.selection_case_count,
+            "accepted_pass_rate": decision.metrics.accepted_pass_rate,
+            "candidate_pass_rate": decision.metrics.candidate_pass_rate,
+            "quality_delta": decision.metrics.quality_delta,
+            "critical_regressions": decision.metrics.critical_regression_count,
+        }
+        if decision.schema_version is SchemaVersion.V1ALPHA2:
+            metrics = decision.metrics
+            shopping_values = (
+                metrics.accepted_full_success_count,
+                metrics.candidate_full_success_count,
+                metrics.accepted_mean_strict_reward,
+                metrics.candidate_mean_strict_reward,
+                metrics.accepted_safety_violation_count,
+                metrics.candidate_safety_violation_count,
+            )
+            if all(value is not None for value in shopping_values):
+                selection.update(
+                    {
+                        "accepted_full_success_count": (
+                            metrics.accepted_full_success_count
+                        ),
+                        "candidate_full_success_count": (
+                            metrics.candidate_full_success_count
+                        ),
+                        "accepted_mean_strict_reward": str(
+                            metrics.accepted_mean_strict_reward
+                        ),
+                        "candidate_mean_strict_reward": str(
+                            metrics.candidate_mean_strict_reward
+                        ),
+                        "accepted_safety_violation_count": (
+                            metrics.accepted_safety_violation_count
+                        ),
+                        "candidate_safety_violation_count": (
+                            metrics.candidate_safety_violation_count
+                        ),
+                    }
+                )
         rounds.append(
             {
                 "round_number": record.round_number,
@@ -197,13 +249,7 @@ def build_l3_data(inputs: L3ReportInputs) -> dict[str, object]:
                     "quality_metric_available": False,
                     "note": "Fresh rollout provenance is recorded; no develop quality score is part of the aggregate contract.",
                 },
-                "selection": {
-                    "case_count": decision.metrics.selection_case_count,
-                    "accepted_pass_rate": decision.metrics.accepted_pass_rate,
-                    "candidate_pass_rate": decision.metrics.candidate_pass_rate,
-                    "quality_delta": decision.metrics.quality_delta,
-                    "critical_regressions": decision.metrics.critical_regression_count,
-                },
+                "selection": selection,
                 "accepted_pass_rate_after_gate": accepted_after,
                 "round_cost_amount": str(record.cost_amount),
                 "cumulative_cost_amount": str(cumulative_cost),
@@ -236,13 +282,50 @@ def build_l3_data(inputs: L3ReportInputs) -> dict[str, object]:
             "input_tokens": final.input_tokens,
             "output_tokens": final.output_tokens,
         }
+        if final.schema_version is SchemaVersion.V1ALPHA2:
+            assert final.full_success_count is not None
+            assert final.mean_strict_reward is not None
+            assert final.safety_violation_count is not None
+            assert final.scenario_metrics is not None
+            final_payload.update(
+                {
+                    "full_success_count": final.full_success_count,
+                    "mean_strict_reward": str(final.mean_strict_reward),
+                    "safety_violation_count": final.safety_violation_count,
+                    "scenario_metrics": [
+                        {
+                            "scenario": row.scenario.value,
+                            "case_count": row.case_count,
+                            "full_success_count": row.full_success_count,
+                            "mean_strict_reward": str(row.mean_strict_reward),
+                            "safety_violation_count": row.safety_violation_count,
+                        }
+                        for row in final.scenario_metrics
+                    ],
+                }
+            )
 
     data: dict[str, object] = {
-        "schema_version": "v1alpha1",
+        "schema_version": (
+            "v1alpha2"
+            if any(
+                decision.schema_version is SchemaVersion.V1ALPHA2
+                for decision in inputs.decisions
+            )
+            or (
+                inputs.final_report is not None
+                and inputs.final_report.schema_version is SchemaVersion.V1ALPHA2
+            )
+            else "v1alpha1"
+        ),
         "record_type": "l3_report_data",
         "experiment_id": state.experiment_id,
         "result_kind": (
-            "fixed_offline_reference"
+            "fresh_fixed_execution"
+            if inputs.final_report is not None
+            and inputs.final_report.schema_version is SchemaVersion.V1ALPHA2
+            and inputs.final_report.result_source == "fresh_fixed_execution"
+            else "fixed_offline_reference"
             if all(not decision.network_used for decision in inputs.decisions)
             else "live_measured"
         ),
@@ -369,11 +452,25 @@ def render_l3_html(inputs: L3ReportInputs) -> str:
         outcome = str(value["gate_outcome"])
         reasons = ", ".join(str(item) for item in value["gate_reasons"])
         completeness = "complete" if value["cost_complete"] else "incomplete"
+        shopping_selection = ""
+        if "accepted_full_success_count" in selection:
+            shopping_selection = (
+                "<br><small>Full success</small> "
+                f"{selection['accepted_full_success_count']} / {selection['case_count']}"
+                " → "
+                f"{selection['candidate_full_success_count']} / {selection['case_count']}"
+                "<br><small>Mean strict reward</small> "
+                f"{html.escape(str(selection['accepted_mean_strict_reward']))} → "
+                f"{html.escape(str(selection['candidate_mean_strict_reward']))}"
+                "<br><small>Safety violations</small> "
+                f"{selection['accepted_safety_violation_count']} → "
+                f"{selection['candidate_safety_violation_count']}"
+            )
         rows.append(
             "<tr>"
             f"<th>{value['round_number']}</th><td><code>{html.escape(str(value['parent_skill_sha256'])[:12])}</code> → <code>{html.escape(str(value['candidate_skill_sha256'])[:12])}</code></td>"
             f'<td><span class="badge {html.escape(outcome)}">{html.escape(outcome)}</span><br><small>{html.escape(reasons)}</small></td>'
-            f"<td>{float(selection['accepted_pass_rate']):.1%} → {float(selection['candidate_pass_rate']):.1%}<br>Δ {float(selection['quality_delta']):+.1%}</td>"
+            f"<td>{float(selection['accepted_pass_rate']):.1%} → {float(selection['candidate_pass_rate']):.1%}<br>Δ {float(selection['quality_delta']):+.1%}{shopping_selection}</td>"
             f"<td>{html.escape(str(value['round_cost_amount']))} {html.escape(str(value['cost_currency']))}<br><small>{completeness}</small></td>"
             f"<td>{value['input_tokens']} / {value['output_tokens']}</td>"
             "</tr>"
@@ -381,9 +478,30 @@ def render_l3_html(inputs: L3ReportInputs) -> str:
 
     final = data["final_aggregate"]
     if isinstance(final, dict):
+        shopping_final_html = ""
+        scenario_metrics = final.get("scenario_metrics")
+        if isinstance(scenario_metrics, list):
+            scenario_cards: list[str] = []
+            for scenario in scenario_metrics:
+                if not isinstance(scenario, dict):
+                    raise ValueError("L3 shopping final scenario is invalid")
+                scenario_cards.append(
+                    '<article class="node accepted">'
+                    f"<strong>{html.escape(str(scenario['scenario']))} · "
+                    f"{scenario['case_count']} cases</strong>"
+                    f"<span>Full success {scenario['full_success_count']} / "
+                    f"{scenario['case_count']}</span>"
+                    "<span>Mean strict reward "
+                    f"{html.escape(str(scenario['mean_strict_reward']))}</span>"
+                    f"<span>Safety violations {scenario['safety_violation_count']}</span>"
+                    "</article>"
+                )
+            shopping_final_html = f"""
+<div class="metrics"><div><small>Final full success</small><strong>{final["full_success_count"]} / {final["case_count"]}</strong></div><div><small>Final mean strict reward</small><strong>{html.escape(str(final["mean_strict_reward"]))}</strong></div><div><small>Final safety violations</small><strong>{final["safety_violation_count"]}</strong></div></div>
+<h3>Scenario final aggregates</h3><div class="dag">{"".join(scenario_cards)}</div>"""
         final_html = f"""<section class="panel final"><h2>Final aggregate — isolated after the loop</h2>
 <p class="notice">One-time aggregate only. It did not enter reflection, patch generation, or another round.</p>
-<div class="metrics"><div><small>Cases</small><strong>{final["case_count"]}</strong></div><div><small>Pass rate</small><strong>{float(final["pass_rate"]):.1%}</strong></div><div><small>Result source</small><strong>{html.escape(str(final["result_source"]))}</strong></div><div><small>Final cost</small><strong>{html.escape(str(final["cost_amount"]))} {html.escape(str(final["cost_currency"]))}</strong></div></div>
+<div class="metrics"><div><small>Cases</small><strong>{final["case_count"]}</strong></div><div><small>Pass rate</small><strong>{float(final["pass_rate"]):.1%}</strong></div><div><small>Result source</small><strong>{html.escape(str(final["result_source"]))}</strong></div><div><small>Final cost</small><strong>{html.escape(str(final["cost_amount"]))} {html.escape(str(final["cost_currency"]))}</strong></div></div>{shopping_final_html}
 <p>{html.escape(str(final["measurement_kind"]))} · network_used={str(final["network_used"]).lower()} · cost {("complete" if final["cost_complete"] else "incomplete")}</p></section>"""
     else:
         final_html = """<section class="panel final"><h2>Final aggregate</h2><p class="notice">Not run. This report does not infer or fabricate a final result.</p></section>"""
@@ -394,11 +512,11 @@ def render_l3_html(inputs: L3ReportInputs) -> str:
         sort_keys=True,
         separators=(",", ":"),
     ).replace("<", "\\u003c")
-    result_label = (
-        "Fixed/offline reference"
-        if data["result_kind"] == "fixed_offline_reference"
-        else "Live measured"
-    )
+    result_label = {
+        "fixed_offline_reference": "Fixed/offline reference",
+        "fresh_fixed_execution": "Fresh fixed execution",
+        "live_measured": "Live measured",
+    }[str(data["result_kind"])]
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>L3 bounded evolution report</title>
 <style>
@@ -420,11 +538,16 @@ def write_l3_html(
     destination: Path,
     *,
     registry_root: Path | None = None,
+    registry: SkillRegistry | None = None,
 ) -> Path:
     """Verify one experiment and write its bounded self-contained L3 report."""
 
     rendered = render_l3_html(
-        load_l3_inputs(experiment_root, registry_root=registry_root)
+        load_l3_inputs(
+            experiment_root,
+            registry_root=registry_root,
+            registry=registry,
+        )
     )
     payload = rendered.encode("utf-8")
     lowered = rendered.casefold()

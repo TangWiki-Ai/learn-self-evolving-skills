@@ -120,6 +120,8 @@ def write_skill_manifest(
     files: tuple[str, ...],
     source_version: str = "unspecified",
     provider_compatibility: tuple[str, ...] = ("claude-code-native",),
+    source_kind: str | None = None,
+    tool_protocol_sha256: str | None = None,
 ) -> Path:
     """Write a strict manifest for files already created below ``source``."""
     declared = tuple((relative, source / PurePosixPath(relative)) for relative in files)
@@ -131,6 +133,8 @@ def write_skill_manifest(
         "source_version": source_version,
         "content_sha256": _digest(declared),
         "provider_compatibility": provider_compatibility,
+        "source_kind": source_kind,
+        "tool_protocol_sha256": tool_protocol_sha256,
         "files": [
             {
                 "path": relative,
@@ -141,6 +145,10 @@ def write_skill_manifest(
             for relative in files
         ],
     }
+    if source_kind is None:
+        payload.pop("source_kind")
+    if tool_protocol_sha256 is None:
+        payload.pop("tool_protocol_sha256")
     manifest = SkillManifest.model_validate(payload)
     destination = source / _MANIFEST
     with destination.open("xb") as stream:

@@ -1,0 +1,1 @@
+{"projection_id":"shopping-creator-projection-005","scenario":"multi","reusable_behaviors":["逐项比较多个候选的相同字段","进入详情核对选项而不是依赖搜索摘要"],"action_sequence":["search","click","click"]}

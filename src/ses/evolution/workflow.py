@@ -27,12 +27,20 @@ from ses.evolution.candidate import (
     write_candidate_record,
 )
 from ses.evolution.diagnosis import (
+    RETURN_DIAGNOSIS_POLICY,
+    FailureDiagnosisPolicy,
     build_failure_card_set,
     write_failure_card_set,
 )
-from ses.evolution.updater import UPDATER_SKILL_SPEC, Updater, UpdaterRequest
+from ses.evolution.updater import (
+    RETURN_UPDATER_POLICY,
+    Updater,
+    UpdaterPolicy,
+    UpdaterRequest,
+)
 from ses.evolution.workspace import create_updater_workspace
 from ses.skills.installer import normalized_skill_sha256
+from ses.skills.static_gate import DEFAULT_STATIC_GATE_POLICY, StaticGatePolicy
 
 
 class EvolutionWorkflowError(ValueError):
@@ -100,6 +108,7 @@ def publish_candidate_bundle(
     card_set: FailureCardSet,
     patch: Patch,
     output_root: Path,
+    static_gate_policy: StaticGatePolicy = DEFAULT_STATIC_GATE_POLICY,
 ) -> CandidateArtifact:
     """Atomically publish a pre-reviewed Patch and its complete audit bundle."""
     output_root = _validate_destination(parent_dir, output_root)
@@ -124,6 +133,7 @@ def publish_candidate_bundle(
             evidence_path=bundled_evidence,
             output_dir=staging / "skill",
             expected_parent_sha256=patch.parent_skill_sha256,
+            static_gate_policy=static_gate_policy,
         )
         write_candidate_record(staging / "candidate.json", candidate)
         os.replace(staging, output_root)
@@ -142,8 +152,15 @@ def run_evolution_workflow(
     updater: Updater,
     mode: Literal["fixed", "live"],
     workspace_root: Path | None = None,
+    diagnosis_policy: FailureDiagnosisPolicy = RETURN_DIAGNOSIS_POLICY,
+    updater_policy: UpdaterPolicy = RETURN_UPDATER_POLICY,
+    static_gate_policy: StaticGatePolicy = DEFAULT_STATIC_GATE_POLICY,
 ) -> EvolutionPipelineSummary:
     """Analyze, propose, validate, gate, and atomically publish one bundle."""
+    if diagnosis_policy.policy_id != updater_policy.policy_id:
+        raise EvolutionWorkflowError(
+            "Diagnosis and Updater policies must target the same domain"
+        )
     output_root = _validate_destination(parent_dir, output_root)
     workspace_root = _validate_workspace_root(parent_dir, output_root, workspace_root)
 
@@ -153,12 +170,15 @@ def run_evolution_workflow(
     try:
         bundled_evidence = staging / "failure-evidence.json"
         shutil.copyfile(evidence_path, bundled_evidence, follow_symlinks=False)
-        card_set = build_failure_card_set(bundled_evidence)
+        card_set = build_failure_card_set(
+            bundled_evidence,
+            policy=diagnosis_policy,
+        )
         cards_path = staging / "failure-cards.json"
         write_failure_card_set(cards_path, card_set)
 
         spec_path = staging / ".updater-skill-spec.md"
-        spec_path.write_text(UPDATER_SKILL_SPEC, encoding="utf-8")
+        spec_path.write_text(updater_policy.skill_spec, encoding="utf-8")
         updater_workspace = create_updater_workspace(
             failure_cards_path=cards_path,
             skill_spec_path=spec_path,
@@ -175,6 +195,7 @@ def run_evolution_workflow(
                 cards=card_set.cards,
                 parent_files=parent_files,
                 parent_skill_sha256=parent_hash,
+                policy=updater_policy,
             )
         )
         updater_workspace.cleanup()
@@ -190,6 +211,8 @@ def run_evolution_workflow(
             evidence_path=bundled_evidence,
             output_dir=staging / "skill",
             expected_parent_sha256=parent_hash,
+            diagnosis_policy=diagnosis_policy,
+            static_gate_policy=static_gate_policy,
         )
         candidate_path = staging / "candidate.json"
         write_candidate_record(candidate_path, candidate)

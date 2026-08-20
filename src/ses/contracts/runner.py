@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import Field, JsonValue, field_validator, model_validator
 
@@ -21,6 +21,7 @@ from ses.contracts.primitives import (
     IterationId,
     NonEmptyStr,
     RunId,
+    SchemaVersion,
     StrictNonNegativeInt,
     UtcDateTime,
 )
@@ -65,6 +66,21 @@ class RunArtifacts(ContractModel):
     after_snapshot: ArtifactRef | None = None
     state_diff: ArtifactRef | None = None
     grade: ArtifactRef | None = None
+    domain_result: ArtifactRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    shopping_raw_reward: ArtifactRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    shopping_metric: ArtifactRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    shopping_safety_evidence: tuple[ArtifactRef, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    shopping_action_receipts: tuple[ArtifactRef, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
 
 
 class RunConfig(ContractModel):
@@ -203,6 +219,15 @@ class PairedCaseResult(ContractModel):
     skill_state_diff: ArtifactRef | None = None
     baseline_grade: ArtifactRef | None = None
     skill_grade: ArtifactRef | None = None
+    comparable: bool | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    baseline_domain_result: ArtifactRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    skill_domain_result: ArtifactRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("baseline_cost_amount", "skill_cost_amount", mode="before")
     @classmethod
@@ -236,20 +261,36 @@ class PairedCaseResult(ContractModel):
             for value in (self.baseline_cost_amount, self.skill_cost_amount)
         ):
             raise ValueError("paired row costs must be finite and nonnegative")
-        for status, refs in (
+        for status, trace, state_diff, domain_result, grade in (
             (
                 self.baseline_status,
-                (self.baseline_trace, self.baseline_state_diff, self.baseline_grade),
+                self.baseline_trace,
+                self.baseline_state_diff,
+                self.baseline_domain_result,
+                self.baseline_grade,
             ),
             (
                 self.skill_status,
-                (self.skill_trace, self.skill_state_diff, self.skill_grade),
+                self.skill_trace,
+                self.skill_state_diff,
+                self.skill_domain_result,
+                self.skill_grade,
             ),
         ):
-            if status in (RunnerStatus.PASS, RunnerStatus.AGENT_FAIL) and any(
-                ref is None for ref in refs
-            ):
-                raise ValueError("completed paired outcomes require full evidence")
+            if status in (RunnerStatus.PASS, RunnerStatus.AGENT_FAIL):
+                if (
+                    trace is None
+                    or grade is None
+                    or (state_diff is None and domain_result is None)
+                ):
+                    raise ValueError("completed paired outcomes require full evidence")
+        if self.comparable is not None:
+            completed = {RunnerStatus.PASS, RunnerStatus.AGENT_FAIL}
+            expected_comparable = (
+                self.baseline_status in completed and self.skill_status in completed
+            )
+            if self.comparable is not expected_comparable:
+                raise ValueError("paired comparability is inconsistent with statuses")
         return self
 
 
@@ -305,6 +346,13 @@ class PairedComparison(VersionedRecord):
     baseline_latency_ms: StrictNonNegativeInt
     skill_latency_ms: StrictNonNegativeInt
     cases: tuple[PairedCaseResult, ...]
+    shopping_metrics: ArtifactRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    supported_schema_versions: ClassVar[frozenset[SchemaVersion]] = frozenset(
+        {SchemaVersion.V1ALPHA1, SchemaVersion.V1ALPHA2}
+    )
 
     @field_validator("baseline_cost_amount", "skill_cost_amount", mode="before")
     @classmethod
@@ -315,6 +363,37 @@ class PairedComparison(VersionedRecord):
 
     @model_validator(mode="after")
     def _validate_pair_set(self) -> PairedComparison:
+        if self.schema_version is SchemaVersion.V1ALPHA1:
+            if self.shopping_metrics is not None or any(
+                row.comparable is not None
+                or row.baseline_domain_result is not None
+                or row.skill_domain_result is not None
+                for row in self.cases
+            ):
+                raise ValueError(
+                    "v1alpha1 paired comparison cannot carry shopping data"
+                )
+        else:
+            if self.shopping_metrics is None or any(
+                row.comparable is None for row in self.cases
+            ):
+                raise ValueError(
+                    "v1alpha2 shopping pair requires metrics and comparability"
+                )
+            if self.shopping_metrics.root is not ArtifactRoot.RUN:
+                raise ValueError("shopping pair metrics must use the run artifact root")
+            completed = {RunnerStatus.PASS, RunnerStatus.AGENT_FAIL}
+            if any(
+                (
+                    row.baseline_status in completed
+                    and row.baseline_domain_result is None
+                )
+                or (row.skill_status in completed and row.skill_domain_result is None)
+                for row in self.cases
+            ):
+                raise ValueError(
+                    "v1alpha2 completed shopping outcomes require domain results"
+                )
         if not self.cases or len({item.case_id for item in self.cases}) != len(
             self.cases
         ):
@@ -340,11 +419,21 @@ class PairedComparison(VersionedRecord):
             for run_id, refs in (
                 (
                     self.baseline_run_id,
-                    (row.baseline_trace, row.baseline_state_diff, row.baseline_grade),
+                    (
+                        row.baseline_trace,
+                        row.baseline_state_diff,
+                        row.baseline_domain_result,
+                        row.baseline_grade,
+                    ),
                 ),
                 (
                     self.skill_run_id,
-                    (row.skill_trace, row.skill_state_diff, row.skill_grade),
+                    (
+                        row.skill_trace,
+                        row.skill_state_diff,
+                        row.skill_domain_result,
+                        row.skill_grade,
+                    ),
                 ),
             ):
                 prefix = (run_id, "artifacts", row.case_id, "iteration-0")
@@ -355,10 +444,15 @@ class PairedComparison(VersionedRecord):
                     if ref is not None
                 ):
                     raise ValueError("paired case evidence path does not match its run")
-        total = len(self.cases)
+        comparable = (
+            tuple(row for row in self.cases if row.comparable)
+            if self.schema_version is SchemaVersion.V1ALPHA2
+            else self.cases
+        )
+        total = len(comparable)
         expected_values = (
-            sum(row.baseline_score for row in self.cases) / total,
-            sum(row.skill_score for row in self.cases) / total,
+            sum(row.baseline_score for row in comparable) / total if total else 0.0,
+            sum(row.skill_score for row in comparable) / total if total else 0.0,
             sum(row.baseline_input_tokens for row in self.cases),
             sum(row.skill_input_tokens for row in self.cases),
             sum(row.baseline_output_tokens for row in self.cases),

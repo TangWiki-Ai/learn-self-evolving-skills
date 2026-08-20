@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from types import MappingProxyType
+from typing import Final, Literal
 
 from ses.contracts import (
     FAILURE_ATTRIBUTION_ORDER,
+    SHOPPING_FAILURE_CATEGORY_BY_SUBCODE,
     ArtifactRef,
     EvidenceRef,
     FailureAttribution,
@@ -58,6 +61,16 @@ class FixtureAnalysis:
     reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class FailureDiagnosisPolicy:
+    """Domain classification rules layered over the fixed attribution order."""
+
+    policy_id: Literal["product-returns-v1", "shopping-v1"]
+    suggested_scopes: Mapping[FailureCategory, str]
+    require_shopping_evidence: bool
+    synthetic_reason: str
+
+
 _SUGGESTED_SCOPES: Final[dict[FailureCategory, str]] = {
     FailureCategory.TRIGGER: "the Skill description or one trigger instruction",
     FailureCategory.PATTERN: "one reusable workflow instruction",
@@ -66,6 +79,31 @@ _SUGGESTED_SCOPES: Final[dict[FailureCategory, str]] = {
     FailureCategory.TIMING: "one action-ordering instruction",
     FailureCategory.SAFETY: "one safety guardrail",
 }
+
+_SHOPPING_SUGGESTED_SCOPES: Final[dict[FailureCategory, str]] = {
+    FailureCategory.TRIGGER: "one pre-purchase applicability instruction",
+    FailureCategory.PATTERN: "one constraint, search, option, or detail-check step",
+    FailureCategory.OVERLOAD: "one shopper-question decision rule",
+    FailureCategory.TERMINOLOGY: "one public-facing terminology guardrail",
+    FailureCategory.TIMING: "one clarification, purchase, or terminal-ordering rule",
+    FailureCategory.SAFETY: "one authorization or untrusted-catalog guardrail",
+}
+
+RETURN_DIAGNOSIS_POLICY = FailureDiagnosisPolicy(
+    policy_id="product-returns-v1",
+    suggested_scopes=MappingProxyType(_SUGGESTED_SCOPES),
+    require_shopping_evidence=False,
+    synthetic_reason="Fixed Lesson 8 evidence with an explicit category label.",
+)
+
+SHOPPING_DIAGNOSIS_POLICY = FailureDiagnosisPolicy(
+    policy_id="shopping-v1",
+    suggested_scopes=MappingProxyType(_SHOPPING_SUGGESTED_SCOPES),
+    require_shopping_evidence=True,
+    synthetic_reason=(
+        "Fixed shopping evidence with an explicit reviewed subcode and domain refs."
+    ),
+)
 
 
 def _attribute_fixture_case(case: FailureEvidenceCase) -> Diagnosis:
@@ -133,7 +171,11 @@ def attribute_failure(observation: FailureObservation) -> Diagnosis:
     )
 
 
-def analyze_fixture(fixture: FailureEvidenceFixture) -> FixtureAnalysis:
+def analyze_fixture(
+    fixture: FailureEvidenceFixture,
+    *,
+    policy: FailureDiagnosisPolicy = RETURN_DIAGNOSIS_POLICY,
+) -> FixtureAnalysis:
     """Check whether a fixture is eligible for Skill-root classification."""
     infra = [
         case
@@ -199,6 +241,45 @@ def analyze_fixture(fixture: FailureEvidenceFixture) -> FixtureAnalysis:
                 + ", ".join(ambiguous)
             ),
         )
+    shopping_cases = [
+        case.case_key
+        for case in fixture.cases
+        if case.shopping_subcode is not None
+        or case.episode_evidence is not None
+        or case.raw_reward_evidence is not None
+        or case.metric_evidence is not None
+        or case.safety_evidence
+    ]
+    if shopping_cases and not policy.require_shopping_evidence:
+        return FixtureAnalysis(
+            cards=(),
+            patch_allowed=False,
+            reason=(
+                "shopping evidence requires the explicit shopping diagnosis policy "
+                "for " + ", ".join(shopping_cases)
+            ),
+        )
+    if policy.require_shopping_evidence:
+        incomplete_shopping = [
+            case.case_key
+            for case in failed
+            if case.shopping_subcode is None
+            or case.failure_categories
+            != (SHOPPING_FAILURE_CATEGORY_BY_SUBCODE[case.shopping_subcode],)
+            or case.episode_evidence is None
+            or case.raw_reward_evidence is None
+            or case.metric_evidence is None
+            or not case.safety_evidence
+        ]
+        if incomplete_shopping:
+            return FixtureAnalysis(
+                cards=(),
+                patch_allowed=False,
+                reason=(
+                    "shopping diagnosis requires a mapped subcode and episode, raw, "
+                    "metric, and safety evidence for " + ", ".join(incomplete_shopping)
+                ),
+            )
     return FixtureAnalysis(
         cards=(),
         patch_allowed=True,
@@ -206,32 +287,79 @@ def analyze_fixture(fixture: FailureEvidenceFixture) -> FixtureAnalysis:
     )
 
 
-def analyze_failure_evidence(path: Path) -> FixtureAnalysis:
+def analyze_failure_evidence(
+    path: Path,
+    *,
+    policy: FailureDiagnosisPolicy = RETURN_DIAGNOSIS_POLICY,
+) -> FixtureAnalysis:
     """Create deterministic Failure Cards from explicitly classified evidence."""
     fixture, _, artifact = load_failure_evidence_verified(path)
-    return _analyze_failure_evidence(fixture, artifact)
+    return _analyze_failure_evidence(fixture, artifact, policy=policy)
 
 
 def _analyze_failure_evidence(
     fixture: FailureEvidenceFixture,
     artifact: ArtifactRef,
+    *,
+    policy: FailureDiagnosisPolicy,
 ) -> FixtureAnalysis:
-    eligibility = analyze_fixture(fixture)
+    eligibility = analyze_fixture(fixture, policy=policy)
     if not eligibility.patch_allowed:
         return eligibility
 
     cards: list[FailureCard] = []
-    category_counts: dict[FailureCategory, int] = {}
+    identity_counts: dict[str, int] = {}
     for index, case in enumerate(fixture.cases):
         if case.skill_status is not RunnerStatus.AGENT_FAIL:
             continue
         category = case.failure_categories[0]
+        subcode = case.shopping_subcode
         diagnosis = _attribute_fixture_case(case)
-        category_counts[category] = category_counts.get(category, 0) + 1
+        identity = (
+            subcode.value.replace("_", "-") if subcode is not None else category.value
+        )
+        identity_counts[identity] = identity_counts.get(identity, 0) + 1
         suffix = (
-            category.value
-            if category_counts[category] == 1
-            else f"{category.value}-{case.case_key}"
+            identity
+            if identity_counts[identity] == 1
+            else f"{identity}-{case.case_key}"
+        )
+        episode_evidence = (
+            (
+                EvidenceRef(
+                    artifact=artifact,
+                    json_pointer=f"/cases/{index}/episode_evidence",
+                ),
+            )
+            if case.episode_evidence is not None
+            else ()
+        )
+        raw_reward_evidence = (
+            (
+                EvidenceRef(
+                    artifact=artifact,
+                    json_pointer=f"/cases/{index}/raw_reward_evidence",
+                ),
+            )
+            if case.raw_reward_evidence is not None
+            else ()
+        )
+        metric_evidence = (
+            (
+                EvidenceRef(
+                    artifact=artifact,
+                    json_pointer=f"/cases/{index}/metric_evidence",
+                ),
+            )
+            if case.metric_evidence is not None
+            else ()
+        )
+        safety_evidence = tuple(
+            EvidenceRef(
+                artifact=artifact,
+                json_pointer=f"/cases/{index}/safety_evidence/{evidence_index}",
+            )
+            for evidence_index, _ in enumerate(case.safety_evidence)
         )
         cards.append(
             FailureCard(
@@ -258,13 +386,21 @@ def _analyze_failure_evidence(
                 confidence=1.0
                 if fixture.provenance is FailureProvenance.SYNTHETIC
                 else 0.8,
-                suggested_scope=_SUGGESTED_SCOPES[category],
+                suggested_scope=policy.suggested_scopes[category],
                 diagnosis_protocol="failure-attribution-v1",
                 synthetic_reason=(
-                    "Fixed Lesson 8 evidence with an explicit category label."
+                    policy.synthetic_reason
                     if fixture.provenance is FailureProvenance.SYNTHETIC
                     else None
                 ),
+                shopping_subcode=subcode,
+                shopping_subcode_protocol=(
+                    "shopping-failure-subcodes-v1" if subcode is not None else None
+                ),
+                episode_evidence=episode_evidence,
+                raw_reward_evidence=raw_reward_evidence,
+                metric_evidence=metric_evidence,
+                safety_evidence=safety_evidence,
             )
         )
     return FixtureAnalysis(
@@ -274,10 +410,14 @@ def _analyze_failure_evidence(
     )
 
 
-def build_failure_card_set(path: Path) -> FailureCardSet:
+def build_failure_card_set(
+    path: Path,
+    *,
+    policy: FailureDiagnosisPolicy = RETURN_DIAGNOSIS_POLICY,
+) -> FailureCardSet:
     """Build the persisted card-set record or reject ineligible evidence."""
     fixture, _, artifact = load_failure_evidence_verified(path)
-    analysis = _analyze_failure_evidence(fixture, artifact)
+    analysis = _analyze_failure_evidence(fixture, artifact, policy=policy)
     if not analysis.patch_allowed:
         raise DiagnosisError(analysis.reason)
     return FailureCardSet(

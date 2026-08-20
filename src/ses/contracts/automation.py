@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -15,13 +15,18 @@ from ses.contracts.evolution import FailureCategory, GateOutcome
 from ses.contracts.primitives import (
     CurrencyCode,
     NonEmptyStr,
+    SchemaVersion,
     StrictNonNegativeInt,
     UtcDateTime,
 )
+from ses.contracts.shopping import ShoppingScenario
 from ses.contracts.skill import MeasurementKind
 
 FINAL_REPORT_PROTOCOL_SHA256 = hashlib.sha256(
     b"ses-final-aggregate-report:v1alpha1"
+).hexdigest()
+CAPSTONE_FINAL_REPORT_PROTOCOL_SHA256 = hashlib.sha256(
+    b"ses-shopping-final-aggregate-report:v1alpha2"
 ).hexdigest()
 _FIXED_FINAL_ENGINE_ID = "fixed-offline-engine"
 _FIXED_FINAL_SIMULATOR_ID = "fixed-offline-simulator"
@@ -35,6 +40,53 @@ class AutoLoopStatus(StrEnum):
     RUNNING = "running"
     STOPPED = "stopped"
     FINAL_COMPLETE = "final_complete"
+    FAILED_FINAL = "failed_final"
+
+
+class FinalLifecycle(StrEnum):
+    """Whether final runs inline for legacy lessons or as a capstone command."""
+
+    INLINE_LEGACY = "inline_legacy"
+    INDEPENDENT_CAPSTONE = "independent_capstone"
+
+
+class SplitLockFormat(StrEnum):
+    """Wire format used to validate protected selection and final locks."""
+
+    HOLDOUT_MANIFEST = "holdout_manifest"
+    CONTENT_ADDRESSED = "content_addressed"
+
+
+class OpaqueProtectedSplitLock(VersionedRecord):
+    """Public, identity-free inventory bound to one protected experiment split."""
+
+    record_type: Literal["opaque_protected_split_lock"]
+    experiment_id: str = Field(pattern=r"^experiment-[a-z0-9-]+$")
+    profile_sha256: Sha256Digest
+    mode: Literal["fixed", "live"]
+    measurement_kind: MeasurementKind
+    split: Literal["selection", "final"]
+    case_count: Annotated[int, Field(strict=True, ge=1)]
+    opaque_slots: tuple[NonEmptyStr, ...]
+    aggregate_commitment_sha256: Sha256Digest
+    generated_at: UtcDateTime
+
+    @model_validator(mode="after")
+    def _identity_free_inventory(self) -> OpaqueProtectedSplitLock:
+        expected_measurement = (
+            MeasurementKind.SYNTHETIC_OFFLINE
+            if self.mode == "fixed"
+            else MeasurementKind.LIVE_MEASURED
+        )
+        if self.measurement_kind is not expected_measurement:
+            raise ValueError("protected split mode and measurement do not match")
+        expected_slots = tuple(
+            f"opaque-{self.split}-{index:03d}"
+            for index in range(1, self.case_count + 1)
+        )
+        if self.opaque_slots != expected_slots:
+            raise ValueError("protected split slots must be complete and opaque")
+        return self
 
 
 class AutoStopReason(StrEnum):
@@ -53,6 +105,10 @@ class AutoStopReason(StrEnum):
 
 class AutoEvolveConfig(VersionedRecord):
     """Immutable guardrails and protocol locks for one experiment."""
+
+    content_hash_exclude_if_none: ClassVar[frozenset[str]] = frozenset(
+        {"final_lifecycle", "profile_sha256", "split_lock_format"}
+    )
 
     record_type: Literal["auto_evolve_config"]
     experiment_id: str = Field(pattern=r"^experiment-[a-z0-9-]+$")
@@ -75,6 +131,18 @@ class AutoEvolveConfig(VersionedRecord):
     final_judge_id: NonEmptyStr = _FIXED_FINAL_JUDGE_ID
     final_provider_id: NonEmptyStr = _FIXED_FINAL_PROVIDER_ID
     final_report_protocol_sha256: Sha256Digest = FINAL_REPORT_PROTOCOL_SHA256
+    final_lifecycle: FinalLifecycle | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    profile_sha256: Sha256Digest | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    split_lock_format: SplitLockFormat | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @field_validator("max_cost_amount", mode="before")
     @classmethod
@@ -99,6 +167,30 @@ class AutoEvolveConfig(VersionedRecord):
             fixed_protocol or self.final_provider_id == _FIXED_FINAL_PROVIDER_ID
         ):
             raise ValueError("live final requires explicit provider and protocol IDs")
+        if (self.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE) != (
+            self.profile_sha256 is not None
+        ):
+            raise ValueError(
+                "independent capstone lifecycle and profile hash must be locked together"
+            )
+        if self.final_lifecycle is FinalLifecycle.INLINE_LEGACY:
+            raise ValueError("legacy lifecycle uses the absent default contract fields")
+        if self.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE:
+            if self.split_lock_format is not SplitLockFormat.CONTENT_ADDRESSED:
+                raise ValueError(
+                    "independent capstone requires content-addressed split locks"
+                )
+            if self.selection_lock_sha256 == self.final_lock_sha256:
+                raise ValueError("selection and final require distinct split locks")
+            if (
+                self.final_report_protocol_sha256
+                != CAPSTONE_FINAL_REPORT_PROTOCOL_SHA256
+            ):
+                raise ValueError(
+                    "independent capstone requires the v1alpha2 final report protocol"
+                )
+        elif self.split_lock_format is not None:
+            raise ValueError("legacy config uses the default holdout lock format")
         return self
 
 
@@ -112,7 +204,11 @@ class AutoRolloutReceipt(VersionedRecord):
     parent_skill_sha256: Sha256Digest
     measurement_kind: MeasurementKind
     network_used: bool
-    source_kind: Literal["fixed_reference_fixture", "fresh_develop_run"]
+    source_kind: Literal[
+        "fixed_reference_fixture",
+        "fresh_fixed_execution",
+        "fresh_develop_run",
+    ]
     executed_at: UtcDateTime
     failure_evidence: ArtifactRef
     cost_amount: Decimal
@@ -132,7 +228,10 @@ class AutoRolloutReceipt(VersionedRecord):
     def _valid_rollout(self) -> AutoRolloutReceipt:
         if not self.cost_amount.is_finite() or self.cost_amount < 0:
             raise ValueError("rollout cost must be finite and nonnegative")
-        if self.source_kind == "fixed_reference_fixture" and (
+        if self.source_kind in {
+            "fixed_reference_fixture",
+            "fresh_fixed_execution",
+        } and (
             self.measurement_kind is not MeasurementKind.SYNTHETIC_OFFLINE
             or self.network_used
         ):
@@ -188,6 +287,31 @@ class AutoRoundRecord(ContractModel):
         return self
 
 
+class ShoppingFinalScenarioMetrics(ContractModel):
+    """Aggregate-safe final metrics for one three-case shopping scenario."""
+
+    scenario: ShoppingScenario
+    case_count: Literal[3]
+    full_success_count: Annotated[int, Field(strict=True, ge=0, le=3)]
+    mean_strict_reward: Decimal
+    safety_violation_count: StrictNonNegativeInt
+
+    @field_validator("mean_strict_reward", mode="before")
+    @classmethod
+    def _decimal_mean(cls, value: object) -> object:
+        if not isinstance(value, (str, Decimal)):
+            raise ValueError("shopping final means must use decimal strings")
+        return value
+
+    @model_validator(mode="after")
+    def _valid_scenario(self) -> ShoppingFinalScenarioMetrics:
+        if not self.mean_strict_reward.is_finite() or not Decimal(
+            0
+        ) <= self.mean_strict_reward <= Decimal(1):
+            raise ValueError("shopping final strict means must be from zero to one")
+        return self
+
+
 class FinalAggregateReport(VersionedRecord):
     """Aggregate-only result from the final split's single permitted run."""
 
@@ -198,7 +322,11 @@ class FinalAggregateReport(VersionedRecord):
     mode: Literal["fixed", "live"]
     measurement_kind: MeasurementKind
     network_used: bool
-    result_source: Literal["fixed_reference", "canonical_live"]
+    result_source: Literal[
+        "fixed_reference",
+        "fresh_fixed_execution",
+        "canonical_live",
+    ]
     executed_at: UtcDateTime
     case_count: Literal[12]
     pass_count: Annotated[int, Field(strict=True, ge=0, le=12)]
@@ -209,11 +337,30 @@ class FinalAggregateReport(VersionedRecord):
     input_tokens: StrictNonNegativeInt
     output_tokens: StrictNonNegativeInt
     private_results_sha256: Sha256Digest
+    full_success_count: Annotated[int, Field(strict=True, ge=0, le=12)] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    mean_strict_reward: Decimal | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    safety_violation_count: StrictNonNegativeInt | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    scenario_metrics: tuple[ShoppingFinalScenarioMetrics, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
 
-    @field_validator("cost_amount", mode="before")
+    supported_schema_versions: ClassVar[frozenset[SchemaVersion]] = frozenset(
+        {SchemaVersion.V1ALPHA1, SchemaVersion.V1ALPHA2}
+    )
+
+    @field_validator("cost_amount", "mean_strict_reward", mode="before")
     @classmethod
     def _decimal_cost(cls, value: object) -> object:
-        if not isinstance(value, (str, Decimal)):
+        if value is not None and not isinstance(value, (str, Decimal)):
             raise ValueError("final cost must use a decimal string")
         return value
 
@@ -231,9 +378,10 @@ class FinalAggregateReport(VersionedRecord):
         if self.measurement_kind is not expected:
             raise ValueError("final mode and measurement kind do not match")
         if self.mode == "fixed" and (
-            self.network_used or self.result_source != "fixed_reference"
+            self.network_used
+            or self.result_source not in {"fixed_reference", "fresh_fixed_execution"}
         ):
-            raise ValueError("fixed final must remain an offline reference")
+            raise ValueError("fixed final must remain offline")
         if self.mode == "live" and (
             not self.network_used
             or self.result_source != "canonical_live"
@@ -242,6 +390,50 @@ class FinalAggregateReport(VersionedRecord):
             raise ValueError(
                 "live final requires canonical network evidence and complete cost"
             )
+        shopping_values = (
+            self.full_success_count,
+            self.mean_strict_reward,
+            self.safety_violation_count,
+            self.scenario_metrics or None,
+        )
+        if self.schema_version is SchemaVersion.V1ALPHA1:
+            if any(value is not None for value in shopping_values):
+                raise ValueError("v1alpha1 final cannot contain shopping aggregates")
+            return self
+        if any(value is None for value in shopping_values):
+            raise ValueError("v1alpha2 final requires complete shopping aggregates")
+        assert self.full_success_count is not None
+        assert self.mean_strict_reward is not None
+        assert self.safety_violation_count is not None
+        if tuple(row.scenario for row in self.scenario_metrics) != tuple(
+            ShoppingScenario
+        ):
+            raise ValueError("shopping final requires every scenario exactly once")
+        if (
+            len(self.scenario_metrics) * 3 != self.case_count
+            or sum(row.full_success_count for row in self.scenario_metrics)
+            != self.full_success_count
+            or sum(row.safety_violation_count for row in self.scenario_metrics)
+            != self.safety_violation_count
+            or self.pass_count != self.full_success_count
+        ):
+            raise ValueError("shopping final strata do not match aggregate counts")
+        expected_strict = (
+            sum(
+                (
+                    row.mean_strict_reward * row.case_count
+                    for row in self.scenario_metrics
+                ),
+                Decimal(0),
+            )
+            / self.case_count
+        )
+        if (
+            not self.mean_strict_reward.is_finite()
+            or not Decimal(0) <= self.mean_strict_reward <= Decimal(1)
+            or self.mean_strict_reward != expected_strict
+        ):
+            raise ValueError("shopping final strict strata do not match the aggregate")
         return self
 
 
@@ -314,6 +506,45 @@ class FinalConsumedCheckpoint(VersionedRecord):
     final_run_receipt_sha256: Sha256Digest
     aggregate_report_sha256: Sha256Digest
     private_results_sha256: Sha256Digest
+
+
+class CapstoneFinalReceipt(VersionedRecord):
+    """Public eligibility receipt for one completed capstone final run."""
+
+    record_type: Literal["capstone_final_receipt"]
+    experiment_id: str = Field(pattern=r"^experiment-[a-z0-9-]+$")
+    lineage_id: str = Field(pattern=r"^lineage-[a-z0-9-]+$")
+    profile_sha256: Sha256Digest
+    subject_skill_sha256: Sha256Digest
+    measurement_kind: MeasurementKind
+    completed: Literal[True]
+    safety_violation_count: StrictNonNegativeInt
+    result_origin: Literal["fresh_fixed_execution", "live_measured"]
+    aggregate: ArtifactRef
+    final_run_receipt: ArtifactRef
+    one_time_checkpoint: ArtifactRef
+
+    @model_validator(mode="after")
+    def _origin_matches_measurement(self) -> CapstoneFinalReceipt:
+        expected = (
+            MeasurementKind.SYNTHETIC_OFFLINE
+            if self.result_origin == "fresh_fixed_execution"
+            else MeasurementKind.LIVE_MEASURED
+        )
+        if self.measurement_kind is not expected:
+            raise ValueError("capstone final origin and measurement do not match")
+        if (
+            len(
+                {
+                    self.aggregate.path,
+                    self.final_run_receipt.path,
+                    self.one_time_checkpoint.path,
+                }
+            )
+            != 3
+        ):
+            raise ValueError("capstone final evidence references must be distinct")
+        return self
 
 
 class AutoEvolveState(VersionedRecord):
@@ -404,9 +635,12 @@ class AutoEvolveState(VersionedRecord):
                 raise ValueError("running loop cannot have a stop receipt")
         elif self.stop_reason is None or self.stopped_at is None:
             raise ValueError("stopped loop requires a reason and timestamp")
-        if self.status is AutoLoopStatus.FINAL_COMPLETE:
+        if self.status in {
+            AutoLoopStatus.FINAL_COMPLETE,
+            AutoLoopStatus.FAILED_FINAL,
+        }:
             if self.final_report is None:
-                raise ValueError("completed final requires its aggregate report")
+                raise ValueError("terminal final requires its aggregate report")
         elif self.final_report is not None:
             raise ValueError("final report cannot exist before final completion")
         elif (
@@ -460,6 +694,7 @@ class PortfolioManifest(VersionedRecord):
 
 
 __all__ = [
+    "CAPSTONE_FINAL_REPORT_PROTOCOL_SHA256",
     "FINAL_REPORT_PROTOCOL_SHA256",
     "AutoEvolveConfig",
     "AutoEvolveState",
@@ -467,9 +702,14 @@ __all__ = [
     "AutoRolloutReceipt",
     "AutoRoundRecord",
     "AutoStopReason",
+    "CapstoneFinalReceipt",
     "FinalAggregateReport",
     "FinalConsumedCheckpoint",
+    "FinalLifecycle",
     "FinalRunReceipt",
+    "OpaqueProtectedSplitLock",
     "PortfolioFile",
     "PortfolioManifest",
+    "ShoppingFinalScenarioMetrics",
+    "SplitLockFormat",
 ]

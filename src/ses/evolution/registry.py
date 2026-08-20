@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+import re
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -32,7 +33,35 @@ from ses.evolution.registry_internal import (
 from ses.evolution.registry_replay import _RegistryReplay
 from ses.evolution.registry_store import _RegistryStore
 from ses.skills.installer import normalized_skill_sha256
-from ses.skills.static_gate import run_static_gate
+from ses.skills.static_gate import StaticGateReport, run_static_gate
+
+_SAFE_LINEAGE = re.compile(r"^lineage-[a-z0-9][a-z0-9-]{0,95}$")
+
+
+class _LineageAwareRegistryReplay(_RegistryReplay):
+    """Accept the legacy initialization fingerprint and the explicit-lineage form."""
+
+    def _verify_command_identity(self, event: RegistryEvent) -> None:
+        if event.event_type is not RegistryEventType.INITIALIZED:
+            super()._verify_command_identity(event)
+            return
+        if (
+            not _SAFE_COMMAND.fullmatch(event.command_id)
+            or event.event_id
+            != f"event-{event.sequence:06d}-{event.command_sha256[:8]}"
+        ):
+            raise RegistryError("registry event command identity is invalid")
+        legacy: dict[str, object] = {
+            "action": "initialize",
+            "evidence_sha256": [reference.sha256 for reference in event.evidence],
+            "skill_sha256": event.version_sha256,
+        }
+        lineage_bound = {**legacy, "lineage_id": event.lineage_id}
+        accepted_digests = {_canonical_digest(lineage_bound)}
+        if event.lineage_id == f"lineage-{event.version_sha256[:16]}":
+            accepted_digests.add(_canonical_digest(legacy))
+        if event.command_sha256 not in accepted_digests:
+            raise RegistryError("registry event command fingerprint is invalid")
 
 
 class SkillRegistry:
@@ -45,6 +74,7 @@ class SkillRegistry:
         registry_id: str = "registry-primary",
         checkpoint_path: Path | None = None,
         checkpoint_key: bytes | None = None,
+        initial_static_gate: Callable[[Path], StaticGateReport] | None = None,
     ) -> None:
         self._store = _RegistryStore(
             root,
@@ -54,10 +84,14 @@ class SkillRegistry:
         )
         self._initial = _InitialEvidenceAuditor(
             self._store,
-            static_gate=lambda source: run_static_gate(source),
+            static_gate=(
+                initial_static_gate
+                if initial_static_gate is not None
+                else lambda source: run_static_gate(source)
+            ),
         )
         self._decision = _GateDecisionAuditor(self._store)
-        self._replay = _RegistryReplay(
+        self._replay = _LineageAwareRegistryReplay(
             self._store,
             self._initial,
             self._decision,
@@ -95,6 +129,7 @@ class SkillRegistry:
         accepted_skill: Path,
         evidence_paths: Sequence[Path],
         occurred_at: datetime,
+        lineage_id: str | None = None,
     ) -> RegistryEvent:
         """Create a lineage from one previously verified accepted Skill."""
 
@@ -107,19 +142,23 @@ class SkillRegistry:
             skill_hash = normalized_skill_sha256(accepted_skill)
         except (OSError, ValueError) as exc:
             raise RegistryError("initial accepted Skill is invalid") from exc
+        selected_lineage = lineage_id or f"lineage-{skill_hash[:16]}"
+        if not _SAFE_LINEAGE.fullmatch(selected_lineage):
+            raise RegistryError("lineage_id must be a safe lineage identifier")
         captured_evidence = tuple(
             (path, self._initial.read_evidence_source(path)) for path in evidence_paths
         )
         evidence_hashes = tuple(
             hashlib.sha256(content).hexdigest() for _, content in captured_evidence
         )
-        command_sha = _canonical_digest(
-            {
-                "action": "initialize",
-                "evidence_sha256": list(evidence_hashes),
-                "skill_sha256": skill_hash,
-            }
-        )
+        command_payload: dict[str, object] = {
+            "action": "initialize",
+            "evidence_sha256": list(evidence_hashes),
+            "skill_sha256": skill_hash,
+        }
+        if lineage_id is not None:
+            command_payload["lineage_id"] = selected_lineage
+        command_sha = _canonical_digest(command_payload)
         if self.events_path.exists():
             state = self.audit()
             existing = _idempotent(state, command_id, command_sha)
@@ -140,9 +179,8 @@ class SkillRegistry:
             for path, content in captured_evidence
         )
         self._initial.validate_initial_evidence(evidence, skill_hash=skill_hash)
-        lineage_id = f"lineage-{skill_hash[:16]}"
         transition = _RegistryTransition(
-            lineage_id=lineage_id,
+            lineage_id=selected_lineage,
             command_id=command_id,
             command_sha256=command_sha,
             occurred_at=occurred_at,
