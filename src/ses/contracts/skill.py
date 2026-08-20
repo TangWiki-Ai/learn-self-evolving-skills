@@ -47,6 +47,12 @@ class SkillArtifactManifest(VersionedRecord):
     source_version: NonEmptyStr = "unspecified"
     content_sha256: Sha256Digest | None = None
     provider_compatibility: tuple[NonEmptyStr, ...] = ("claude-code-native",)
+    source_kind: (
+        Literal["learner_created", "candidate", "reference_fallback"] | None
+    ) = Field(default=None, exclude_if=lambda value: value is None)
+    tool_protocol_sha256: Sha256Digest | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     files: tuple[SkillManifestFile, ...]
 
     @field_validator("provider_compatibility")
@@ -159,6 +165,45 @@ class MeasurementKind(StrEnum):
     LIVE_MEASURED = "live_measured"
 
 
+class AcceptedSkillReleaseManifest(VersionedRecord):
+    """Eligibility proof for one Registry-current installable Skill package."""
+
+    record_type: Literal["accepted_skill_release_manifest"]
+    release_id: str = Field(pattern=r"^release-[a-z0-9-]+$")
+    registry_id: str = Field(pattern=r"^registry-[a-z0-9-]+$")
+    lineage_id: str = Field(pattern=r"^lineage-[a-z0-9-]+$")
+    accepted_skill_sha256: Sha256Digest
+    package_sha256: Sha256Digest
+    current_event_sha256: Sha256Digest
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    version: NonEmptyStr
+    measurement_kind: MeasurementKind
+    result_origin: Literal["fresh_fixed_execution", "live_measured"]
+    released_at: UtcDateTime
+    registry_events: ArtifactRef
+    registry_checkpoint: ArtifactRef
+    gate_decision: ArtifactRef
+    final_receipt: ArtifactRef
+    runtime_manifest: ArtifactRef
+    runtime_files: tuple[SkillManifestFile, ...]
+
+    @model_validator(mode="after")
+    def _valid_release(self) -> AcceptedSkillReleaseManifest:
+        if self.package_sha256 != self.accepted_skill_sha256:
+            raise ValueError("release package hash must equal the accepted Skill hash")
+        paths = [item.path for item in self.runtime_files]
+        if paths.count("SKILL.md") != 1 or len(paths) != len(set(paths)):
+            raise ValueError("release runtime allowlist is incomplete or duplicated")
+        expected_measurement = (
+            MeasurementKind.SYNTHETIC_OFFLINE
+            if self.result_origin == "fresh_fixed_execution"
+            else MeasurementKind.LIVE_MEASURED
+        )
+        if self.measurement_kind is not expected_measurement:
+            raise ValueError("release origin and measurement do not match")
+        return self
+
+
 class TriggerPromptResult(ContractModel):
     """Evidence for one fixed trigger prompt."""
 
@@ -224,7 +269,10 @@ class SkillV0PipelineSummary(VersionedRecord):
     record_type: Literal["skill_v0_pipeline_summary"]
     mode: Literal["fixed", "live"]
     seed_count: StrictNonNegativeInt
-    seed_review_status: Literal["course_authored_pending_human_review"]
+    seed_review_status: Literal[
+        "course_authored_pending_human_review",
+        "course_original_reviewed",
+    ]
     skill_sha256: Sha256Digest
     creator_measurement: MeasurementKind
     trigger_measurement: MeasurementKind

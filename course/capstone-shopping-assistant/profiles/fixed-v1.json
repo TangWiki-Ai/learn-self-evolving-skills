@@ -1,0 +1,37 @@
+{
+  "schema_version": "v1alpha1",
+  "record_type": "shopping_profile",
+  "profile_id": "shopping-fixed-v1",
+  "mode": "fixed",
+  "measurement_level": "synthetic_offline",
+  "source_version": "fixed-v1-original",
+  "data_origin": "course_original",
+  "scenarios": [
+    "single",
+    "single_persona",
+    "multi",
+    "multi_persona"
+  ],
+  "source_group_counts": {
+    "creator": 2,
+    "develop": 3,
+    "selection": 2,
+    "final": 3
+  },
+  "episode_slot_counts": {
+    "creator": 8,
+    "develop": 12,
+    "selection": 8,
+    "final": 12
+  },
+  "protected_split_commitments": {
+    "selection": "159ad5fa294154b58432fa09215541f824c326bf54dc2b5a531af0be64ef5f40",
+    "final": "f06b0cbe47f54dbddf2278f42872021181c30a21fa2cc2f2ff77d9b027c34d1f"
+  },
+  "agent_model_sha256": "89431f96ce8d8cb462446377e668030f0180ea283e08cbc6f577abf7810295f3",
+  "shopper_model_sha256": "278316522f59d8be6b5e9189321bb5f29c16b9697293cbe8f85d6a01130dcf9e",
+  "budget_policy_sha256": "d1d01121fd4601d229ea84f0336fd608bde5b2604aa6572205a209b2a0b2a269",
+  "turn_policy_sha256": "4421c3f9672dc73da05acae24cc4b924b4547768b886f954ec80edbad12cf784",
+  "metric_policy_sha256": "35db15b11918b79a85c753f20be47c335adb8a7fabfd4a0607a57d6475d81ef4",
+  "gate_policy_sha256": "7a5e6803a8669d8e14706bbc06cc6f65e1f7c6e12331ab4265bd8214fbc74c5a"
+}

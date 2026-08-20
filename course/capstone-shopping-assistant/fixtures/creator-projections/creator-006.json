@@ -1,0 +1,1 @@
+{"projection_id":"shopping-creator-projection-006","scenario":"multi","reusable_behaviors":["发现价格或规格冲突时以当前详情为准","所有候选都不合格时安全结束"],"action_sequence":["search","click","finish_without_purchase"]}

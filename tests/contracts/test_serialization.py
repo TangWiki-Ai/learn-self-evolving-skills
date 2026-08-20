@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal, cast
+from typing import ClassVar, Literal, cast
 
 import pytest
-from pydantic import JsonValue, ValidationError
+from pydantic import Field, JsonValue, ValidationError
 
 from ses.contracts import (
     AssertionResult,
@@ -30,6 +30,23 @@ from ses.contracts import (
 class ExampleRecord(VersionedRecord):
     record_type: Literal["example"]
     value: int
+
+
+class OriginalCompatibleRecord(VersionedRecord):
+    record_type: Literal["compatible"]
+    value: int
+
+
+class ExtendedCompatibleRecord(VersionedRecord):
+    record_type: Literal["compatible"]
+    value: int
+    optional_lock: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    content_hash_exclude_if_none: ClassVar[frozenset[str]] = frozenset(
+        {"optional_lock"}
+    )
 
 
 def _event(*, occurred_at: str = "2026-08-16T04:00:00Z") -> EngineEvent:
@@ -214,6 +231,28 @@ def test_artifact_json_bytes_emit_utf8_without_ascii_escaping() -> None:
 
     assert "订单已退货。".encode() in artifact
     assert b"\\u8ba2" not in artifact
+
+
+def test_content_hash_can_exclude_an_opted_in_field_only_while_it_is_none() -> None:
+    original = OriginalCompatibleRecord(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type="compatible",
+        value=1,
+    )
+    absent = ExtendedCompatibleRecord(
+        schema_version=SchemaVersion.V1ALPHA1,
+        record_type="compatible",
+        value=1,
+    )
+    locked = absent.model_copy(update={"optional_lock": "lock-v1"})
+
+    assert artifact_json_bytes(absent) == artifact_json_bytes(original)
+    assert content_sha256(absent) == content_sha256(original)
+    assert content_sha256(locked) != content_sha256(original)
+    assert (
+        content_sha256(locked)
+        == hashlib.sha256(artifact_json_bytes(locked)).hexdigest()
+    )
 
 
 def test_nested_mapping_order_does_not_change_artifact_or_content_hash() -> None:

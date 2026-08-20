@@ -23,14 +23,18 @@ def test_packaged_shopping_assistant_is_a_valid_skill_artifact(
 
     assert manifest.name == SHOPPING_ASSISTANT_NAME
     assert manifest.version == SHOPPING_ASSISTANT_VERSION
+    assert manifest.source_kind == "reference_fallback"
+    assert manifest.source_version == "shopping-reference-fallback-v1"
+    assert manifest.content_sha256 == normalized_skill_sha256(source)
+    assert manifest.tool_protocol_sha256 is not None
     assert tuple(item.path for item in manifest.files) == ("SKILL.md",)
     assert metadata is not None
-    assert set(metadata) == {"name", "description"}
+    assert set(metadata) == {"name", "description", "allowed-tools"}
     assert metadata["name"] == SHOPPING_ASSISTANT_NAME
-    assert "Chinese or English" in metadata["description"]
-    assert "pre-purchase" in metadata["description"]
-    assert "Do not use for existing orders" in metadata["description"]
-    assert "benchmark analysis" in metadata["description"]
+    assert "中文" in metadata["description"]
+    assert "购买前" in metadata["description"]
+    assert "已有订单" in metadata["description"]
+    assert "基准测试" in metadata["description"]
     assert len(normalized_skill_sha256(source)) == 64
 
 
@@ -52,14 +56,16 @@ def test_shopping_assistant_covers_the_pre_purchase_workflow(tmp_path: Path) -> 
     content = (source / "SKILL.md").read_text(encoding="utf-8").casefold()
 
     for required_behavior in (
-        "constraint ledger",
-        "ask one focused question",
+        "约束清单",
+        "只问一个关键问题",
+        "single_persona",
+        "ask_shopper",
         "search",
-        "exact variant",
-        "compare only valid candidates",
-        "explicitly authorizes",
-        "never invent",
-        "untrusted catalog data",
+        "准确规格",
+        "只比较合格候选",
+        "明确授权",
+        "不得编造",
+        "不可信目录数据",
     ):
         assert required_behavior in content
 
@@ -69,15 +75,15 @@ def test_shopping_assistant_excludes_post_purchase_support(tmp_path: Path) -> No
     content = (source / "SKILL.md").read_text(encoding="utf-8").casefold()
 
     for excluded_request in (
-        "delivery tracking",
-        "cancellation",
-        "returns",
-        "exchanges",
-        "refunds",
-        "repairs",
-        "warranties",
-        "complaints",
-        "account support",
-        "benchmark analysis",
+        "物流追踪",
+        "取消订单",
+        "退货",
+        "换货",
+        "退款",
+        "维修",
+        "保修",
+        "投诉",
+        "账户支持",
+        "基准测试",
     ):
         assert excluded_request in content

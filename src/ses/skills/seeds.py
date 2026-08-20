@@ -135,6 +135,12 @@ class CreatorSeedPack:
         return self.manifest.records
 
     @property
+    def source_version(self) -> str:
+        """Expose the source lock through the generic Creator input seam."""
+
+        return self.manifest.source_version
+
+    @property
     def review_status(self) -> Literal["course_authored_pending_human_review"]:
         """Return the honest release status of the fixed course seed set."""
         return "course_authored_pending_human_review"

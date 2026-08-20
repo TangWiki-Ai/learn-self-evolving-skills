@@ -16,8 +16,10 @@ from ses.cli import (
     governance,
     judge_calibration,
     qualify_cases,
+    shopping_capstone,
     skill_demo,
     skill_install,
+    skill_release,
     skill_v0,
 )
 from ses.evaluator import SingleCaseRunError, run_pinned_case
@@ -74,6 +76,14 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("registry", help="Manage immutable Skill version history.")
     commands.add_parser(
         "auto-evolve", help="Run or resume bounded automatic Skill evolution."
+    )
+    commands.add_parser("final", help="Run the one-time capstone final evaluation.")
+    commands.add_parser("l3-render", help="Render the bounded evolution L3 report.")
+    commands.add_parser(
+        "portfolio-export", help="Export the verified public capstone portfolio."
+    )
+    commands.add_parser(
+        "capstone-index", help="Verify and index a complete shopping capstone."
     )
     return parser
 
@@ -139,15 +149,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         build_parser().print_help()
         return 0
     command, command_args = values[0], values[1:]
+    has_profile = any(
+        value == "--profile" or value.startswith("--profile=") for value in command_args
+    )
     if command == "doctor":
         if not any(
-            arg == "--config" or arg.startswith("--config=") for arg in command_args
+            arg in {"--config", "--profile"}
+            or arg.startswith(("--config=", "--profile="))
+            for arg in command_args
         ):
             command_args.extend(("--config", "ses.json"))
         return doctor.main(command_args)
     if command == "run-case":
         return _run_case_main(command_args)
     if command == "inspect":
+        if has_profile:
+            return shopping_capstone.inspect_main(command_args)
         return _inspect_main(command_args)
     if command == "skill-demo":
         return skill_demo.main(command_args)
@@ -162,10 +179,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command == "skill-v0-pipeline":
         return skill_v0.main(command_args)
     if command == "skill":
+        if command_args and command_args[0] == "package":
+            return skill_release.package_main(command_args[1:])
+        if has_profile:
+            return shopping_capstone.skill_main(command_args)
         return skill_v0.skill_main(command_args)
     if command == "trigger-eval":
+        if has_profile:
+            return shopping_capstone.trigger_main(command_args)
         return skill_v0.trigger_main(command_args)
     if command == "paired-comparison":
+        if has_profile:
+            return shopping_capstone.paired_main(command_args)
         return skill_v0.paired_main(command_args)
     if command == "l2-render":
         return skill_v0.l2_main(command_args)
@@ -174,13 +199,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command == "candidate-patch":
         return evolution.candidate_main(command_args)
     if command == "evolve":
+        if has_profile:
+            return shopping_capstone.evolve_main(command_args)
         return evolution.evolve_main(command_args)
     if command == "gate":
+        if has_profile:
+            return shopping_capstone.gate_main(command_args)
         return governance.gate_main(command_args)
     if command == "registry":
+        if has_profile:
+            return shopping_capstone.registry_main(command_args)
         return governance.registry_main(command_args)
     if command == "auto-evolve":
+        if has_profile:
+            return shopping_capstone.auto_main(command_args)
         return automation.main(command_args)
+    if command == "final":
+        return shopping_capstone.final_main(command_args)
+    if command == "l3-render":
+        return shopping_capstone.l3_main(command_args)
+    if command == "portfolio-export":
+        return shopping_capstone.portfolio_main(command_args)
+    if command == "capstone-index":
+        return shopping_capstone.capstone_index_main(command_args)
     build_parser().parse_args(values)
     return 2
 

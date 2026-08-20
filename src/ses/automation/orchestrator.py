@@ -24,30 +24,49 @@ from ses.contracts import (
     AutoRoundRecord,
     AutoStopReason,
     CandidateArtifact,
+    CapstoneFinalReceipt,
     EvolutionPipelineSummary,
     FailureCardSet,
     FailureEvidenceFixture,
     FinalAggregateReport,
     FinalConsumedCheckpoint,
+    FinalLifecycle,
     FinalRunReceipt,
     GateDecision,
     GateOutcome,
     GatePolicy,
     MeasurementKind,
+    OpaqueProtectedSplitLock,
     Patch,
     SchemaVersion,
+    ShoppingFinalScenarioMetrics,
+    SplitLockFormat,
     TriggerEvalResult,
     Usage,
     artifact_json_bytes,
     content_sha256,
 )
-from ses.evolution.diagnosis import build_failure_card_set
+from ses.evolution.diagnosis import (
+    RETURN_DIAGNOSIS_POLICY,
+    FailureDiagnosisPolicy,
+    build_failure_card_set,
+)
 from ses.evolution.gate import GateEvaluationAdapter, SelectionEvaluationResult
 from ses.evolution.governance import CandidateGovernanceCommand, govern_candidate
 from ses.evolution.registry import SkillRegistry
-from ses.evolution.updater import Updater, UpdaterRequest
+from ses.evolution.updater import (
+    RETURN_UPDATER_POLICY,
+    Updater,
+    UpdaterPolicy,
+    UpdaterRequest,
+)
 from ses.evolution.workflow import run_evolution_workflow
 from ses.foundation.credentials import credential_values, redact, redact_data
+from ses.skills.static_gate import (
+    DEFAULT_STATIC_GATE_POLICY,
+    StaticGatePolicy,
+    run_static_gate,
+)
 from ses.testset.holdout import HoldoutManifest
 
 
@@ -82,7 +101,11 @@ class RolloutExecution:
     evidence: FailureEvidenceFixture
     measurement_kind: MeasurementKind
     network_used: bool
-    source_kind: Literal["fixed_reference_fixture", "fresh_develop_run"]
+    source_kind: Literal[
+        "fixed_reference_fixture",
+        "fresh_fixed_execution",
+        "fresh_develop_run",
+    ]
     usage: Usage
     cost_complete: bool
 
@@ -122,11 +145,17 @@ class FinalExecution:
     private_payload: Mapping[str, object]
     measurement_kind: MeasurementKind
     network_used: bool
-    result_source: Literal["fixed_reference", "canonical_live"]
+    result_source: Literal[
+        "fixed_reference",
+        "fresh_fixed_execution",
+        "canonical_live",
+    ]
     usage: Usage
     cost_complete: bool
     actual_protocol: FinalProtocolLock
     run_set_sha256: str
+    safety_violation_count: int = 0
+    scenario_metrics: tuple[ShoppingFinalScenarioMetrics, ...] | None = None
 
 
 class FinalEvaluationAdapter(Protocol):
@@ -159,11 +188,52 @@ class AutoEvolveCommand:
     config: AutoEvolveConfig
     policy: GatePolicy
     started_at: datetime
+    final_lifecycle: FinalLifecycle = FinalLifecycle.INLINE_LEGACY
+    profile_sha256: str | None = None
+    split_lock_format: SplitLockFormat = SplitLockFormat.HOLDOUT_MANIFEST
+    static_gate_policy: StaticGatePolicy = DEFAULT_STATIC_GATE_POLICY
+    diagnosis_policy: FailureDiagnosisPolicy = RETURN_DIAGNOSIS_POLICY
+    updater_policy: UpdaterPolicy = RETURN_UPDATER_POLICY
 
     def __post_init__(self) -> None:
         if self.started_at.tzinfo is None or self.started_at.utcoffset() is None:
             raise ValueError("auto-evolve start time must include a timezone")
         object.__setattr__(self, "started_at", self.started_at.astimezone(UTC))
+        if self.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE:
+            profile = self.profile_sha256
+            if (
+                profile is None
+                or len(profile) != 64
+                or any(character not in "0123456789abcdef" for character in profile)
+            ):
+                raise ValueError(
+                    "independent capstone final requires a profile SHA-256"
+                )
+            if (
+                self.config.final_lifecycle is not FinalLifecycle.INDEPENDENT_CAPSTONE
+                or self.config.profile_sha256 != profile
+            ):
+                raise ValueError(
+                    "independent final lifecycle must be bound into loop config"
+                )
+            if (
+                self.split_lock_format is not SplitLockFormat.CONTENT_ADDRESSED
+                or self.config.split_lock_format
+                is not SplitLockFormat.CONTENT_ADDRESSED
+            ):
+                raise ValueError(
+                    "independent capstone requires content-addressed split locks"
+                )
+        elif (
+            self.config.final_lifecycle is not None
+            or self.config.profile_sha256 is not None
+            or self.config.split_lock_format is not None
+        ):
+            raise ValueError("legacy final cannot use capstone config locks")
+        elif self.split_lock_format is not SplitLockFormat.HOLDOUT_MANIFEST:
+            raise ValueError("legacy final requires the holdout manifest lock format")
+        if self.diagnosis_policy.policy_id != self.updater_policy.policy_id:
+            raise ValueError("auto-evolve diagnosis and Updater domains must match")
 
 
 class AutoEvolveOrchestrator:
@@ -184,7 +254,13 @@ class AutoEvolveOrchestrator:
         self.gate_adapter_factory = gate_adapter_factory
         self.final_adapter = final_adapter
         self.store = AutoStateStore(command.output_root)
-        self.registry = SkillRegistry(command.registry_root)
+        self.registry = SkillRegistry(
+            command.registry_root,
+            initial_static_gate=lambda source: run_static_gate(
+                source,
+                policy=command.static_gate_policy,
+            ),
+        )
         self._validate_layout()
 
     def run(self) -> AutoEvolveState:
@@ -192,6 +268,50 @@ class AutoEvolveOrchestrator:
 
         with self.store.experiment_lock():
             return self._run_locked()
+
+    def run_final_once(self) -> AutoEvolveState:
+        """Run or verify the independent capstone final without resuming rounds."""
+
+        if self.command.final_lifecycle is not FinalLifecycle.INDEPENDENT_CAPSTONE:
+            raise AutoEvolveError(
+                "independent final requires the independent_capstone lifecycle"
+            )
+        with self.store.experiment_lock():
+            self._initialize_registry()
+            registry_state = self.registry.audit()
+            state = self.store.initialize(
+                self.command.config,
+                accepted_skill_sha256=registry_state.current_accepted_sha256,
+            )
+            if not self._registry_matches_resume(
+                state=state,
+                registry_sha256=registry_state.current_accepted_sha256,
+            ):
+                raise AutoEvolveError(
+                    "Registry accepted Skill changed; declare a new experiment"
+                )
+            self._validate_split_locks()
+            if state.status in {
+                AutoLoopStatus.FINAL_COMPLETE,
+                AutoLoopStatus.FAILED_FINAL,
+            }:
+                self._verify_final_resume(state)
+                self._verify_capstone_final_receipt(state)
+                return state
+            if (
+                state.status is not AutoLoopStatus.STOPPED
+                or state.stop_reason is AutoStopReason.INTERRUPTED_STEP
+            ):
+                raise AutoEvolveError(
+                    "independent final requires a durably stopped auto-evolve state"
+                )
+            if self.final_adapter is None:
+                raise AutoEvolveError("independent final requires a final adapter")
+            try:
+                return self._run_final(state)
+            except Exception:
+                self._persist_interruption()
+                raise
 
     def _run_locked(self) -> AutoEvolveState:
         self._initialize_registry()
@@ -213,8 +333,13 @@ class AutoEvolveOrchestrator:
             raise AutoEvolveError(
                 "Registry accepted Skill changed; declare a new experiment"
             )
-        if state.status is AutoLoopStatus.FINAL_COMPLETE:
+        if state.status in {
+            AutoLoopStatus.FINAL_COMPLETE,
+            AutoLoopStatus.FAILED_FINAL,
+        }:
             self._verify_final_resume(state)
+            if self.command.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE:
+                self._verify_capstone_final_receipt(state)
             return state
         if state.status is AutoLoopStatus.RUNNING:
             try:
@@ -232,6 +357,7 @@ class AutoEvolveOrchestrator:
             state.status is AutoLoopStatus.STOPPED
             and state.stop_reason is not AutoStopReason.INTERRUPTED_STEP
             and self.final_adapter is not None
+            and self.command.final_lifecycle is FinalLifecycle.INLINE_LEGACY
         ):
             try:
                 state = self._run_final(state)
@@ -567,7 +693,10 @@ class AutoEvolveOrchestrator:
         )
         if not reflection_path.exists() and not intent_path.exists():
             try:
-                pending_reflection = build_failure_card_set(evidence_path)
+                pending_reflection = build_failure_card_set(
+                    evidence_path,
+                    policy=self.command.diagnosis_policy,
+                )
             except ValueError as exc:
                 raise _NoFailureEvidence from exc
         should_run = self.store.begin_step(
@@ -579,7 +708,10 @@ class AutoEvolveOrchestrator:
         if should_run:
             if pending_reflection is None:
                 try:
-                    pending_reflection = build_failure_card_set(evidence_path)
+                    pending_reflection = build_failure_card_set(
+                        evidence_path,
+                        policy=self.command.diagnosis_policy,
+                    )
                 except ValueError as exc:
                     raise _NoFailureEvidence from exc
             reflection = pending_reflection
@@ -633,6 +765,9 @@ class AutoEvolveOrchestrator:
                 updater=updater,
                 mode=self.command.config.mode,
                 workspace_root=round_root / "updater-workspaces",
+                diagnosis_policy=self.command.diagnosis_policy,
+                updater_policy=self.command.updater_policy,
+                static_gate_policy=self.command.static_gate_policy,
             )
         try:
             summary = EvolutionPipelineSummary.model_validate_json(
@@ -711,6 +846,7 @@ class AutoEvolveOrchestrator:
                     mode=self.command.config.mode,
                     measured_at=executed_at,
                     policy=self.command.policy,
+                    static_gate_policy=self.command.static_gate_policy,
                 ),
                 adapter=adapter,
             )
@@ -911,6 +1047,63 @@ class AutoEvolveOrchestrator:
             report_protocol_sha256=(self.command.config.final_report_protocol_sha256),
         )
 
+    def _validate_split_lock(
+        self,
+        path: Path,
+        *,
+        split: Literal["selection", "final"],
+        count: int,
+    ) -> str:
+        """Validate one legacy or capstone lock against the command identity."""
+
+        if self.command.split_lock_format is SplitLockFormat.HOLDOUT_MANIFEST:
+            return _validate_locked_manifest(path, split=split, count=count)
+        lexical = validate_locked_manifest_path(path)
+        try:
+            content = lexical.read_bytes()
+            lock = OpaqueProtectedSplitLock.model_validate_json(content)
+            if artifact_json_bytes(lock) != content:
+                raise ValueError("split lock is not canonical")
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise AutoEvolveError("content-addressed split lock is invalid") from exc
+        expected_measurement = (
+            MeasurementKind.SYNTHETIC_OFFLINE
+            if self.command.config.mode == "fixed"
+            else MeasurementKind.LIVE_MEASURED
+        )
+        if (
+            lock.experiment_id != self.command.config.experiment_id
+            or lock.profile_sha256 != self.command.profile_sha256
+            or lock.mode != self.command.config.mode
+            or lock.measurement_kind is not expected_measurement
+            or lock.split != split
+            or lock.case_count != count
+        ):
+            raise AutoEvolveError(
+                "content-addressed split lock differs from the experiment"
+            )
+        return hashlib.sha256(content).hexdigest()
+
+    def _validate_split_locks(self) -> None:
+        selection_hash = self._validate_split_lock(
+            self.command.selection_lock,
+            split="selection",
+            count=self.command.policy.selection_case_count,
+        )
+        final_hash = self._validate_split_lock(
+            self.command.final_lock,
+            split="final",
+            count=12,
+        )
+        if self.command.selection_lock.resolve() == self.command.final_lock.resolve():
+            raise AutoEvolveError("selection and final require distinct lock artifacts")
+        if selection_hash == final_hash:
+            raise AutoEvolveError("selection and final lock hashes must be distinct")
+        if selection_hash != self.command.config.selection_lock_sha256:
+            raise AutoEvolveError("selection lock differs from the experiment config")
+        if final_hash != self.command.config.final_lock_sha256:
+            raise AutoEvolveError("final lock differs from the experiment config")
+
     def _stop_reason(self, state: AutoEvolveState) -> AutoStopReason | None:
         config = self.command.config
         if not state.cost_complete:
@@ -964,19 +1157,26 @@ class AutoEvolveOrchestrator:
 
     def _run_final(self, state: AutoEvolveState) -> AutoEvolveState:
         assert self.final_adapter is not None
+        self._validate_split_locks()
         allowance = self._budget_allowance(state)
         final_root = self.command.output_root / "final"
         aggregate_path = final_root / "final-aggregate.json"
         private_path = final_root / "private-results.json"
         run_receipt_path = final_root / "final-run-receipt.json"
+        capstone_receipt_path = final_root / "capstone-final-receipt.json"
         consumed_checkpoint_path = (
             self.command.output_root / "final-consumed.checkpoint.json"
         )
-        final_outputs = (
+        core_outputs = (
             aggregate_path,
             private_path,
             run_receipt_path,
             consumed_checkpoint_path,
+        )
+        final_outputs = (
+            (*core_outputs, capstone_receipt_path)
+            if self.command.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE
+            else core_outputs
         )
         final_round = self.command.config.max_rounds + 1
         inputs = {
@@ -990,11 +1190,6 @@ class AutoEvolveOrchestrator:
             input_hashes=inputs,
         )
         if should_run:
-            lock_hash = _validate_locked_manifest(
-                self.command.final_lock, split="final", count=12
-            )
-            if lock_hash != self.command.config.final_lock_sha256:
-                raise AutoEvolveError("final lock differs from the experiment config")
             executed_at = (state.stopped_at or self.command.started_at) + timedelta(
                 seconds=1
             )
@@ -1017,16 +1212,21 @@ class AutoEvolveOrchestrator:
                 if self.command.config.mode == "fixed"
                 else MeasurementKind.LIVE_MEASURED
             )
-            expected_source = (
-                "fixed_reference"
-                if self.command.config.mode == "fixed"
-                else "canonical_live"
-            )
+            expected_source = "canonical_live"
+            if self.command.config.mode == "fixed":
+                expected_source = (
+                    "fresh_fixed_execution"
+                    if self.command.final_lifecycle
+                    is FinalLifecycle.INDEPENDENT_CAPSTONE
+                    else "fixed_reference"
+                )
             if (
                 execution.measurement_kind is not expected_measurement
                 or execution.result_source != expected_source
                 or execution.network_used != (self.command.config.mode == "live")
                 or execution.actual_protocol != protocol
+                or type(execution.safety_violation_count) is not int
+                or execution.safety_violation_count < 0
             ):
                 raise AutoEvolveError("final evidence does not match the locked mode")
             try:
@@ -1067,6 +1267,7 @@ class AutoEvolveOrchestrator:
                     "details": execution.private_payload,
                     "executed_at": executed_at.isoformat().replace("+00:00", "Z"),
                     "experiment_id": state.experiment_id,
+                    "safety_violation_count": execution.safety_violation_count,
                     "subject_skill_sha256": state.current_accepted_skill_sha256,
                 },
                 ensure_ascii=False,
@@ -1078,27 +1279,61 @@ class AutoEvolveOrchestrator:
                 raise AutoEvolveError("final private result contains credentials")
             _atomic_write(private_path, private_bytes, mode=0o600)
             pass_count = sum(execution.case_passes)
-            report = FinalAggregateReport(
-                schema_version=SchemaVersion.V1ALPHA1,
-                record_type="final_aggregate_report",
-                experiment_id=state.experiment_id,
-                subject_skill_sha256=state.current_accepted_skill_sha256,
-                final_lock_sha256=self.command.config.final_lock_sha256,
-                mode=self.command.config.mode,
-                measurement_kind=execution.measurement_kind,
-                network_used=execution.network_used,
-                result_source=execution.result_source,
-                executed_at=executed_at,
-                case_count=12,
-                pass_count=pass_count,
-                pass_rate=pass_count / 12,
-                cost_amount=cost,
-                cost_currency=self.command.config.cost_currency,
-                cost_complete=step_budget.cost_complete,
-                input_tokens=execution.usage.input_tokens,
-                output_tokens=execution.usage.output_tokens,
-                private_results_sha256=hashlib.sha256(private_bytes).hexdigest(),
-            )
+            report_payload: dict[str, object] = {
+                "schema_version": (
+                    SchemaVersion.V1ALPHA2
+                    if self.command.final_lifecycle
+                    is FinalLifecycle.INDEPENDENT_CAPSTONE
+                    else SchemaVersion.V1ALPHA1
+                ),
+                "record_type": "final_aggregate_report",
+                "experiment_id": state.experiment_id,
+                "subject_skill_sha256": state.current_accepted_skill_sha256,
+                "final_lock_sha256": self.command.config.final_lock_sha256,
+                "mode": self.command.config.mode,
+                "measurement_kind": execution.measurement_kind,
+                "network_used": execution.network_used,
+                "result_source": execution.result_source,
+                "executed_at": executed_at,
+                "case_count": 12,
+                "pass_count": pass_count,
+                "pass_rate": pass_count / 12,
+                "cost_amount": cost,
+                "cost_currency": self.command.config.cost_currency,
+                "cost_complete": step_budget.cost_complete,
+                "input_tokens": execution.usage.input_tokens,
+                "output_tokens": execution.usage.output_tokens,
+                "private_results_sha256": hashlib.sha256(private_bytes).hexdigest(),
+            }
+            if self.command.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE:
+                if execution.scenario_metrics is None:
+                    raise AutoEvolveError(
+                        "capstone final adapter omitted shopping scenario aggregates"
+                    )
+                mean_strict_reward = (
+                    sum(
+                        (
+                            row.mean_strict_reward * row.case_count
+                            for row in execution.scenario_metrics
+                        ),
+                        Decimal(0),
+                    )
+                    / 12
+                )
+                report_payload.update(
+                    {
+                        "full_success_count": pass_count,
+                        "mean_strict_reward": mean_strict_reward,
+                        "safety_violation_count": execution.safety_violation_count,
+                        "scenario_metrics": execution.scenario_metrics,
+                    }
+                )
+            try:
+                report = FinalAggregateReport.model_validate(report_payload)
+            except ValueError as exc:
+                raise AutoEvolveError(
+                    "final aggregate metrics violate the locked report contract"
+                ) from exc
             _atomic_write(aggregate_path, artifact_json_bytes(report))
             private_sha256 = hashlib.sha256(private_bytes).hexdigest()
             aggregate_sha256 = _file_sha256(aggregate_path)
@@ -1149,6 +1384,38 @@ class AutoEvolveOrchestrator:
                 artifact_json_bytes(checkpoint),
                 mode=0o600,
             )
+            if self.command.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE:
+                assert self.command.profile_sha256 is not None
+                registry_state = self.registry.audit()
+                capstone = CapstoneFinalReceipt(
+                    schema_version=SchemaVersion.V1ALPHA1,
+                    record_type="capstone_final_receipt",
+                    experiment_id=state.experiment_id,
+                    lineage_id=registry_state.lineage_id,
+                    profile_sha256=self.command.profile_sha256,
+                    subject_skill_sha256=state.current_accepted_skill_sha256,
+                    measurement_kind=execution.measurement_kind,
+                    completed=True,
+                    safety_violation_count=(
+                        report.safety_violation_count
+                        if report.safety_violation_count is not None
+                        else 0
+                    ),
+                    result_origin=(
+                        "fresh_fixed_execution"
+                        if execution.result_source == "fresh_fixed_execution"
+                        else "live_measured"
+                    ),
+                    aggregate=_ref(self.command.output_root, aggregate_path),
+                    final_run_receipt=_ref(self.command.output_root, run_receipt_path),
+                    one_time_checkpoint=_ref(
+                        self.command.output_root, consumed_checkpoint_path
+                    ),
+                )
+                _atomic_write(
+                    capstone_receipt_path,
+                    artifact_json_bytes(capstone),
+                )
         report, run_receipt = self._verify_final_bundle(state)
         if (
             report.experiment_id != state.experiment_id
@@ -1173,10 +1440,15 @@ class AutoEvolveOrchestrator:
             input_hashes=inputs,
             budget=budget,
         )
+        final_status = AutoLoopStatus.FINAL_COMPLETE
+        if self.command.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE:
+            capstone = self._verify_capstone_final_receipt(state)
+            if capstone.safety_violation_count > 0:
+                final_status = AutoLoopStatus.FAILED_FINAL
         payload = state.model_dump(mode="python")
         payload.update(
             {
-                "status": AutoLoopStatus.FINAL_COMPLETE,
+                "status": final_status,
                 "final_report": _ref(self.command.output_root, aggregate_path),
                 "final_cost_amount": budget.cost_amount,
                 "final_cost_complete": budget.cost_complete,
@@ -1195,6 +1467,63 @@ class AutoEvolveOrchestrator:
     def _verify_final_resume(self, state: AutoEvolveState) -> None:
         self._verify_final_bundle(state)
 
+    def _verify_capstone_final_receipt(
+        self,
+        state: AutoEvolveState,
+    ) -> CapstoneFinalReceipt:
+        if self.command.final_lifecycle is not FinalLifecycle.INDEPENDENT_CAPSTONE:
+            raise AutoEvolveError("legacy final has no capstone receipt")
+        assert self.command.profile_sha256 is not None
+        path = self.command.output_root / "final/capstone-final-receipt.json"
+        aggregate_path = self.command.output_root / "final/final-aggregate.json"
+        run_receipt_path = self.command.output_root / "final/final-run-receipt.json"
+        checkpoint_path = self.command.output_root / "final-consumed.checkpoint.json"
+        try:
+            payload = path.read_bytes()
+            receipt = CapstoneFinalReceipt.model_validate_json(payload)
+            aggregate = FinalAggregateReport.model_validate_json(
+                aggregate_path.read_bytes()
+            )
+            if artifact_json_bytes(receipt) != payload:
+                raise ValueError("capstone receipt is not canonical")
+            receipt.aggregate.verify_bytes(aggregate_path.read_bytes())
+            receipt.final_run_receipt.verify_bytes(run_receipt_path.read_bytes())
+            receipt.one_time_checkpoint.verify_bytes(checkpoint_path.read_bytes())
+        except (OSError, ValueError) as exc:
+            raise AutoEvolveError(
+                "persisted capstone final receipt is invalid"
+            ) from exc
+        registry_state = self.registry.audit()
+        expected_origin = (
+            "fresh_fixed_execution"
+            if self.command.config.mode == "fixed"
+            else "live_measured"
+        )
+        if (
+            receipt.experiment_id != state.experiment_id
+            or receipt.lineage_id != registry_state.lineage_id
+            or receipt.profile_sha256 != self.command.profile_sha256
+            or receipt.subject_skill_sha256 != state.current_accepted_skill_sha256
+            or receipt.result_origin != expected_origin
+            or receipt.aggregate.path != "final/final-aggregate.json"
+            or receipt.final_run_receipt.path != "final/final-run-receipt.json"
+            or receipt.one_time_checkpoint.path != "final-consumed.checkpoint.json"
+            or aggregate.schema_version is not SchemaVersion.V1ALPHA2
+            or aggregate.safety_violation_count != receipt.safety_violation_count
+        ):
+            raise AutoEvolveError(
+                "persisted capstone final receipt violates its experiment lock"
+            )
+        if state.status is AutoLoopStatus.FINAL_COMPLETE and (
+            receipt.safety_violation_count != 0
+        ):
+            raise AutoEvolveError("successful final has safety violations")
+        if state.status is AutoLoopStatus.FAILED_FINAL and (
+            receipt.safety_violation_count == 0
+        ):
+            raise AutoEvolveError("failed final lacks a safety violation")
+        return receipt
+
     def _verify_final_bundle(
         self,
         state: AutoEvolveState,
@@ -1204,8 +1533,11 @@ class AutoEvolveOrchestrator:
         receipt_path = self.command.output_root / "final/final-run-receipt.json"
         checkpoint_path = self.command.output_root / "final-consumed.checkpoint.json"
         if state.final_report is None:
-            if state.status is AutoLoopStatus.FINAL_COMPLETE:
-                raise AutoEvolveError("final-complete state lacks a report")
+            if state.status in {
+                AutoLoopStatus.FINAL_COMPLETE,
+                AutoLoopStatus.FAILED_FINAL,
+            }:
+                raise AutoEvolveError("terminal final state lacks a report")
         elif self.command.output_root / state.final_report.path != aggregate_path:
             raise AutoEvolveError("final state points to another aggregate report")
         try:
@@ -1246,10 +1578,30 @@ class AutoEvolveOrchestrator:
             and isinstance(stored_details, dict)
             else None
         )
+        expected_source = "canonical_live"
+        if self.command.config.mode == "fixed":
+            expected_source = (
+                "fresh_fixed_execution"
+                if self.command.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE
+                else "fixed_reference"
+            )
         if (
             report.subject_skill_sha256 != state.current_accepted_skill_sha256
             or report.experiment_id != state.experiment_id
             or report.final_lock_sha256 != self.command.config.final_lock_sha256
+            or report.result_source != expected_source
+            or (
+                self.command.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE
+                and (
+                    report.schema_version is not SchemaVersion.V1ALPHA2
+                    or report.safety_violation_count is None
+                    or not report.scenario_metrics
+                )
+            )
+            or (
+                self.command.final_lifecycle is FinalLifecycle.INLINE_LEGACY
+                and report.schema_version is not SchemaVersion.V1ALPHA1
+            )
             or not isinstance(private_payload, dict)
             or private_payload.get("experiment_id") != state.experiment_id
             or private_payload.get("subject_skill_sha256")
@@ -1258,6 +1610,14 @@ class AutoEvolveOrchestrator:
             or len(private_payload["case_passes"]) != 12
             or any(type(value) is not bool for value in private_payload["case_passes"])
             or sum(private_payload["case_passes"]) != report.pass_count
+            or (
+                self.command.final_lifecycle is FinalLifecycle.INDEPENDENT_CAPSTONE
+                and (
+                    type(private_payload.get("safety_violation_count")) is not int
+                    or private_payload["safety_violation_count"]
+                    != report.safety_violation_count
+                )
+            )
             or run_receipt.experiment_id != state.experiment_id
             or run_receipt.subject_skill_sha256 != state.current_accepted_skill_sha256
             or run_receipt.final_lock_sha256 != self.command.config.final_lock_sha256
@@ -1310,7 +1670,10 @@ class AutoEvolveOrchestrator:
             state = self.store.load()
         except AutoStateError:
             return
-        if state.status is AutoLoopStatus.FINAL_COMPLETE:
+        if state.status in {
+            AutoLoopStatus.FINAL_COMPLETE,
+            AutoLoopStatus.FAILED_FINAL,
+        }:
             return
         self._stop(
             state,
@@ -1376,9 +1739,7 @@ class AutoEvolveOrchestrator:
             != self.command.config.selection_lock_sha256
         ):
             raise AutoEvolveError("selection lock differs from the loop config")
-        _validate_locked_manifest(
-            self.command.selection_lock, split="selection", count=6
-        )
+        self._validate_split_locks()
 
 
 class _BudgetedUpdaterProxy:

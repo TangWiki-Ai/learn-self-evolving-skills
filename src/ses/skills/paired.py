@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
@@ -108,6 +108,9 @@ def compare_run_events(
     measured_at: datetime,
     engine_version: str,
     model_id: str,
+    shopping_metrics_builder: (
+        Callable[[str, tuple[PairedCaseResult, ...]], ArtifactRef] | None
+    ) = None,
 ) -> PairedComparison:
     """Reject incompatible protocols, then derive every paired metric from events."""
 
@@ -162,19 +165,23 @@ def compare_run_events(
     rows: list[PairedCaseResult] = []
     baseline_run_id = str(baseline_started["run_id"])
     skill_run_id = str(skill_started["run_id"])
+    shopping_pair = shopping_metrics_builder is not None
+    completed_statuses = {RunnerStatus.PASS, RunnerStatus.AGENT_FAIL}
     for case_id in baseline_config["case_ids"]:
         baseline = baseline_attempts[case_id]
         skill = skill_attempts[case_id]
-        baseline_pass = baseline["status"] == RunnerStatus.PASS.value
-        skill_pass = skill["status"] == RunnerStatus.PASS.value
+        baseline_status = RunnerStatus(str(baseline["status"]))
+        skill_status = RunnerStatus(str(skill["status"]))
+        baseline_pass = baseline_status is RunnerStatus.PASS
+        skill_pass = skill_status is RunnerStatus.PASS
         baseline_usage = cast(Mapping[str, Any], baseline["usage"])
         skill_usage = cast(Mapping[str, Any], skill["usage"])
         rows.append(
             PairedCaseResult(
                 case_id=case_id,
                 category=_category(baseline_pass, skill_pass),
-                baseline_status=RunnerStatus(str(baseline["status"])),
-                skill_status=RunnerStatus(str(skill["status"])),
+                baseline_status=baseline_status,
+                skill_status=skill_status,
                 baseline_score=float(baseline_pass),
                 skill_score=float(skill_pass),
                 score_delta=float(skill_pass) - float(baseline_pass),
@@ -200,10 +207,25 @@ def compare_run_events(
                 ),
                 baseline_grade=_artifact_ref(baseline, "grade", run_id=baseline_run_id),
                 skill_grade=_artifact_ref(skill, "grade", run_id=skill_run_id),
+                comparable=(
+                    baseline_status in completed_statuses
+                    and skill_status in completed_statuses
+                    if shopping_pair
+                    else None
+                ),
+                baseline_domain_result=(
+                    _artifact_ref(baseline, "domain_result", run_id=baseline_run_id)
+                    if shopping_pair
+                    else None
+                ),
+                skill_domain_result=(
+                    _artifact_ref(skill, "domain_result", run_id=skill_run_id)
+                    if shopping_pair
+                    else None
+                ),
             )
         )
     counts = Counter(row.category for row in rows)
-    total = len(rows)
     currencies = {
         str(cast(Mapping[str, Any], attempt["usage"])["cost_currency"])
         for attempt in (*baseline_attempts.values(), *skill_attempts.values())
@@ -223,6 +245,8 @@ def compare_run_events(
                 row.skill_trace,
                 row.baseline_state_diff,
                 row.skill_state_diff,
+                row.baseline_domain_result,
+                row.skill_domain_result,
                 row.baseline_grade,
                 row.skill_grade,
             )
@@ -237,8 +261,21 @@ def compare_run_events(
         measured_at=measured_at,
         measurement_kind=measurement_kind,
     )
+    shopping_metrics = (
+        shopping_metrics_builder(execution_sha256, tuple(rows))
+        if shopping_metrics_builder is not None
+        else None
+    )
+    if shopping_metrics is not None:
+        _verify_ref(root, shopping_metrics)
+    comparable_rows = (
+        tuple(row for row in rows if row.comparable) if shopping_pair else tuple(rows)
+    )
+    comparable_total = len(comparable_rows)
     return PairedComparison(
-        schema_version=SchemaVersion.V1ALPHA1,
+        schema_version=(
+            SchemaVersion.V1ALPHA2 if shopping_pair else SchemaVersion.V1ALPHA1
+        ),
         record_type="paired_comparison",
         baseline_run_id=baseline_run_id,
         skill_run_id=skill_run_id,
@@ -254,8 +291,16 @@ def compare_run_events(
         baseline_events=baseline_ref,
         skill_events=skill_ref,
         category_counts={category: counts[category] for category in PairCategory},
-        baseline_pass_rate=sum(row.baseline_score for row in rows) / total,
-        skill_pass_rate=sum(row.skill_score for row in rows) / total,
+        baseline_pass_rate=(
+            sum(row.baseline_score for row in comparable_rows) / comparable_total
+            if comparable_total
+            else 0.0
+        ),
+        skill_pass_rate=(
+            sum(row.skill_score for row in comparable_rows) / comparable_total
+            if comparable_total
+            else 0.0
+        ),
         baseline_input_tokens=sum(row.baseline_input_tokens for row in rows),
         skill_input_tokens=sum(row.skill_input_tokens for row in rows),
         baseline_output_tokens=sum(row.baseline_output_tokens for row in rows),
@@ -268,6 +313,7 @@ def compare_run_events(
         baseline_latency_ms=sum(row.baseline_latency_ms for row in rows),
         skill_latency_ms=sum(row.skill_latency_ms for row in rows),
         cases=tuple(rows),
+        shopping_metrics=shopping_metrics,
     )
 
 

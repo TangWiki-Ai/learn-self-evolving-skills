@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any, ClassVar, Literal, Self, get_args, get_origin
+from typing import Any, ClassVar, Self, get_args, get_origin
 
 from pydantic import (
     BaseModel,
@@ -33,6 +33,7 @@ class ContractModel(BaseModel):
     )
 
     content_hash_exclude: ClassVar[frozenset[str]] = frozenset()
+    content_hash_exclude_if_none: ClassVar[frozenset[str]] = frozenset()
 
     @model_validator(mode="before")
     @classmethod
@@ -91,7 +92,10 @@ class ContractModel(BaseModel):
 class VersionedRecord(ContractModel):
     """Base for persisted top-level records at the current schema version."""
 
-    schema_version: Literal[SchemaVersion.V1ALPHA1]
+    schema_version: SchemaVersion
+    supported_schema_versions: ClassVar[frozenset[SchemaVersion]] = frozenset(
+        {SchemaVersion.V1ALPHA1}
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -105,10 +109,12 @@ class VersionedRecord(ContractModel):
         supplied_version = value["schema_version"]
         if isinstance(supplied_version, Enum):
             supplied_version = supplied_version.value
-        if supplied_version != SchemaVersion.V1ALPHA1.value:
+        supported = cls.supported_schema_versions
+        if supplied_version not in {version.value for version in supported}:
+            expected = ", ".join(repr(version.value) for version in sorted(supported))
             raise ValueError(
                 "unsupported schema_version "
-                f"{supplied_version!r}; expected {SchemaVersion.V1ALPHA1.value!r}"
+                f"{supplied_version!r}; expected one of {expected}"
             )
 
         if "record_type" not in value:

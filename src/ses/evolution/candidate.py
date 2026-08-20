@@ -16,6 +16,7 @@ from ses.contracts import (
     artifact_json_bytes,
     normalized_files_sha256,
 )
+from ses.evolution.diagnosis import FailureDiagnosisPolicy
 from ses.evolution.patches import PatchValidationError, apply_patch
 from ses.skills.installer import (
     SkillInstallError,
@@ -23,7 +24,12 @@ from ses.skills.installer import (
     normalized_skill_sha256,
     write_skill_manifest,
 )
-from ses.skills.static_gate import StaticGateStatus, run_static_gate
+from ses.skills.static_gate import (
+    DEFAULT_STATIC_GATE_POLICY,
+    StaticGatePolicy,
+    StaticGateStatus,
+    run_static_gate,
+)
 
 
 class CandidateError(ValueError):
@@ -55,6 +61,8 @@ def create_candidate(
     evidence_path: Path,
     output_dir: Path,
     expected_parent_sha256: Sha256Digest | None = None,
+    diagnosis_policy: FailureDiagnosisPolicy | None = None,
+    static_gate_policy: StaticGatePolicy = DEFAULT_STATIC_GATE_POLICY,
 ) -> CandidateArtifact:
     """Apply, gate, and atomically publish one candidate directory."""
     if ".." in output_dir.parts:
@@ -87,6 +95,7 @@ def create_candidate(
             patch,
             cards=cards,
             evidence_path=evidence_path,
+            diagnosis_policy=diagnosis_policy,
         )
     except PatchValidationError as exc:
         raise CandidateError(str(exc)) from exc
@@ -106,8 +115,12 @@ def create_candidate(
             files=tuple(sorted(changed_files)),
             source_version=f"parent:{parent_hash}",
             provider_compatibility=parent_manifest.provider_compatibility,
+            source_kind=(
+                "candidate" if parent_manifest.source_kind is not None else None
+            ),
+            tool_protocol_sha256=parent_manifest.tool_protocol_sha256,
         )
-        report = run_static_gate(staging)
+        report = run_static_gate(staging, policy=static_gate_policy)
         if report.status is not StaticGateStatus.PASS:
             raise CandidateError("candidate failed Ticket 08 Static Gate")
         content_hash = normalized_skill_sha256(staging)

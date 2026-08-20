@@ -16,6 +16,11 @@ from ses.evolution.gate import (
     run_candidate_gate,
 )
 from ses.evolution.registry import SkillRegistry
+from ses.skills.static_gate import (
+    DEFAULT_STATIC_GATE_POLICY,
+    StaticGatePolicy,
+    run_static_gate,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +36,7 @@ class CandidateGovernanceCommand:
     mode: Literal["fixed", "live"]
     measured_at: datetime
     policy: GatePolicy | None = None
+    static_gate_policy: StaticGatePolicy = DEFAULT_STATIC_GATE_POLICY
 
 
 def govern_candidate(
@@ -46,7 +52,13 @@ def govern_candidate(
             raise ValueError("live governance requires an explicit policy")
         policy = default_gate_policy(command.project_root, command.selection_lock)
 
-    registry = SkillRegistry(command.registry_root)
+    registry = SkillRegistry(
+        command.registry_root,
+        initial_static_gate=lambda source: run_static_gate(
+            source,
+            policy=command.static_gate_policy,
+        ),
+    )
     state = registry.audit()
     decision_path = registry.root / "gates" / command.gate_id / "gate-decision.json"
     if decision_path.is_file() and not decision_path.is_symlink():
@@ -91,6 +103,7 @@ def govern_candidate(
             policy=policy,
             mode=command.mode,
             measured_at=command.measured_at,
+            static_gate_policy=command.static_gate_policy,
         ),
         adapter=adapter,
     )

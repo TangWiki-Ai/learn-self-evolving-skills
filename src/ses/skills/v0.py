@@ -31,7 +31,6 @@ from ses.foundation.credentials import ProviderCredentials
 from ses.foundation.workspace import CaseWorkspace, WorkspaceFactory
 from ses.skills.creator import SkillCandidate
 from ses.skills.installer import normalized_skill_sha256, write_skill_manifest
-from ses.skills.seeds import CreatorSeedPack
 
 CREATOR_SAFE_TOOLS: tuple[str, ...] = ()
 _SKILL_SPEC = """# Skill v0 output contract
@@ -111,6 +110,16 @@ Do not expose internal terminology, invent a fixed answer, or change unrelated i
 
 class V0Creator(Protocol):
     def create(self, request: V0CreatorRequest, output_dir: Path) -> SkillCandidate: ...
+
+
+class V0SeedPack(Protocol):
+    """The narrow projection-only input seam shared by Creator domains."""
+
+    @property
+    def projections(self) -> tuple[Path, ...]: ...
+
+    @property
+    def source_version(self) -> str: ...
 
 
 class _LiveCandidate(BaseModel):
@@ -249,16 +258,21 @@ class LiveV0Creator:
 
 def create_skill_v0(
     *,
-    seed_pack: CreatorSeedPack,
+    seed_pack: V0SeedPack,
     output_dir: Path,
     creator: V0Creator,
     workspace_root: Path,
+    skill_spec: str = _SKILL_SPEC,
 ) -> SkillCandidate:
     """Expose only projections and the Skill spec, then materialize one candidate."""
 
+    if not seed_pack.projections or len(set(seed_pack.projections)) != len(
+        seed_pack.projections
+    ):
+        raise ValueError("Creator projections must be nonempty and unique")
     spec = workspace_root / "inputs" / "skill-spec.md"
     spec.parent.mkdir(parents=True, exist_ok=True)
-    spec.write_text(_SKILL_SPEC, encoding="utf-8")
+    spec.write_text(skill_spec, encoding="utf-8")
     files = [(spec, "skill-spec.md")]
     files.extend(
         (path, f"seeds/seed-{index:03d}.json")
@@ -281,10 +295,11 @@ def create_skill_v0(
         workspace=workspace.root,
         visible_files=visible,
         seed_files=tuple(
-            workspace.root / f"seeds/seed-{index:03d}.json" for index in range(1, 10)
+            workspace.root / f"seeds/seed-{index:03d}.json"
+            for index in range(1, len(seed_pack.projections) + 1)
         ),
         allowed_tools=CREATOR_SAFE_TOOLS,
-        source_version=seed_pack.manifest.source_version,
+        source_version=seed_pack.source_version,
     )
     try:
         return creator.create(request, output_dir)

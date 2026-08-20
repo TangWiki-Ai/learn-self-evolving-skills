@@ -1,0 +1,1 @@
+{"projection_id":"shopping-creator-projection-003","scenario":"single_persona","reusable_behaviors":["把偏好用于候选排序但不覆盖硬约束","关键信息缺失时明确说明无法安全选择"],"action_sequence":["search","click"]}

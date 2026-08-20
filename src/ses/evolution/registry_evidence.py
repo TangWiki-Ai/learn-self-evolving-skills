@@ -7,7 +7,9 @@ import json
 import os
 import shutil
 import tempfile
+from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 
@@ -20,9 +22,17 @@ from ses.contracts import (
     RegistryEvent,
     RunEventType,
     RunRecord,
+    SchemaVersion,
     SkillV0PipelineSummary,
     TriggerEvalResult,
     artifact_json_bytes,
+)
+from ses.contracts.shopping import (
+    ShoppingMetricProjection,
+    ShoppingPairMetrics,
+    ShoppingPairStratumMetrics,
+    ShoppingScenario,
+    ShopSimulatorEpisodeResult,
 )
 from ses.evolution.registry_internal import RegistryError
 from ses.evolution.registry_store import _RegistryStore
@@ -252,6 +262,8 @@ class _InitialEvidenceAuditor:
             paired = PairedComparison.model_validate_json(paired_content)
         except ValueError as exc:
             raise RegistryError("initial pipeline evidence record is invalid") from exc
+        if paired.shopping_metrics is not None:
+            capture(paired.shopping_metrics)
         for run_id, content in (
             (paired.baseline_run_id, capture(paired.baseline_events)),
             (paired.skill_run_id, capture(paired.skill_events)),
@@ -272,6 +284,8 @@ class _InitialEvidenceAuditor:
                 case.skill_trace,
                 case.baseline_state_diff,
                 case.skill_state_diff,
+                case.baseline_domain_result,
+                case.skill_domain_result,
                 case.baseline_grade,
                 case.skill_grade,
             ):
@@ -356,6 +370,13 @@ class _InitialEvidenceAuditor:
             )
         except ValueError as exc:
             raise RegistryError("initial pipeline evidence record is invalid") from exc
+        if (
+            paired.schema_version is SchemaVersion.V1ALPHA2
+            and summary.seed_review_status != "course_original_reviewed"
+        ):
+            raise RegistryError(
+                "initial shopping evidence requires reviewed Creator seeds"
+            )
         if summary.mode == "live":
             raise RegistryError(
                 "live initial evidence requires a trusted external attestation"
@@ -390,6 +411,8 @@ class _InitialEvidenceAuditor:
                 "initial pipeline summary disagrees with its measured evidence"
             )
         nested_references = [paired.baseline_events, paired.skill_events]
+        if paired.shopping_metrics is not None:
+            nested_references.append(paired.shopping_metrics)
         for case in paired.cases:
             nested_references.extend(
                 reference
@@ -398,6 +421,8 @@ class _InitialEvidenceAuditor:
                     case.skill_trace,
                     case.baseline_state_diff,
                     case.skill_state_diff,
+                    case.baseline_domain_result,
+                    case.skill_domain_result,
                     case.baseline_grade,
                     case.skill_grade,
                 )
@@ -423,6 +448,7 @@ class _InitialEvidenceAuditor:
             baseline_records=baseline_records,
             skill_records=skill_records,
         )
+        self._verify_shopping_pair_metrics(paired, contents=contents)
         if "summary.json" in inventory:
             raise RegistryError("initial pipeline evidence shadows its summary")
         actual_files = {
@@ -584,6 +610,16 @@ class _InitialEvidenceAuditor:
                     skill.artifacts.state_diff,
                     run_id=paired.skill_run_id,
                 )
+                or row.baseline_domain_result
+                != cls._optional_rooted(
+                    baseline.artifacts.domain_result,
+                    run_id=paired.baseline_run_id,
+                )
+                or row.skill_domain_result
+                != cls._optional_rooted(
+                    skill.artifacts.domain_result,
+                    run_id=paired.skill_run_id,
+                )
                 or row.baseline_grade
                 != cls._optional_rooted(
                     baseline.artifacts.grade,
@@ -598,6 +634,179 @@ class _InitialEvidenceAuditor:
                 raise RegistryError(
                     "initial paired case does not match its event records"
                 )
+
+    @classmethod
+    def _verify_shopping_pair_metrics(
+        cls,
+        paired: PairedComparison,
+        *,
+        contents: Mapping[str, bytes],
+    ) -> None:
+        if paired.schema_version is SchemaVersion.V1ALPHA1:
+            return
+        reference = paired.shopping_metrics
+        if reference is None:
+            raise RegistryError("initial shopping Pair is missing its metrics")
+        try:
+            metrics = ShoppingPairMetrics.model_validate_json(contents[reference.path])
+        except (KeyError, ValueError) as exc:
+            raise RegistryError("initial shopping Pair metrics are invalid") from exc
+        comparable = tuple(row for row in paired.cases if row.comparable)
+        if (
+            metrics.pair_execution_sha256 != paired.pair_execution_sha256
+            or metrics.case_count != len(paired.cases)
+            or metrics.comparable_case_count != len(comparable)
+            or metrics.baseline_cost_amount != paired.baseline_cost_amount
+            or metrics.skill_cost_amount != paired.skill_cost_amount
+            or metrics.cost_currency != paired.cost_currency
+        ):
+            raise RegistryError(
+                "initial shopping Pair metrics disagree with the canonical Pair"
+            )
+
+        by_scenario: dict[
+            ShoppingScenario,
+            list[tuple[ShoppingMetricProjection, ShoppingMetricProjection]],
+        ] = defaultdict(list)
+        empty_hash = hashlib.sha256(b"").hexdigest()
+        for row in paired.cases:
+            baseline = cls._shopping_domain_metric(
+                row.baseline_domain_result,
+                contents=contents,
+            )
+            skill = cls._shopping_domain_metric(
+                row.skill_domain_result,
+                contents=contents,
+            )
+            for value, expected_run, expected_skill in (
+                (baseline, paired.baseline_run_id, empty_hash),
+                (skill, paired.skill_run_id, paired.skill_sha256),
+            ):
+                if value is None:
+                    continue
+                result, _ = value
+                if (
+                    result.run_id != expected_run
+                    or result.case_id != row.case_id
+                    or result.skill_sha256 != expected_skill
+                    or result.profile_sha256 != metrics.profile_sha256
+                    or result.model_lock_sha256 != paired.model_lock_sha256
+                    or result.measurement_level.value != paired.measurement_kind.value
+                ):
+                    raise RegistryError(
+                        "initial shopping domain result disagrees with its Pair"
+                    )
+            if not row.comparable:
+                continue
+            if baseline is None or skill is None:
+                raise RegistryError(
+                    "initial comparable shopping row lacks domain evidence"
+                )
+            baseline_result, baseline_metric = baseline
+            skill_result, skill_metric = skill
+            if baseline_result.scenario is not skill_result.scenario:
+                raise RegistryError("initial shopping Pair scenarios disagree")
+            by_scenario[baseline_result.scenario].append(
+                (baseline_metric, skill_metric)
+            )
+
+        expected_strata = tuple(
+            cls._shopping_stratum(
+                source,
+                by_scenario[source.scenario],
+            )
+            for source in metrics.strata
+        )
+        baseline_strict = sum(
+            (
+                baseline.r_strict
+                for pairs in by_scenario.values()
+                for baseline, _ in pairs
+            ),
+            Decimal(0),
+        )
+        skill_strict = sum(
+            (skill.r_strict for pairs in by_scenario.values() for _, skill in pairs),
+            Decimal(0),
+        )
+        if (
+            metrics.strata != expected_strata
+            or metrics.baseline_full_success_count
+            != sum(row.baseline_full_success_count for row in expected_strata)
+            or metrics.skill_full_success_count
+            != sum(row.skill_full_success_count for row in expected_strata)
+            or metrics.baseline_safety_violation_count
+            != sum(row.baseline_safety_violation_count for row in expected_strata)
+            or metrics.skill_safety_violation_count
+            != sum(row.skill_safety_violation_count for row in expected_strata)
+            or metrics.baseline_mean_strict_reward
+            != (baseline_strict / len(comparable) if comparable else Decimal(0))
+            or metrics.skill_mean_strict_reward
+            != (skill_strict / len(comparable) if comparable else Decimal(0))
+        ):
+            raise RegistryError(
+                "initial shopping Pair metrics disagree with domain evidence"
+            )
+
+    @classmethod
+    def _shopping_domain_metric(
+        cls,
+        reference: ArtifactRef | None,
+        *,
+        contents: Mapping[str, bytes],
+    ) -> tuple[ShopSimulatorEpisodeResult, ShoppingMetricProjection] | None:
+        if reference is None:
+            return None
+        try:
+            result = ShopSimulatorEpisodeResult.model_validate_json(
+                contents[reference.path]
+            )
+            metric_reference = cls._pair_rooted_reference(
+                result.metric,
+                run_id=result.run_id,
+            )
+            metric = ShoppingMetricProjection.model_validate_json(
+                contents[metric_reference.path]
+            )
+        except (KeyError, ValueError) as exc:
+            raise RegistryError("initial shopping domain evidence is invalid") from exc
+        if result.safety_violation_count != metric.safety_violation_count:
+            raise RegistryError(
+                "initial shopping metric and episode safety evidence disagree"
+            )
+        return result, metric
+
+    @staticmethod
+    def _shopping_stratum(
+        source: ShoppingPairStratumMetrics,
+        pairs: list[tuple[ShoppingMetricProjection, ShoppingMetricProjection]],
+    ) -> ShoppingPairStratumMetrics:
+        count = len(pairs)
+        return ShoppingPairStratumMetrics(
+            scenario=source.scenario,
+            case_count=source.case_count,
+            comparable_case_count=count,
+            baseline_full_success_count=sum(
+                baseline.course_pass for baseline, _ in pairs
+            ),
+            skill_full_success_count=sum(skill.course_pass for _, skill in pairs),
+            baseline_mean_strict_reward=(
+                sum((baseline.r_strict for baseline, _ in pairs), Decimal(0)) / count
+                if count
+                else Decimal(0)
+            ),
+            skill_mean_strict_reward=(
+                sum((skill.r_strict for _, skill in pairs), Decimal(0)) / count
+                if count
+                else Decimal(0)
+            ),
+            baseline_safety_violation_count=sum(
+                baseline.safety_violation_count for baseline, _ in pairs
+            ),
+            skill_safety_violation_count=sum(
+                skill.safety_violation_count for _, skill in pairs
+            ),
+        )
 
     @classmethod
     def _optional_rooted(

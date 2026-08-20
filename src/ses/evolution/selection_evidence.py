@@ -20,7 +20,7 @@ def _selection_event_payload(
     """Project one side of a private pair into its canonical JSONL payload."""
 
     accepted = side == "accepted"
-    return {
+    payload: dict[str, object] = {
         "cost_amount": str(
             row.accepted_cost_amount if accepted else row.candidate_cost_amount
         ),
@@ -45,6 +45,25 @@ def _selection_event_payload(
             row.accepted_status.value if accepted else row.candidate_status.value
         ),
     }
+    full_success = row.accepted_full_success if accepted else row.candidate_full_success
+    if full_success is not None:
+        strict_reward = (
+            row.accepted_strict_reward if accepted else row.candidate_strict_reward
+        )
+        safety_count = (
+            row.accepted_safety_violation_count
+            if accepted
+            else row.candidate_safety_violation_count
+        )
+        assert strict_reward is not None and safety_count is not None
+        payload.update(
+            {
+                "full_success": full_success,
+                "strict_reward": str(strict_reward),
+                "safety_violation_count": safety_count,
+            }
+        )
+    return payload
 
 
 def _selection_event_bytes(

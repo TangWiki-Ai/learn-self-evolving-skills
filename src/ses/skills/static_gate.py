@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from ses.contracts import SkillArtifactManifest
 from ses.skills.applicability import parse_skill_front_matter
 from ses.skills.installer import (
     SkillInstallError,
@@ -73,6 +75,24 @@ _DANGEROUS = re.compile(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class StaticGatePolicy:
+    """Domain policy injected into the shared zero-cost Static Gate."""
+
+    supported_tools: frozenset[str] = SUPPORTED_TOOLS
+    identifier_patterns: tuple[re.Pattern[str], ...] = _IDENTIFIER_PATTERNS
+    fixed_answer_pattern: re.Pattern[str] = _FIXED_ANSWER
+    eval_content_pattern: re.Pattern[str] = _EVAL_CONTENT
+    dangerous_pattern: re.Pattern[str] = _DANGEROUS
+    description_pattern: re.Pattern[str] | None = None
+    forbidden_content_patterns: tuple[re.Pattern[str], ...] = ()
+    allowed_source_kinds: frozenset[str] | None = None
+    required_tool_protocol_sha256: str | None = None
+
+
+DEFAULT_STATIC_GATE_POLICY = StaticGatePolicy()
+
+
 class StaticGateStatus(StrEnum):
     PASS = "pass"
     FAIL = "fail"
@@ -117,6 +137,7 @@ def run_static_gate(
     *,
     audit_path: Path | None = None,
     max_characters: int = 12_000,
+    policy: StaticGatePolicy = DEFAULT_STATIC_GATE_POLICY,
 ) -> StaticGateReport:
     """Inspect every gate condition without installing or calling a model."""
 
@@ -136,7 +157,9 @@ def run_static_gate(
         raw_tools = raw_tools[1:-1]
     tools = tuple(part.strip() for part in raw_tools.split(",") if part.strip())
     tools_ok = (
-        bool(tools) and len(tools) == len(set(tools)) and set(tools) <= SUPPORTED_TOOLS
+        bool(tools)
+        and len(tools) == len(set(tools))
+        and set(tools) <= policy.supported_tools
     )
     frontmatter_ok = metadata is not None and set(metadata) <= _NATIVE_FRONTMATTER
 
@@ -144,6 +167,7 @@ def run_static_gate(
     manifest_ok = False
     skill_hash: str | None = None
     installable_content = skill_content
+    manifest: SkillArtifactManifest | None = None
     try:
         manifest = load_skill_manifest(source)
         declared = {item.path for item in manifest.files}
@@ -165,13 +189,13 @@ def run_static_gate(
     actual = _actual_files(source)
     inventory_ok = actual == declared | {"skill-manifest.json"}
     identifier_ok = not any(
-        pattern.search(installable_content) for pattern in _IDENTIFIER_PATTERNS
+        pattern.search(installable_content) for pattern in policy.identifier_patterns
     )
-    fixed_ok = _FIXED_ANSWER.search(installable_content) is None
-    eval_ok = _EVAL_CONTENT.search(installable_content) is None
-    dangerous_ok = _DANGEROUS.search(installable_content) is None
+    fixed_ok = policy.fixed_answer_pattern.search(installable_content) is None
+    eval_ok = policy.eval_content_pattern.search(installable_content) is None
+    dangerous_ok = policy.dangerous_pattern.search(installable_content) is None
     length_ok = 0 < len(installable_content) <= max_characters
-    checks = (
+    checks: tuple[StaticCheck, ...] = (
         _check(
             "required_metadata",
             metadata_ok,
@@ -233,6 +257,54 @@ def run_static_gate(
             "content is empty or exceeds the configured limit",
         ),
     )
+    if policy.description_pattern is not None:
+        description = metadata.get("description", "") if metadata is not None else ""
+        checks += (
+            _check(
+                "domain_description",
+                policy.description_pattern.search(description) is not None,
+                "description matches the configured domain",
+                "description does not match the configured domain",
+            ),
+        )
+    if policy.forbidden_content_patterns:
+        domain_content_ok = not any(
+            pattern.search(installable_content)
+            for pattern in policy.forbidden_content_patterns
+        )
+        checks += (
+            _check(
+                "domain_forbidden_content",
+                domain_content_ok,
+                "no domain-specific leakage or action bypass found",
+                "candidate contains domain leakage or an action bypass",
+            ),
+        )
+    if policy.allowed_source_kinds is not None:
+        source_kind_ok = (
+            manifest is not None and manifest.source_kind in policy.allowed_source_kinds
+        )
+        checks += (
+            _check(
+                "manifest_source_kind",
+                source_kind_ok,
+                "manifest origin is allowed for this domain",
+                "manifest origin is missing or forbidden for this domain",
+            ),
+        )
+    if policy.required_tool_protocol_sha256 is not None:
+        protocol_ok = (
+            manifest is not None
+            and manifest.tool_protocol_sha256 == policy.required_tool_protocol_sha256
+        )
+        checks += (
+            _check(
+                "tool_protocol",
+                protocol_ok,
+                "manifest binds the required tool protocol",
+                "manifest does not bind the required tool protocol",
+            ),
+        )
     report = StaticGateReport(
         status=(
             StaticGateStatus.PASS

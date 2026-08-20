@@ -1,0 +1,1 @@
+{"projection_id":"shopping-creator-projection-004","scenario":"single_persona","reusable_behaviors":["区分必须满足的约束和可协商偏好","购买前重新确认初始授权仍然有效"],"action_sequence":["search","click","purchase"]}

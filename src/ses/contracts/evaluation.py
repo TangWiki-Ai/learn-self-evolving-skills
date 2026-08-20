@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from enum import StrEnum
 from itertools import pairwise
-from typing import Literal
+from typing import ClassVar, Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from ses.contracts.artifact import ArtifactRef, JsonPointer, Sha256Digest
 from ses.contracts.base import ContractModel, VersionedRecord
@@ -26,7 +26,9 @@ from ses.contracts.primitives import (
     NonEmptyStr,
     RecordType,
     RunId,
+    SchemaVersion,
     SessionId,
+    StrictNonNegativeInt,
     TraceId,
 )
 
@@ -150,9 +152,40 @@ class CaseGrade(VersionedRecord):
     iteration_id: IterationId
     status: GradeStatus
     assertions: tuple[AssertionResult, ...]
+    shopping_metric: ArtifactRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    shopping_raw_reward: ArtifactRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    shopping_safety_evidence: tuple[ArtifactRef, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    safety_violation_count: StrictNonNegativeInt = Field(
+        default=0, exclude_if=lambda value: value == 0
+    )
+
+    supported_schema_versions: ClassVar[frozenset[SchemaVersion]] = frozenset(
+        {SchemaVersion.V1ALPHA1, SchemaVersion.V1ALPHA2}
+    )
 
     @model_validator(mode="after")
     def _validate_assertions(self) -> CaseGrade:
+        has_shopping_extension = any(
+            (
+                self.shopping_metric is not None,
+                self.shopping_raw_reward is not None,
+                bool(self.shopping_safety_evidence),
+                self.safety_violation_count > 0,
+            )
+        )
+        if self.schema_version is SchemaVersion.V1ALPHA1 and has_shopping_extension:
+            raise ValueError("v1alpha1 CaseGrade cannot carry shopping fields")
+        if self.schema_version is SchemaVersion.V1ALPHA2:
+            if self.shopping_metric is None:
+                raise ValueError("v1alpha2 CaseGrade requires a shopping metric ref")
+            if self.safety_violation_count > 0 and not self.shopping_safety_evidence:
+                raise ValueError("shopping safety failures require evidence")
         assertion_keys = [
             (assertion.judge, assertion.assertion_id) for assertion in self.assertions
         ]

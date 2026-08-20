@@ -23,6 +23,7 @@ from ses.contracts import (
 )
 from ses.contracts.security import validate_public_data
 from ses.evolution.gate import public_gate_decision_payload
+from ses.evolution.registry import SkillRegistry
 from ses.foundation.credentials import credential_values, redact
 from ses.reporting.l3 import L3ReportInputs, load_l3_inputs, render_l3_html
 from ses.skills.installer import load_skill_manifest, normalized_skill_sha256
@@ -434,6 +435,7 @@ def export_portfolio(
     *,
     created_at: datetime,
     registry_root: Path | None = None,
+    registry: SkillRegistry | None = None,
 ) -> PortfolioManifest:
     """Export one verified experiment through a closed public-member allowlist."""
 
@@ -443,8 +445,16 @@ def export_portfolio(
     if destination.absolute() != destination.resolve():
         raise PortfolioExportError("portfolio destination contains a symlink")
 
-    inputs = load_l3_inputs(experiment_root, registry_root=registry_root)
-    registry_path = (registry_root or experiment_root / "registry").resolve(strict=True)
+    inputs = load_l3_inputs(
+        experiment_root,
+        registry_root=registry_root,
+        registry=registry,
+    )
+    registry_path = (
+        registry.root
+        if registry is not None
+        else registry_root or experiment_root / "registry"
+    ).resolve(strict=True)
     accepted_source = (
         registry_path / "versions" / inputs.state.current_accepted_skill_sha256
     )

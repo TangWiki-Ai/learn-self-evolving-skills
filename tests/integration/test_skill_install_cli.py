@@ -28,6 +28,7 @@ def test_skill_install_cli_installs_the_packaged_shopping_assistant(
     payload = json.loads(capsys.readouterr().out)
     assert payload["name"] == "shopping-assistant"
     assert payload["version"] == "shopping-assistant-v1"
+    assert payload["source_kind"] == "reference_fallback"
     assert payload["installed_files"] == ["SKILL.md"]
     assert payload["destination"] == destination.as_posix()
     assert len(payload["sha256"]) == 64
@@ -46,6 +47,7 @@ def test_skill_install_cli_uses_the_native_skill_directory_by_default(
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["destination"] == ".claude/skills/shopping-assistant"
+    assert payload["source_kind"] == "reference_fallback"
     assert (
         tmp_path / ".claude" / "skills" / "shopping-assistant" / "SKILL.md"
     ).is_file()

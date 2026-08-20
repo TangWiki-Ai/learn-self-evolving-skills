@@ -13,11 +13,13 @@ import pytest
 
 from ses.automation.portfolio import export_portfolio, portfolio_semantic_sha256
 from ses.contracts import (
+    AutoEvolveConfig,
     AutoEvolveState,
     AutoLoopStatus,
     FinalAggregateReport,
     GateOutcome,
     PortfolioManifest,
+    content_sha256,
 )
 from ses.evolution.registry import SkillRegistry
 
@@ -166,7 +168,14 @@ def test_fixed_reference_is_an_exact_repeat_of_the_production_path(
         regenerated,
         created_at=CREATED_AT,
     )
+    config = AutoEvolveConfig.model_validate_json(
+        (fixed_experiment / "config.json").read_bytes()
+    )
 
+    assert (
+        content_sha256(config)
+        == "4354bc7db2374117748fccb2eb8b2c6613ed2bdf8f6a60db31fd1c61faee5fce"
+    )
     assert portfolio_semantic_sha256(REFERENCE) == REFERENCE_SHA256
     assert portfolio_semantic_sha256(regenerated) == REFERENCE_SHA256
     assert (regenerated / "manifest.json").read_bytes() == (

@@ -18,7 +18,10 @@ from ses.contracts import (
     UpdatePatchOperation,
 )
 from ses.evolution.diagnosis import (
+    RETURN_DIAGNOSIS_POLICY,
+    SHOPPING_DIAGNOSIS_POLICY,
     DiagnosisError,
+    FailureDiagnosisPolicy,
     analyze_fixture,
     require_skill_root_cards,
 )
@@ -128,6 +131,10 @@ def _verify_refs(
             raise PatchValidationError(
                 f"{kind} evidence pointer does not identify {expected_kind} evidence"
             )
+    if expected_pointers is not None:
+        actual_pointers = {reference.json_pointer for reference in refs}
+        if actual_pointers != expected_pointers or len(actual_pointers) != len(refs):
+            raise PatchValidationError(f"{kind} evidence points at the wrong case")
 
 
 def validate_patch(
@@ -135,6 +142,7 @@ def validate_patch(
     *,
     cards: tuple[FailureCard, ...],
     evidence_path: Path,
+    diagnosis_policy: FailureDiagnosisPolicy | None = None,
 ) -> object:
     """Validate diagnosis, evidence, targets, and operation identity before apply."""
     try:
@@ -152,7 +160,18 @@ def validate_patch(
         raise PatchValidationError(
             "evidence Skill hash does not match the Patch parent"
         )
-    analysis = analyze_fixture(evidence)
+    if diagnosis_policy is None:
+        shopping_cards = [card.shopping_subcode is not None for card in cards]
+        if any(shopping_cards) and not all(shopping_cards):
+            raise PatchValidationError(
+                "Patch cannot mix return and shopping Failure Cards"
+            )
+        diagnosis_policy = (
+            SHOPPING_DIAGNOSIS_POLICY
+            if all(shopping_cards)
+            else RETURN_DIAGNOSIS_POLICY
+        )
+    analysis = analyze_fixture(evidence, policy=diagnosis_policy)
     if not analysis.patch_allowed:
         raise PatchValidationError(
             f"evidence cannot justify a Skill patch: {analysis.reason}"
@@ -193,6 +212,46 @@ def validate_patch(
         if case.failure_categories and card.category not in case.failure_categories:
             raise PatchValidationError(
                 "Failure Card category conflicts with its explicit evidence label"
+            )
+        if card.shopping_subcode is not case.shopping_subcode:
+            raise PatchValidationError(
+                "Failure Card shopping subcode conflicts with its evidence case"
+            )
+        if card.shopping_subcode is not None:
+            _verify_refs(
+                card.episode_evidence,
+                evidence_artifact=evidence_artifact,
+                evidence_bytes=evidence_bytes,
+                evidence_value=evidence_value,
+                kind="episode",
+                expected_pointers={f"/cases/{index}/episode_evidence"},
+            )
+            _verify_refs(
+                card.raw_reward_evidence,
+                evidence_artifact=evidence_artifact,
+                evidence_bytes=evidence_bytes,
+                evidence_value=evidence_value,
+                kind="raw_reward",
+                expected_pointers={f"/cases/{index}/raw_reward_evidence"},
+            )
+            _verify_refs(
+                card.metric_evidence,
+                evidence_artifact=evidence_artifact,
+                evidence_bytes=evidence_bytes,
+                evidence_value=evidence_value,
+                kind="metric",
+                expected_pointers={f"/cases/{index}/metric_evidence"},
+            )
+            _verify_refs(
+                card.safety_evidence,
+                evidence_artifact=evidence_artifact,
+                evidence_bytes=evidence_bytes,
+                evidence_value=evidence_value,
+                kind="safety",
+                expected_pointers={
+                    f"/cases/{index}/safety_evidence/{evidence_index}"
+                    for evidence_index in range(len(case.safety_evidence))
+                },
             )
     for operation in patch.operations:
         validate_target(operation.target)
@@ -259,9 +318,15 @@ def apply_patch(
     *,
     cards: tuple[FailureCard, ...],
     evidence_path: Path,
+    diagnosis_policy: FailureDiagnosisPolicy | None = None,
 ) -> dict[str, str]:
     """Return a new file map, leaving ``parent_files`` untouched on every error."""
-    validate_patch(patch, cards=cards, evidence_path=evidence_path)
+    validate_patch(
+        patch,
+        cards=cards,
+        evidence_path=evidence_path,
+        diagnosis_policy=diagnosis_policy,
+    )
     if len(patch.operations) > MAX_PATCH_OPERATIONS:
         raise PatchValidationError(
             f"patch exceeds the {MAX_PATCH_OPERATIONS}-operation teaching budget"

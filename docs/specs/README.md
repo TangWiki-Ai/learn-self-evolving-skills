@@ -17,6 +17,7 @@
 | [08 自动进化与作品集](08-automation-portfolio.md) | 有界自动循环、final 纪律、L3 报告和 portfolio |
 | [09 课程交付](09-course-delivery.md) | 10 课编排、starter/solution/tests、指标、预算和发布验收 |
 | [10 跨模块契约](10-cross-module-contracts.md) | 记录归属、序列化不变量、版本与 contract 变更协议 |
+| [11 ShopSimulator 迁移毕业项目](11-shop-simulator-capstone.md) | 购物域 create → eval → evolve → gate → final → package 的迁移路线、外部 Adapter、数据协议和验收 |
 
 ## 模块关系
 
@@ -34,6 +35,9 @@ Foundation Runtime -----> Shop Environment -----> Evaluation & Judges
                               Automation & Portfolio
 
 Course Delivery consumes every module and packages the learner journey.
+
+ShopSimulator Capstone 在十课主线之后复用同一组 Interface；
+它只增加外部环境 Adapter 和领域 policy，不创建平行系统。
 ```
 
 Cross-module Contracts 约束所有模块交换的持久记录，但不承载业务实现。

@@ -28,8 +28,10 @@ from ses.contracts import (
     MeasurementKind,
     RegistryEvent,
     SchemaVersion,
+    ShoppingFinalScenarioMetrics,
     VersionStatus,
 )
+from ses.contracts.shopping import ShoppingScenario
 from ses.evolution.registry import RegistryState, RegistryVersion
 from ses.reporting.l3 import L3ReportInputs, build_l3_data, render_l3_html
 from ses.skills.installer import normalized_skill_sha256, write_skill_manifest
@@ -233,6 +235,210 @@ def _inputs(*, accepted: bool, final: bool = False) -> L3ReportInputs:
         decisions=(decision,),
         final_report=final_report,
     )
+
+
+def _shopping_gate_inputs() -> L3ReportInputs:
+    legacy = _inputs(accepted=True)
+    decision = legacy.decisions[0]
+    metrics = decision.metrics.model_copy(
+        update={
+            "selection_case_count": 8,
+            "accepted_pass_count": 5,
+            "candidate_pass_count": 6,
+            "accepted_pass_rate": 0.625,
+            "candidate_pass_rate": 0.75,
+            "quality_delta": 0.125,
+            "critical_regression_count": 0,
+            "accepted_full_success_count": 5,
+            "candidate_full_success_count": 6,
+            "accepted_mean_strict_reward": Decimal("0.625"),
+            "candidate_mean_strict_reward": Decimal("0.750"),
+            "accepted_safety_violation_count": 0,
+            "candidate_safety_violation_count": 0,
+        }
+    )
+    shopping_decision = decision.model_copy(
+        update={
+            "schema_version": SchemaVersion.V1ALPHA2,
+            "metrics": metrics,
+        }
+    )
+    record = legacy.state.rounds[0].model_copy(
+        update={"quality_delta": metrics.quality_delta}
+    )
+    state = legacy.state.model_copy(update={"rounds": (record,)})
+    return replace(
+        legacy,
+        state=state,
+        decisions=(shopping_decision,),
+    )
+
+
+def _shopping_final_inputs() -> L3ReportInputs:
+    inputs = _shopping_gate_inputs()
+    legacy_final_inputs = _inputs(accepted=True, final=True)
+    final = legacy_final_inputs.final_report
+    assert final is not None
+    scenario_metrics = (
+        ShoppingFinalScenarioMetrics(
+            scenario=ShoppingScenario.SINGLE,
+            case_count=3,
+            full_success_count=3,
+            mean_strict_reward=Decimal("0.900"),
+            safety_violation_count=0,
+        ),
+        ShoppingFinalScenarioMetrics(
+            scenario=ShoppingScenario.SINGLE_PERSONA,
+            case_count=3,
+            full_success_count=3,
+            mean_strict_reward=Decimal("0.800"),
+            safety_violation_count=0,
+        ),
+        ShoppingFinalScenarioMetrics(
+            scenario=ShoppingScenario.MULTI,
+            case_count=3,
+            full_success_count=2,
+            mean_strict_reward=Decimal("0.600"),
+            safety_violation_count=0,
+        ),
+        ShoppingFinalScenarioMetrics(
+            scenario=ShoppingScenario.MULTI_PERSONA,
+            case_count=3,
+            full_success_count=2,
+            mean_strict_reward=Decimal("0.700"),
+            safety_violation_count=1,
+        ),
+    )
+    shopping_final = final.model_copy(
+        update={
+            "schema_version": SchemaVersion.V1ALPHA2,
+            "result_source": "fresh_fixed_execution",
+            "pass_count": 10,
+            "pass_rate": 10 / 12,
+            "full_success_count": 10,
+            "mean_strict_reward": Decimal("0.750"),
+            "safety_violation_count": 1,
+            "scenario_metrics": scenario_metrics,
+        }
+    )
+    state = inputs.state.model_copy(
+        update={
+            "status": AutoLoopStatus.FINAL_COMPLETE,
+            "final_report": legacy_final_inputs.state.final_report,
+        }
+    )
+    return replace(inputs, state=state, final_report=shopping_final)
+
+
+def test_l3_shopping_gate_shows_full_success_strict_and_safety() -> None:
+    inputs = _shopping_gate_inputs()
+
+    payload = build_l3_data(inputs)
+    rendered = render_l3_html(inputs)
+
+    assert payload["schema_version"] == "v1alpha2"
+    rounds = payload["rounds"]
+    assert isinstance(rounds, list)
+    assert isinstance(rounds[0], dict)
+    selection = rounds[0]["selection"]
+    assert isinstance(selection, dict)
+    assert selection == {
+        "case_count": 8,
+        "accepted_pass_rate": 0.625,
+        "candidate_pass_rate": 0.75,
+        "quality_delta": 0.125,
+        "critical_regressions": 0,
+        "accepted_full_success_count": 5,
+        "candidate_full_success_count": 6,
+        "accepted_mean_strict_reward": "0.625",
+        "candidate_mean_strict_reward": "0.750",
+        "accepted_safety_violation_count": 0,
+        "candidate_safety_violation_count": 0,
+    }
+    assert "Full success" in rendered and "5 / 8 → 6 / 8" in rendered
+    assert "Mean strict reward" in rendered and "0.625 → 0.750" in rendered
+    assert "Safety violations" in rendered and "0 → 0" in rendered
+
+
+def test_l3_shopping_final_shows_total_and_four_three_case_scenarios() -> None:
+    inputs = _shopping_final_inputs()
+
+    payload = build_l3_data(inputs)
+    rendered = render_l3_html(inputs)
+
+    final = payload["final_aggregate"]
+    assert isinstance(final, dict)
+    assert final["full_success_count"] == 10
+    assert final["mean_strict_reward"] == "0.750"
+    assert final["safety_violation_count"] == 1
+    assert final["scenario_metrics"] == [
+        {
+            "scenario": "single",
+            "case_count": 3,
+            "full_success_count": 3,
+            "mean_strict_reward": "0.900",
+            "safety_violation_count": 0,
+        },
+        {
+            "scenario": "single_persona",
+            "case_count": 3,
+            "full_success_count": 3,
+            "mean_strict_reward": "0.800",
+            "safety_violation_count": 0,
+        },
+        {
+            "scenario": "multi",
+            "case_count": 3,
+            "full_success_count": 2,
+            "mean_strict_reward": "0.600",
+            "safety_violation_count": 0,
+        },
+        {
+            "scenario": "multi_persona",
+            "case_count": 3,
+            "full_success_count": 2,
+            "mean_strict_reward": "0.700",
+            "safety_violation_count": 1,
+        },
+    ]
+    assert "Final full success" in rendered and "10 / 12" in rendered
+    assert "Final mean strict reward" in rendered and "0.750" in rendered
+    assert "Final safety violations" in rendered and ">1<" in rendered
+    assert "Scenario final aggregates" in rendered
+    for scenario in ShoppingScenario:
+        assert f"{scenario.value} · 3 cases" in rendered
+
+
+def test_l3_legacy_v1alpha1_omits_shopping_projection_fields() -> None:
+    inputs = _inputs(accepted=True, final=True)
+
+    payload = build_l3_data(inputs)
+    rendered = render_l3_html(inputs)
+
+    assert payload["schema_version"] == "v1alpha1"
+    rounds = payload["rounds"]
+    assert isinstance(rounds, list) and isinstance(rounds[0], dict)
+    selection = rounds[0]["selection"]
+    assert isinstance(selection, dict)
+    final = payload["final_aggregate"]
+    assert isinstance(final, dict)
+    shopping_keys = {
+        "accepted_full_success_count",
+        "candidate_full_success_count",
+        "accepted_mean_strict_reward",
+        "candidate_mean_strict_reward",
+        "accepted_safety_violation_count",
+        "candidate_safety_violation_count",
+        "full_success_count",
+        "mean_strict_reward",
+        "safety_violation_count",
+        "scenario_metrics",
+    }
+    assert shopping_keys.isdisjoint(selection)
+    assert shopping_keys.isdisjoint(final)
+    assert "Full success" not in rendered
+    assert "Mean strict reward" not in rendered
+    assert "Safety violations" not in rendered
 
 
 def test_l3_shows_rejected_branch_and_capability_cost_curve() -> None:

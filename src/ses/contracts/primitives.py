@@ -21,6 +21,7 @@ class SchemaVersion(StrEnum):
     """Supported wire-schema versions."""
 
     V1ALPHA1 = "v1alpha1"
+    V1ALPHA2 = "v1alpha2"
 
 
 class RecordType(StrEnum):

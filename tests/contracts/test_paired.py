@@ -113,6 +113,11 @@ def test_paired_contract_round_trips_and_rejects_unknown_fields() -> None:
         cases=(_row(),),
     )
 
+    wire = value.model_dump(mode="json")
+    assert "shopping_metrics" not in wire
+    assert "comparable" not in wire["cases"][0]
+    assert "baseline_domain_result" not in wire["cases"][0]
+    assert "skill_domain_result" not in wire["cases"][0]
     assert PairedComparison.model_validate_json(value.model_dump_json()) == value
     with pytest.raises(ValueError, match="Extra inputs"):
         PairedComparison.model_validate({**value.model_dump(), "future_alias": True})
