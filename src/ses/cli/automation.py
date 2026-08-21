@@ -53,12 +53,12 @@ def automation_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--accepted-skill",
         type=Path,
-        default=root / "course/ch07-create-v0/artifacts/skill/v0",
+        default=root / "fixtures/seed/skill/v0",
     )
     parser.add_argument(
         "--initial-evidence",
         type=Path,
-        default=root / "course/ch07-create-v0/artifacts/summary.json",
+        default=root / "fixtures/seed/summary.json",
     )
     parser.add_argument(
         "--failure-fixture",

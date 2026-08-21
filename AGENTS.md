@@ -43,7 +43,7 @@
 - 默认测试使用固定 fixture 和 fake engine，不访问网络，不读取付费 Key。真实 Provider 只在显式 live smoke 中运行。
 - 凭据只从进程环境读取。日志、异常、报告、fixtures、命令参数和 Git 历史都不能出现真实 Key。
 - 数据只使用 PRD 指定的固定上游版本。公开文字称其为 benchmark 或角色扮演数据。
-- 保持实现聚焦当前 ticket。未来 Provider 只保留薄 Engine seam 和文字说明，不提前实现路由框架。
+- live 路径显式支持 SiliconFlow 与 ChatAnywhere。两者必须复用薄 Engine seam，并保持模型锁与凭据隔离；不要根据环境中的 Key 自动选择 Provider，也不要实现跨 Provider 路由或 fallback。
 
 ## 完成标准
 

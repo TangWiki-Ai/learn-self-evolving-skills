@@ -9,8 +9,13 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.foundation.config import ModelRole, load_model_lock, load_runtime_config
-from ses.foundation.credentials import read_siliconflow_credentials
+from ses.foundation.config import (
+    ModelRole,
+    ProviderId,
+    load_model_lock,
+    load_runtime_config,
+)
+from ses.foundation.credentials import read_provider_credentials
 from ses.testset.curation import LiveCurationModel
 from ses.testset.split_guard import (
     ExternalHoldoutSplitVerifier,
@@ -84,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replay checked responses by default; live explicitly calls ClaudeCLI.",
     )
     parser.add_argument("--config", type=Path, default=root / "ses.json")
+    parser.add_argument("--provider", type=ProviderId, choices=tuple(ProviderId))
     parser.add_argument("--curation-timeout", type=float, default=120)
     parser.add_argument("--output", type=Path, default=ticket / "generated")
     parser.add_argument(
@@ -118,9 +124,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         enforce_course_attestation_boundary(args.curation_mode)
         if args.curation_mode == "live":
-            config = load_runtime_config(args.config)
-            lock = load_model_lock(root / config.models_lock)
-            credentials = read_siliconflow_credentials(os.environ)
+            config_path = args.config.resolve()
+            config = load_runtime_config(config_path)
+            provider = args.provider or config.default_provider
+            lock = load_model_lock(
+                config_path.parent / config.models_lock_for(provider)
+            )
+            if lock.provider is not provider:
+                raise ValueError("selected provider differs from its model lock")
+            credentials = read_provider_credentials(provider, os.environ)
             curation_model = LiveCurationModel.production(
                 triage_model=lock.roles[ModelRole.JUDGE],
                 rubric_model=lock.roles[ModelRole.CREATOR],

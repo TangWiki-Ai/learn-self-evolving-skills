@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
-PARENT = ROOT / "course/ch07-create-v0/artifacts/skill/v0"
-SEED_EVIDENCE = ROOT / "course/ch07-create-v0/artifacts/summary.json"
+PARENT = ROOT / "fixtures/seed/skill/v0"
+SEED_EVIDENCE = ROOT / "fixtures/seed/summary.json"
 FAILURE_EVIDENCE = ROOT / "tests/fixtures/evolution/synthetic-failure-evidence.json"
 SELECTION_LOCK = ROOT / "data/testset/protected/selection-manifest.json"
 NOW = "2026-08-18T09:00:00+00:00"

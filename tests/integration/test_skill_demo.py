@@ -191,9 +191,7 @@ def test_checked_in_and_runtime_comparisons_share_one_strict_schema(
     tmp_path: Path,
 ) -> None:
     checked_in = SkillDemoComparison.model_validate_json(
-        ROOT.joinpath(
-            "course/ch01-see-the-difference/comparison-artifact.json"
-        ).read_bytes()
+        (ROOT / "fixtures/seed/skill-demo-comparison.json").read_bytes()
     )
     runtime = run_skill_demo(tmp_path / "demo", mode=CandidateMode.REFERENCE)
     current = SkillDemoComparison.model_validate_json(

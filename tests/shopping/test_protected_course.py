@@ -34,7 +34,7 @@ from ses.skills.installer import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-CAPSTONE = ROOT / "course/capstone-shopping-assistant"
+CAPSTONE = ROOT / "fixtures/seed/capstone-shopping-assistant"
 NOW = datetime(2026, 8, 20, tzinfo=UTC)
 
 

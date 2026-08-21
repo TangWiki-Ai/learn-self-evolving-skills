@@ -16,6 +16,11 @@ _FORBIDDEN_PATTERNS = (
 _WRITE_TOOL_WORDS = frozenset(
     {"create", "delete", "process", "refund", "return", "update", "write"}
 )
+_REQUEST_CUES = re.compile(
+    r"\b(?:can|could|give|may|need|please|provide|require|send|share|specify|"
+    r"tell|what|which|would)\b",
+    re.IGNORECASE,
+)
 
 
 class SimulatorTurnKind(StrEnum):
@@ -69,6 +74,30 @@ def _safe_want(value: str) -> str:
     return " ".join(safe)
 
 
+def _requests_fact(messages: Sequence[str], key: str) -> bool:
+    label = key.replace("_", " ").casefold()
+    subject = label.removesuffix(" id")
+    terms = {label}
+    identifier_fact = label.endswith(" id")
+    if identifier_fact:
+        terms.update({f"{subject} identifier", f"{subject} number"})
+    for message in messages:
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", message.casefold())
+        for sentence in sentences:
+            if identifier_fact and re.search(
+                rf"\b(?:what|which)\b[^?.!]{{0,40}}\b{re.escape(subject)}\b",
+                sentence,
+            ):
+                return True
+            if not any(
+                re.search(rf"\b{re.escape(term)}\b", sentence) for term in terms
+            ):
+                continue
+            if "?" in sentence or _REQUEST_CUES.search(sentence):
+                return True
+    return False
+
+
 class ConstrainedUserSimulator:
     """Reveal a want and allow-listed facts without any Shop tool capability."""
 
@@ -96,7 +125,11 @@ class ConstrainedUserSimulator:
         if not self._started:
             self._started = True
             return SimulatorTurn(SimulatorTurnKind.MESSAGE, self._safe_initial_message)
-        if self._next_fact < len(self._facts) and assistant_messages:
+        if (
+            self._next_fact < len(self._facts)
+            and assistant_messages
+            and _requests_fact(assistant_messages, self._facts[self._next_fact][0])
+        ):
             key, value = self._facts[self._next_fact]
             self._next_fact += 1
             label = key.replace("_", " ")

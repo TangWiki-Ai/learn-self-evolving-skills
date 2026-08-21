@@ -17,6 +17,7 @@ from pydantic import (
     ValidationError,
     field_serializer,
     field_validator,
+    model_validator,
 )
 
 
@@ -44,6 +45,26 @@ class ModelRole(StrEnum):
     JUDGE = "judge"
 
 
+class ProviderId(StrEnum):
+    """Supported live model providers."""
+
+    SILICONFLOW = "siliconflow"
+    CHATANYWHERE = "chatanywhere"
+
+
+_PROVIDER_BASE_URLS: Mapping[ProviderId, frozenset[str]] = MappingProxyType(
+    {
+        ProviderId.SILICONFLOW: frozenset({"https://api.siliconflow.cn/"}),
+        ProviderId.CHATANYWHERE: frozenset(
+            {
+                "https://api.chatanywhere.tech/",
+                "https://api.chatanywhere.org/",
+            }
+        ),
+    }
+)
+
+
 def _validate_https_endpoint(value: str) -> str:
     parsed = urlsplit(value)
     if parsed.scheme != "https" or not parsed.hostname:
@@ -51,6 +72,15 @@ def _validate_https_endpoint(value: str) -> str:
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("base_url must not contain credentials, query, or fragment")
     return value.rstrip("/") + "/"
+
+
+def validate_provider_base_url(provider: ProviderId, base_url: str) -> str:
+    """Return a normalized endpoint only when the provider owns it."""
+
+    normalized = _validate_https_endpoint(base_url)
+    if normalized not in _PROVIDER_BASE_URLS[provider]:
+        raise ValueError(f"base_url is not allowed for provider {provider.value}")
+    return normalized
 
 
 class LockedModel(StrictModel):
@@ -75,7 +105,16 @@ class ModelLock(StrictModel):
     schema_version: StrictStr = Field(pattern=r"^v1alpha1$")
     engine: StrictStr = Field(pattern=r"^claude-code$")
     engine_version: StrictStr = Field(min_length=1)
+    provider: ProviderId = ProviderId.SILICONFLOW
     roles: Mapping[ModelRole, LockedModel]
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _parse_provider(cls, value: object) -> object:
+        try:
+            return ProviderId(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("models lock contains an unknown provider") from exc
 
     @field_validator("roles", mode="before")
     @classmethod
@@ -98,6 +137,18 @@ class ModelLock(StrictModel):
             raise ValueError(f"models lock is missing roles: {names}")
         return MappingProxyType(dict(value))
 
+    @model_validator(mode="after")
+    def _provider_owns_every_endpoint(self) -> ModelLock:
+        for role, model in self.roles.items():
+            try:
+                validate_provider_base_url(self.provider, model.base_url)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{role.value} base_url is not allowed for provider "
+                    f"{self.provider.value}"
+                ) from exc
+        return self
+
     @field_serializer("roles")
     def _serialize_roles(
         self, value: Mapping[ModelRole, LockedModel]
@@ -110,17 +161,27 @@ class RuntimeConfig(StrictModel):
 
     schema_version: StrictStr = Field(pattern=r"^v1alpha1$")
     models_lock: StrictStr = "models.lock.json"
+    chatanywhere_models_lock: StrictStr = "models.chatanywhere.lock.json"
+    default_provider: ProviderId = ProviderId.SILICONFLOW
     data_manifest: StrictStr = "data/upstream/manifest.json"
     workspace_root: StrictStr | None = None
     claude_executable: StrictStr = "claude"
 
-    @field_validator("models_lock", "data_manifest")
+    @field_validator("models_lock", "chatanywhere_models_lock", "data_manifest")
     @classmethod
     def _relative_project_path(cls, value: str) -> str:
         path = Path(value)
         if path.is_absolute() or ".." in path.parts or not value.strip():
             raise ValueError("project paths must be non-empty relative paths")
         return path.as_posix()
+
+    @field_validator("default_provider", mode="before")
+    @classmethod
+    def _parse_default_provider(cls, value: object) -> object:
+        try:
+            return ProviderId(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("runtime config contains an unknown provider") from exc
 
     @field_validator("workspace_root")
     @classmethod
@@ -135,6 +196,13 @@ class RuntimeConfig(StrictModel):
         if not value.strip():
             raise ValueError("claude_executable must not be blank")
         return value
+
+    def models_lock_for(self, provider: ProviderId) -> str:
+        """Return the configured lock path for one provider."""
+
+        if provider is ProviderId.CHATANYWHERE:
+            return self.chatanywhere_models_lock
+        return self.models_lock
 
 
 def _load_json(path: Path) -> object:

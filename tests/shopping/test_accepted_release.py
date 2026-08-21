@@ -81,7 +81,7 @@ FAILURE_EVIDENCE = (
 )
 SELECTION_LOCK = PROJECT_ROOT / "data/testset/protected/selection-manifest.json"
 SEED_MANIFEST = PROJECT_ROOT / "data/skill-v0/creator/seed-manifest.json"
-CAPSTONE = PROJECT_ROOT / "course/capstone-shopping-assistant"
+CAPSTONE = PROJECT_ROOT / "fixtures/seed/capstone-shopping-assistant"
 NOW = datetime(2026, 8, 19, 9, tzinfo=UTC)
 
 

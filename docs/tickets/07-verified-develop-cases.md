@@ -79,5 +79,5 @@ uv run ses baseline \
 - `data/testset/ticket07/course-attestations.jsonl`：22 条 unsigned 课程 attestation；15 条纳入、7 条排除，全部待人工复核。
 - `data/testset/ticket07/generated/develop-manifest.json`：15 条 fixed/offline 临时 develop cases，`qualified_count=0`。
 - `data/testset/ticket07/generated/qualification-manifest.jsonl`：15 条 pending 纳入与 7 条 pending 排除的证据绑定。
-- `course/ch06-verify-develop-cases/judge-meta-eval.json`：四种跨层 Judge 校准预期。
-- `course/ch06-verify-develop-cases/expanded-baseline.json`：离线实测指标和 artifact digest。
+- `data/testset/ticket07/generated/private/judge-model-calibration.json`：四个标签 case 的两类 Judge 固定校准结果。
+- `fixtures/seed/run-ticket08-baseline-fixed/summary.json`：15-case fixed/offline 配对基线侧的指标、预算和运行标识。

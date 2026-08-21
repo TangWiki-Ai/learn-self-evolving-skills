@@ -88,6 +88,7 @@ def test_mcp_config_cannot_receive_credentials(tmp_path: Path) -> None:
                 "env": {
                     "SHOP_FIXTURE": "case.json",
                     "SILICONFLOW_API_KEY": "must-not-survive",
+                    "CHATANYWHERE_API_KEY": "chatanywhere-must-not-survive",
                     "SHOP_API_KEY": "shop-secret-must-not-survive",
                 },
             }
@@ -99,9 +100,11 @@ def test_mcp_config_cannot_receive_credentials(tmp_path: Path) -> None:
     config = json.loads(rendered)
     env = config["mcpServers"]["shop"]["env"]
     assert "must-not-survive" not in rendered
+    assert "chatanywhere-must-not-survive" not in rendered
     assert "shop-secret-must-not-survive" not in rendered
     assert "SHOP_API_KEY" not in env
     assert env["SILICONFLOW_API_KEY"] == ""
+    assert env["CHATANYWHERE_API_KEY"] == ""
     assert env["ANTHROPIC_API_KEY"] == ""
     assert env["SHOP_FIXTURE"] == "case.json"
 

@@ -1,196 +1,206 @@
 # Learn Self-Evolving Skills
 
-> 一门项目制 Python 课程。你会从可重放评测开始，亲手构建一个能根据失败证据改进、经过 Gate 验证、支持版本晋升与回滚的 Skill 进化系统。
+你用约一天时间，亲手跑完一次 Skill 自进化闭环。最后你会拿走一段可回查证据的简历项目描述、面试追问准备、概念清单和完整证据索引。
 
-10 课 · Python 3.11+ · Offline-first · 首次体验不需要 API Key
+> 这是经历生成器，不是证书课程。你会在 STATE-Bench 客服退货沙盒里运行真实模型；它不是生产流量，也不代表生产部署。
 
-[从第 1 课开始](course/ch01-see-the-difference/README.md) · [5 分钟离线体验](#5-分钟离线体验) · [先看成品](#先看成品) · [学习路径](#学习路径) · [当前状态](#当前状态)
+## 你最后拿到什么
 
-## Skill 看起来变好了。证据在哪里？
+下面是版式示例。`X/Y/Z` 是模板字段，不是预先写好的成绩；站 7 只会用你自己的 evidence JSON 填入真实数字。
 
-你让 Agent 修改一个 Skill。它写得更完整，也显得更聪明了。但它真的变好了吗？
+> **基于 STATE-Bench 客服退货沙盒的 Skill 进化实战**
+>
+> 围绕 15 条可执行客服 case 建立真实模型执行、终态判分和失败回看链路；从基线 `X/15` 出发，完成人工归因、`Y` 轮最小修改与目标回放 + 全量回归 Gate，最终达到 `Z/15`，并记录 `pass→fail`、版本发布与回滚证据。
 
-它可能只修复了刚看过的样例，也可能破坏原本能完成的任务。评测中断后，你可能无法继续；版本退化时，你也可能说不清哪里出了问题。
+产物包包含：
 
-如果你不能重放同一批任务、检查真实终态、校准 Judge、隔离留出集，并把每处修改连回失败证据，你做的仍是试错，不是工程。
-
-这门课带你亲手搭出完整链路：
-
-```text
-create → eval → evolve → gate → registry → auto-evolve → portfolio
-```
-
-课程使用一个可执行的电商退货场景贯穿十课。你不只会写出一个 Skill，还会建立一套判断它是否进步、何时拒绝修改、如何安全回滚的系统。
-
-## 完成后你能做什么
-
-完成十课后，你可以：
-
-- 建立可重放、可恢复的 Skill 评测基线。
-- 用终态、Trace 和 StateDiff 判断 Agent 是否真的完成任务。
-- 组合并校准 State、Rule、LLM 和 Agent Judge。
-- 从 benchmark 数据构建可审计的 develop case，同时保护 selection 和 final。
-- 把失败证据转成可审核、可追踪的候选 Patch。
-- 用 Gate 和 Registry 管理接受、拒绝、版本晋升与回滚。
-- 运行有停止条件的自动进化循环，并导出 L1/L2/L3 报告和作品集。
-
-## 系统如何工作
+- `resume-zh.md` + `resume-en.md`
+- `interview-prep.md`
+- `concepts.md`
+- `evidence-facts.json` + `evidence-index.json`
 
 ```mermaid
 flowchart LR
-    A["创建<br/>固定种子"] --> B["评测<br/>Trace + StateDiff + Judge"]
-    B --> C["进化<br/>Failure Card + Patch"]
-    C --> D["门控<br/>八阶段 Gate"]
-    D -->|接受并提升| E["版本治理<br/>Registry"]
-    D -->|拒绝或回滚| E
-    E --> F["自动循环<br/>有界运行"]
-    F -->|下一轮| B
-    F -->|停止后只运行一次| G["Final<br/>只输出汇总"]
-    E --> H["交付<br/>L3 + Portfolio"]
+    S0["0 执行与监控"] --> S1["1 Bad Case Mining"]
+    S1 --> S2["2 Failure Analysis"]
+    S2 --> S3["3 Skill Diagnosis"]
+    S3 --> S4["4 Minimal Refinement"]
+    S4 --> S5["5 Regression Evaluation"]
+    S5 -->|Gate 拒绝| S4
+    S5 -->|Gate 接受| S6["6 Release & Rollback"]
+    S6 --> S7["7 Evidence-backed Portfolio"]
+    S5 -. "任何结果都可总结" .-> S7
 ```
 
-系统把修改流程和裁判分开。候选版本不能自行宣布成功；它必须通过锁定协议、受保护数据和保守 Gate。每次接受、拒绝和回滚都会留下可重放记录。
+## 三步开始
 
-## 先看成品
-
-克隆仓库后，你可以用浏览器打开三份签入的教学报告：
-
-| 报告 | 它回答的问题 | 入口 |
-| --- | --- | --- |
-| L1 baseline | Agent 在 baseline 中做了什么，终态为什么通过或失败？ | [打开 L1 baseline](course/ch06-verify-develop-cases/artifacts/run-ticket07-expanded/l1.html) |
-| L2 配对比较 | 安装 Skill 前后，哪些 case 改善或退化？ | [打开 L2 paired comparison](course/ch07-create-v0/artifacts/l2.html) |
-| L3 进化过程 | 哪些候选被接受或拒绝，版本如何演进？ | [打开 L3 auto-evolve report](course/ch10-auto-evolve-and-portfolio/artifacts/fixed-reference/l3.html) |
-
-你还可以继续检查底层证据：
-
-- [GateDecision](course/ch09-gate-and-govern-versions/artifacts/fixed-accept-promote-rollback/gates/gate-reference-accept/gate-decision.json)
-- [Registry event chain](course/ch09-gate-and-govern-versions/artifacts/fixed-accept-promote-rollback/events.jsonl)
-- [Portfolio manifest](course/ch10-auto-evolve-and-portfolio/artifacts/fixed-reference/manifest.json)
-
-这些是 fixed/offline 教学参考。它们帮助你理解协议和证据结构，不代表 live 模型的实际效果。
-
-## 5 分钟离线体验
-
-你需要 Python 3.11+ 和 [`uv`](https://docs.astral.sh/uv/)。下面的路径不会读取 Key，也不会访问模型服务。
-
-先安装依赖并运行一个固定 case：
+你需要 Python 3.11+、[`uv`](https://docs.astral.sh/uv/)、Claude Code 2.1.220、一个实验 Provider 的 API Key，以及你自己的 coding agent（Claude Code、Codex 或兼容 Agent Skills 的终端）。实验 Provider 可选 `siliconflow` 或 `chatanywhere`。
 
 ```bash
+git clone https://github.com/TangWiki-Ai/learn-self-evolving-skills.git
+cd learn-self-evolving-skills
 uv sync --all-extras --locked
-uv run ses run-case --output-root .ses/readme-quickstart --json
 ```
 
-然后运行两轮 fixed 自动进化。流程会演示一次接受、一次拒绝，并在循环停止后运行一次 fixed final：
+在你的 shell 环境里设置所选 Provider 对应的 Key。二选一即可。不要把 Key 粘进聊天，也不要把它写进仓库、命令参数、配置文件或任何产物。
 
 ```bash
-uv run ses auto-evolve --mode fixed --output-root .ses/readme-auto-evolve --json
+export SILICONFLOW_API_KEY='你的 SiliconFlow Key'
+# 或
+export CHATANYWHERE_API_KEY='你的 ChatAnywhere Key'
 ```
 
-第一次体验时，重点看三件事：
+如果你的网络必须经过代理，请在运行 Journey 前显式设置标准代理变量。课程只把这些变量传给隔离的 Claude Code 子进程；带凭据的代理 URL 也会按秘密脱敏。
 
-1. 评测如何把回复、工具调用和最终状态分开记录。
-2. Gate 为什么拒绝看似合理但没有带来改进的候选。
-3. Registry 如何保留完整版本谱系，而不是覆盖旧版本。
+```bash
+export HTTPS_PROXY='http://127.0.0.1:你的代理端口'
+export HTTP_PROXY="$HTTPS_PROXY"
+export ALL_PROXY="$HTTPS_PROXY"
+```
 
-## 学习路径
+新建 live workspace 时，讲师运行第一条 station command 必须显式选择 Provider。你不必提前执行；它会运行下面两条命令之一：
 
-课程按顺序推进。每个阶段都以前一阶段留下的证据为输入。
+```bash
+uv run ses journey station 0 --provider siliconflow
+# 或
+uv run ses journey station 0 --provider chatanywhere
+```
+
+课程把选择写入本地 status。恢复已有 workspace 时沿用已保存的 Provider；不要静默切换，也不要因为另一个 Key 恰好存在就改用它。ChatAnywhere 路径只使用仓库锁定的 Claude 系列模型，不复用 SiliconFlow 的 DeepSeek/Qwen 模型锁。
+
+打开 coding agent，然后说：
 
 ```text
-阶段一：看见与判分       第 1–2 课   对照运行 → 终态与轨迹判分
-阶段二：让评测可信       第 3–4 课   Judge 校准 → 可恢复 baseline
-阶段三：从数据创建 v0    第 5–7 课   数据管线 → 题目验证 → Skill v0
-阶段四：有证据地进化     第 8–10 课  Failure Card → Gate → 自动循环
+开始学习
 ```
 
-每课都提供讲义、starter、solution 和参考结果。建议你先读“困惑”和“方法”，再实现 starter，最后检查报告中的证据，而不是直接复制 solution。当前 tests 用于维护课程基线，不能判断你是否完成 starter；我们正在补学习者测试入口。
+项目级讲师 Skill 位于 `.agents/skills/self-evolving-skill-instructor/`；Claude Code 通过 `.claude/skills/` 的轻量发现入口读取同一份正文。讲师会安装依赖、检查环境、启动只读 dashboard，并逐站代跑命令。
 
-## 十课目录
+## 两笔账
 
-| 课 | 核心问题 | 你会动手做什么 | 主要产物 |
-| --- | --- | --- | --- |
-| [01](course/ch01-see-the-difference/README.md) | Skill 是否真的带来差异？ | 对同一任务运行无 Skill / 有 Skill 对照 | [Comparison Artifact](course/ch01-see-the-difference/comparison-artifact.json) |
-| [02](course/ch02-grade-terminal-state/README.md) | 怎样从结果而不是措辞判分？ | 检查终态、Trace 和 StateDiff | [Baseline Result](course/ch02-grade-terminal-state/baseline-results.json) |
-| [03](course/ch03-calibrate-judges/README.md) | 怎样知道 Judge 值得信任？ | 校准四类 Judge 并测量一致性 | [Agreement Experiment](course/ch03-calibrate-judges/agreement-experiment.json) |
-| [04](course/ch04-reproducible-baseline/README.md) | 怎样得到可恢复的 baseline？ | 串联 Evaluator、Runner 和报告 | [Baseline Comparison](course/ch04-reproducible-baseline/baseline-comparison.json) |
-| [05](course/ch05-mine-benchmark-data/README.md) | 怎样把 benchmark 变成候选案例？ | 固定来源，完成清洗、聚类和分层 | [Data Funnel](course/ch05-mine-benchmark-data/full-funnel-reference.json) |
-| [06](course/ch06-verify-develop-cases/README.md) | 怎样让 LLM 帮忙出题但不写答案？ | 运行 qualification、oracle 和 replay | [Qualification Funnel](course/ch06-verify-develop-cases/qualification-funnel.json) |
-| [07](course/ch07-create-v0/README.md) | 怎样从成功轨迹创建 Skill v0？ | 运行静态检查、触发评测和配对比较 | [L2 Report](course/ch07-create-v0/artifacts/l2.html) |
-| [08](course/ch08-evidence-linked-candidate/README.md) | 怎样让修改理由可追溯？ | 从 Failure Card 生成证据链接 Patch | [Candidate Patch](course/ch08-evidence-linked-candidate/artifacts/evidence-linked-patch.json) |
-| [09](course/ch09-gate-and-govern-versions/README.md) | 什么时候接受、晋升版本或回滚？ | 实现 Gate 与 Registry 治理 | [GateDecision](course/ch09-gate-and-govern-versions/artifacts/fixed-accept-promote-rollback/gates/gate-reference-accept/gate-decision.json) |
-| [10](course/ch10-auto-evolve-and-portfolio/README.md) | 怎样安全运行多轮进化？ | 运行有界循环并导出结果 | [L3 + Portfolio](course/ch10-auto-evolve-and-portfolio/artifacts/fixed-reference/) |
+| 费用 | 谁产生 | 这里如何处理 |
+|---|---|---|
+| 讲师 token | 你的 coding agent 订阅或 Key | 仓库无法可靠计量；请按你的服务方案查看 |
+| 实验引擎 | Claude Code 经所选 Provider 运行 case | dashboard 按本地 status 展示 token 和成本来源 |
 
-具体命令、实现边界和检查方式写在每课 README 中。
+当前 README 不写未经实测的价格。`claude_code_estimate` 只是 Claude Code 的估算，不是 Provider 最终账单；`unavailable` 表示没有可靠成本；`synthetic_ci` 只用于 fixed CI，不能代表 live 成本。系统不因预算自动停止。
 
-## 这门课适合谁
+## 你实际做什么
 
-这门课适合你，如果你：
+引擎已经存在。你不用写 Python 管道。你会做三类真实判断：
 
-- 会使用 Python、终端、Git 和测试工具。
-- 已经写过简单 Agent，并理解 function calling 或 MCP 的基本概念。
-- 正在开发 Agent、Skill、评测系统或质量控制流程。
-- 关心结果是否可复现、可解释、可回滚。
+1. 从失败列表里挑选要分析的 case。
+2. 给失败做归因并定位 Skill 文本。
+3. 写出最小修复，再根据回归证据决定收窄、保留或发版。
 
-这门课不适合你，如果你：
+每站只有一类入口：
 
-- 想找一门零代码的 AI 入门课。
-- 只想复制几段 Prompt，不准备运行代码和测试。
-- 需要一个已经托管好的成品服务。
-- 希望用仓库中的固定示例直接证明真实模型效果。
+```bash
+uv run ses journey station 0
+uv run ses journey station 1
+uv run ses journey station 2
+uv run ses journey station 3
+uv run ses journey station 4
+uv run ses journey station 5
+uv run ses journey station 6
+uv run ses journey station 7
+```
 
-## 课程为什么这样设计
+讲师会根据你的决定补上该站参数。你也可以手动查看帮助：
 
-- **先看见，再测量，最后优化。** 第 1 课先展示差别；第 2–4 课建立可信测量；后续课程才开始生成和进化 Skill。
-- **能用状态和规则判断，就不让模型猜。** LLM Judge 只处理确定性证据无法回答的语义问题。
-- **修改者看不到留出答案。** Creator 和 Updater 不能读取 selection、final、gold 或逐题反馈。
-- **平局也拒绝。** Gate 只接受有证据的改进，不把“没有更差”当作成功。
-- **自动化不绕过治理。** 自动循环复用同一个 Gate 和 Registry，并受停止条件约束。
+```bash
+uv run ses journey --help
+```
 
-## 数据与证据边界
+## Dashboard
 
-课程使用 benchmark 和角色扮演数据，不使用生产日志，也不把它们描述成真实生产流量。
+```bash
+uv run ses journey dashboard
+```
 
-| 数据源 | 在课程中的作用 |
-| --- | --- |
-| [STATE-Bench](data/upstream/state_bench/SOURCE.md) | 提供可执行的电商任务和固定环境 |
-| [ABCD](data/upstream/abcd/SOURCE.md) | 提供自然表达、意图和清洗练习 |
-| [tau2](data/upstream/tau2/SOURCE.md) | 提供去重与难度分层信号 |
+dashboard 默认打开 `http://127.0.0.1:8765/`。它只读取 `.ses/status.json` 和状态里明确列出的产物；它不执行命令、不写文件、不读取 Key，也不访问外网。
 
-公开仓库只保存课程需要的固定切片、来源记录和聚合证据。受保护的 selection/final 身份、答案和逐题材料不进入 Git。详细设计见[测试集规格](docs/specs/05-testset-pipeline.md)和[跨模块契约](docs/specs/10-cross-module-contracts.md)。
+你会在首页看到：
 
-## 当前状态
+- 毕业产物样例
+- 站 0–7 的实时进度
+- 实验 Provider、模型锁、累计 token 与成本来源
+- 每站报告、决定和最终产物链接
 
-| 内容 | 状态 |
-| --- | --- |
-| 十课讲义、starter、solution 和参考结果 | 已提供 |
-| Fixed/offline 演示路径 | 可运行 |
-| 验证 starter 的学习者测试 | 尚未提供；当前 tests 只维护课程基线 |
-| 课程网站 | 规划中 |
-| Live 端到端路径 | 尚未完成 |
+中断后不要删除 `.ses/`。再次说“开始学习”，讲师会从当前站恢复。Gate 未通过也不会挡住站 7；总结会如实写出当前状态。
 
-Live 路径尚未完成，集中人工复核也待签署。因此，仓库中的 fixed 报告只证明流程和证据结构可以工作，不能替代 live 模型成绩。维护者需要的运行记录和完整偏差清单统一放在[首发验证报告](docs/release/release-report.md)。
+## 八站地图
+
+| 站 | 简历短语 | 你的判断 | 主要产物 |
+|---|---|---|---|
+| 0 | Execution & Monitoring | 观察，不下结论 | 15-case v0 baseline + `n=5` no-Skill 样本 |
+| 1 | Bad Case Mining | 挑选失败 case | 失败清单 |
+| 2 | Failure Analysis | 环境 / case / Skill 归因 | 归因分布 |
+| 3 | Skill Diagnosis | 诊断标签与文件行号 | 诊断定位视图 |
+| 4 | Minimal Refinement | 最小修复方案 | 候选快照 + diff |
+| 5 | Regression Evaluation | 跟随 Gate、收窄或暂缓 | 两道 Gate 报告 |
+| 6 | Version Release & Rollback | 发版、回滚演练或暂缓 | 版本时间线 |
+| 7 | Evidence-backed Portfolio | 核对事实 | 简历 + 面试 + 概念 + 证据包 |
+
+站 5 不看“净提升”蒙混过关。它先要求每个目标 case 变绿，再要求 v0 原先通过的 case 中 `pass→fail = 0`。如果现有 case 和 v0 没有暴露缺口，流程会如实记录“没有可立案失败”；它不会伪造一次教学性拒收。
+
+## 证据与安全边界
+
+- 学习者路径走真实 Claude Code + 你显式选择的 Provider。新 live workspace 必须传 `--provider siliconflow|chatanywhere`；`--mode fixed` 只供仓库 CI 使用。
+- ChatAnywhere 只走锁定的 Claude 系列模型。2026-08-21 已按 [ChatAnywhere 的 Claude Code 配置](https://docs.chatanywhere.tech/) 完成 live doctor 的 Model + MCP 校验，并跑通一条原生 Skill + Shop + Judge 代表用例；你在自己的环境里仍应重跑 smoke。
+- case 使用固定 STATE-Bench/ABCD/tau2 派生沙盒资料，不使用生产日志。
+- State Judge 与 Rule Judge 检查工具顺序、精确参数和终态；模型不能自行宣布通过。
+- 所有 Key 只从进程环境读取。课程在写入 JSON、HTML、Markdown、决策或候选前扫描凭据特征；一旦命中就拒绝落盘，错误信息不会回显 Key。
+- dashboard 只允许 GET/HEAD，并拒绝目录穿越、symlink 逃逸和未列入状态的文件。
+- 站 7 的数字来自 JSON，不经 LLM 改写。
+
+## 当前交付状态
+
+| 项目 | 状态 |
+|---|---|
+| 站 0–7 CLI、恢复状态、只读 dashboard | 已实现，fixed CI 全链路可验 |
+| 15 条 v0 baseline + 固定五条 no-Skill 样本 | 已接入 |
+| 两道 Gate、版本时间线、站 7 机器模板 | 已接入 |
+| SiliconFlow / ChatAnywhere Provider 支持 | 已接入；ChatAnywhere live Model + MCP 与代表用例已实测 |
+| Part B 生产对照正文与精选外链 | 待 Owner 最终审阅；讲师不会擅自补写 |
 
 ## 仓库结构
 
 ```text
-course/              十课讲义、starter、solution、tests 和参考结果
-src/ses/             评测、数据、Skill、进化、治理和报告实现
-tests/               模块、契约、集成与发布验证
-data/                固定课程数据、来源和公开 manifest
-docs/specs/          系统与课程规格
-docs/release/        发布验证、人工复核与已知偏差
-scripts/             数据准备、参考结果和 clean-room 验证工具
+.agents/skills/            项目级讲师 Skill 与分站 playbook
+fixtures/seed/             v0、受测参考与 CI 种子资产
+src/ses/                   评测、沙盒、进化、状态与 dashboard 引擎
+tests/                     离线单元、集成、契约和安全测试
+data/                      固定来源、case 与 manifest
+docs/specs/                内部工程规格，不是学习入口
+.ses/                      你的本地运行状态与证据（运行后生成）
 ```
 
-## 文档
+旧的 `course/` 十课、starter、solution 和每课测试已经删除。Git 历史仍保留它们。
 
-- [产品需求](docs/product/prd.md)
-- [系统规格](docs/specs/README.md)
-- [课程交付规格](docs/specs/09-course-delivery.md)
-- [本地发布验证](docs/release/README.md)
-- [首发验证报告](docs/release/release-report.md)
-- [课程体验对齐研究](docs/research/learn-harness-engineering-alignment.md)
+## 维护者检查
 
-## 许可
+默认测试不访问网络，也不需要 Key：
 
-课程代码使用 [Apache-2.0](LICENSE)。上游数据保留各自的许可证、固定版本和来源记录。
+```bash
+uv sync --all-extras --locked
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy src tests
+uv run pytest
+```
+
+真实 smoke 只在你显式选择 Provider、设置匹配的 `SILICONFLOW_API_KEY` 或 `CHATANYWHERE_API_KEY`，并运行 learner command 时发生。ChatAnywhere 的维护者 smoke 命令如下；它验证 Model + MCP，并让一条代表 case 走完 Skill、Shop、State/Rule Judge。代表 case 可以得到 `pass` 或课程需要诊断的 `agent_fail`，但基础设施、Simulator 或 Judge 错误都会让测试失败。
+
+```bash
+SES_RUN_LIVE=1 \
+SES_LIVE_PROVIDER=chatanywhere \
+SES_LIVE_CONFIG="$PWD/ses.json" \
+uv run pytest tests/engines/test_live.py -q -s
+```
+
+不要在 CI 里把 fixed 数字宣传成 live 成绩；没有 live doctor 证据时，也不要把“代码已接入”写成“真实链路已通过”。
+
+## License
+
+代码使用 [Apache-2.0](LICENSE)。上游数据保留各自的许可证与来源记录。

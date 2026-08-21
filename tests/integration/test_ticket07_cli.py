@@ -43,6 +43,8 @@ def _qualification_args(output: Path, attestations: Path) -> list[str]:
         str(attestations),
         "--output",
         str(output),
+        "--provider",
+        "chatanywhere",
         "--json",
     ]
 

@@ -55,16 +55,11 @@ from ses.evolution.workspace import UpdaterWorkspaceError, create_updater_worksp
 from ses.skills.installer import normalized_skill_sha256
 
 ROOT = Path(__file__).parents[2]
-PARENT = ROOT / "course/ch07-create-v0/artifacts/skill/v0"
+PARENT = ROOT / "fixtures/seed/skill/v0"
 LIVE = ROOT / "tests/fixtures/evolution/live-failure-evidence.json"
 SYNTHETIC = ROOT / "tests/fixtures/evolution/synthetic-failure-evidence.json"
-CARDS_JSON = (
-    ROOT
-    / "course/ch08-evidence-linked-candidate/artifacts/synthetic-failure-cards.json"
-)
-PATCH_JSON = (
-    ROOT / "course/ch08-evidence-linked-candidate/artifacts/evidence-linked-patch.json"
-)
+CARDS_JSON = ROOT / "fixtures/seed/evolution/synthetic-failure-cards.json"
+PATCH_JSON = ROOT / "fixtures/seed/evolution/evidence-linked-patch.json"
 PARENT_HASH = "a19c423b65f9ef7960d682045832f7a8bf57fbbda759a42e102cb28ddfc8ef26"
 
 
@@ -797,6 +792,8 @@ def test_evolve_cli_runs_evidence_to_candidate_vertical_slice(tmp_path: Path) ->
             str(output),
             "--mode",
             "fixed",
+            "--provider",
+            "chatanywhere",
             "--json",
         ],
         cwd=ROOT,
@@ -839,18 +836,16 @@ def test_evolution_rejects_a_mislabeled_updater_measurement(tmp_path: Path) -> N
 
 
 def test_export_derives_provenance_from_paired_measurement(tmp_path: Path) -> None:
-    comparison_path = ROOT / "course/ch07-create-v0/artifacts/paired-comparison.json"
+    comparison_path = ROOT / "fixtures/seed/paired-comparison.json"
     comparison = PairedComparison.model_validate_json(comparison_path.read_text())
     output = tmp_path / "evidence.json"
     fixture = export_failure_evidence(
         comparison_path=comparison_path,
         baseline_events_path=(
-            ROOT
-            / "course/ch07-create-v0/artifacts/run-ticket08-baseline-fixed/events.jsonl"
+            ROOT / "fixtures/seed/run-ticket08-baseline-fixed/events.jsonl"
         ),
         skill_events_path=(
-            ROOT
-            / "course/ch07-create-v0/artifacts/run-ticket08-skill-v0-fixed/events.jsonl"
+            ROOT / "fixtures/seed/run-ticket08-skill-v0-fixed/events.jsonl"
         ),
         output_path=output,
         expected_comparison_sha256=hashlib.sha256(
@@ -861,10 +856,7 @@ def test_export_derives_provenance_from_paired_measurement(tmp_path: Path) -> No
     )
     assert fixture.provenance.value == "synthetic"
     assert output.read_bytes() == output.read_bytes().strip()
-    events_path = (
-        ROOT
-        / "course/ch07-create-v0/artifacts/run-ticket08-skill-v0-fixed/events.jsonl"
-    )
+    events_path = ROOT / "fixtures/seed/run-ticket08-skill-v0-fixed/events.jsonl"
     first_attempt = next(
         event
         for event in (

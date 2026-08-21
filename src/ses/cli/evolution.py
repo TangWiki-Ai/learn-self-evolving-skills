@@ -19,8 +19,13 @@ from ses.evolution.workflow import (
     run_evolution_workflow,
 )
 from ses.evolution.workspace import UpdaterWorkspaceError
-from ses.foundation.config import ModelRole, load_model_lock, load_runtime_config
-from ses.foundation.credentials import read_siliconflow_credentials
+from ses.foundation.config import (
+    ModelRole,
+    ProviderId,
+    load_model_lock,
+    load_runtime_config,
+)
+from ses.foundation.credentials import read_provider_credentials
 
 
 def _safe_error(exc: Exception) -> str:
@@ -122,6 +127,7 @@ def evolve_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mode", choices=("fixed", "live"), default="fixed")
+    parser.add_argument("--provider", type=ProviderId, choices=tuple(ProviderId))
     parser.add_argument("--project-root", type=Path, default=root)
     parser.add_argument("--workspace-root", type=Path)
     parser.add_argument("--timeout", type=float, default=180)
@@ -137,10 +143,13 @@ def evolve_main(argv: Sequence[str]) -> int:
             updater = FakeUpdater()
         else:
             config = load_runtime_config(args.project_root / "ses.json")
-            lock = load_model_lock(args.project_root / config.models_lock)
+            provider = args.provider or config.default_provider
+            lock = load_model_lock(args.project_root / config.models_lock_for(provider))
+            if lock.provider is not provider:
+                raise ValueError("selected provider differs from its model lock")
             updater = ClaudeCodeUpdater(
                 model=lock.roles[ModelRole.CREATOR],
-                credentials=read_siliconflow_credentials(os.environ),
+                credentials=read_provider_credentials(provider, os.environ),
                 executable=config.claude_executable,
                 environ=os.environ,
                 timeout_seconds=args.timeout,

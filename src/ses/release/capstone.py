@@ -11,20 +11,20 @@ import stat
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from string import Template
 from typing import Literal, Protocol
 
 from ses.contracts.capstone import CapstoneMilestonePolicyCheck
 from ses.contracts.serialization import artifact_json_bytes
-from ses.release.clean_room import _output_digest, _safe_environment
-from ses.release.validator import CheckStatus, ReleaseCheck
+from ses.foundation.credentials import is_sensitive_name
 
-CAPSTONE_RELATIVE_ROOT = Path("course/capstone-shopping-assistant")
+CAPSTONE_RELATIVE_ROOT = Path("fixtures/seed/capstone-shopping-assistant")
 MILESTONE_IDS = ("create", "eval", "evolve", "gate", "automation")
 MilestoneImplementationVariant = Literal["starter", "solution"]
 MILESTONE_POLICY_FIXTURE = Path(
-    "course/capstone-shopping-assistant/fixtures/milestone-policy-v1.json"
+    "fixtures/seed/capstone-shopping-assistant/fixtures/milestone-policy-v1.json"
 )
 MILESTONE_EXECUTION_CONTRACT = {
     "default_variant": "starter",
@@ -43,6 +43,32 @@ class CapstoneTargetCommand:
     command_id: str
     milestone: str
     command: str
+
+
+class CheckStatus(StrEnum):
+    """Release gate status; deviations never silently become passes."""
+
+    PASS = "pass"
+    DEVIATION = "deviation"
+    FAIL = "fail"
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseCheck:
+    """One stable release assertion with path-safe evidence."""
+
+    check_id: str
+    status: CheckStatus
+    summary: str
+    details: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "check_id": self.check_id,
+            "status": self.status.value,
+            "summary": self.summary,
+            "details": list(self.details),
+        }
 
 
 class _Digest(Protocol):
@@ -198,7 +224,8 @@ TARGET_COMMAND_IDS = tuple(command.command_id for command in TARGET_COMMANDS)
 FIXED_CLEAN_ROOM_COMMANDS = (
     (
         "fixed.course_tests",
-        "uv run --offline --frozen pytest -q course/capstone-shopping-assistant/tests",
+        "uv run --offline --frozen pytest -q "
+        "fixtures/seed/capstone-shopping-assistant/tests",
     ),
     (
         "fixed.structure_validator",
@@ -207,13 +234,12 @@ FIXED_CLEAN_ROOM_COMMANDS = (
     ),
 )
 
-_REQUIRED_DOCUMENTS = (
-    "README.md",
-    "BUDGET.md",
-    "FURTHER_READING.md",
-    "LIVE_SETUP.md",
-    "REFERENCE.md",
+_REQUIRED_ASSETS = (
     "course-manifest.json",
+    "profiles/fixed-v1.json",
+    "profiles/live-v1.json",
+    "fixtures/milestone-policy-v1.json",
+    "sources/shop-simulator-live-no-go.json",
 )
 _EXCLUDED_DIRECTORY_NAMES = frozenset(
     {
@@ -310,6 +336,33 @@ def _canonical_json_bytes(value: object) -> bytes:
     )
 
 
+def _safe_environment(source: Mapping[str, str]) -> dict[str, str]:
+    allowed = {
+        "LANG",
+        "LC_ALL",
+        "PATH",
+        "SSL_CERT_FILE",
+        "TMPDIR",
+        "UV_CACHE_DIR",
+    }
+    environment = {
+        name: value
+        for name, value in source.items()
+        if name in allowed and not is_sensitive_name(name)
+    }
+    environment["PYTHONNOUSERSITE"] = "1"
+    return environment
+
+
+def _output_digest(
+    completed: subprocess.CompletedProcess[str],
+) -> dict[str, str]:
+    return {
+        "stdout_sha256": hashlib.sha256(completed.stdout.encode()).hexdigest(),
+        "stderr_sha256": hashlib.sha256(completed.stderr.encode()).hexdigest(),
+    }
+
+
 def _policy_fixture(root: Path) -> tuple[Mapping[str, object], str] | None:
     path = root / MILESTONE_POLICY_FIXTURE
     try:
@@ -346,17 +399,19 @@ def _check_identity(
     details: list[str] = []
     if manifest is None:
         details.append("invalid_course_manifest")
-    elif manifest.get("course_kind") != "independent_capstone":
-        details.append("course_kind_must_be_independent_capstone")
+    else:
+        if manifest.get("record_type") != "shopping_capstone_course_manifest":
+            details.append("invalid_manifest_identity")
+        if manifest.get("course_id") != "capstone-shopping-assistant":
+            details.append("invalid_capstone_id")
+        if manifest.get("course_kind") != "independent_capstone":
+            details.append("course_kind_must_be_independent_capstone")
     try:
         readme = (capstone / "README.md").read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         readme = ""
-        details.append("unreadable_README.md")
     if _LESSON_ELEVEN_PATTERN.search(readme):
         details.append("lesson_11_wording")
-    if "独立 Capstone" not in readme:
-        details.append("missing_independent_capstone_label")
     if details:
         return ReleaseCheck(
             "capstone.identity",
@@ -367,7 +422,7 @@ def _check_identity(
     return ReleaseCheck(
         "capstone.identity",
         CheckStatus.PASS,
-        "The shopping project is an independent capstone, not lesson 11.",
+        "The fixed shopping assets retain their independent capstone identity.",
     )
 
 
@@ -400,7 +455,7 @@ def _check_milestones(
     execution = manifest.get("milestone_execution") if manifest is not None else None
     if execution != MILESTONE_EXECUTION_CONTRACT:
         failures.append("milestone_execution_contract_drift")
-    if _policy_fixture(capstone.parents[1]) is None:
+    if _policy_fixture(capstone.parents[2]) is None:
         failures.append("milestone_policy_fixture_invalid")
     for milestone in MILESTONE_IDS:
         for variant in ("starter", "solution"):
@@ -443,38 +498,19 @@ def _check_milestones(
     )
 
 
-def _check_documentation(capstone: Path) -> ReleaseCheck:
-    failures = [name for name in _REQUIRED_DOCUMENTS if not (capstone / name).is_file()]
-    try:
-        readme = (capstone / "README.md").read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        readme = ""
-    required_phrases = (
-        "学习目标",
-        "课程提供",
-        "你要实现",
-        "workflow_complete",
-        "ShopSimulator-inspired fixed workflow",
-        "reference_fallback",
-        "费用",
-        "无 Key",
-    )
-    failures.extend(
-        f"README_missing:{phrase}"
-        for phrase in required_phrases
-        if phrase not in readme
-    )
+def _check_assets(capstone: Path) -> ReleaseCheck:
+    failures = [name for name in _REQUIRED_ASSETS if not (capstone / name).is_file()]
     if failures:
         return ReleaseCheck(
-            "capstone.documentation",
+            "capstone.assets",
             CheckStatus.FAIL,
-            "Learner-facing outcomes, boundaries, budgets, references, or setup are missing.",
+            "Required fixed shopping assets are missing.",
             tuple(failures),
         )
     return ReleaseCheck(
-        "capstone.documentation",
+        "capstone.assets",
         CheckStatus.PASS,
-        "The capstone documents outcomes, boundaries, budgets, fixed reference, and live setup.",
+        "The fixed profiles, policy fixture, source decision, and manifest are present.",
     )
 
 
@@ -759,7 +795,6 @@ def _milestone_implementation_evidence_valid(
 
 
 def _check_target_commands(
-    capstone: Path,
     manifest: Mapping[str, object] | None,
     evidence: Mapping[str, object] | None,
 ) -> ReleaseCheck:
@@ -783,13 +818,6 @@ def _check_target_commands(
             str(row.get("command", ""))
         ) != _normalized(target.command):
             failures.append(f"target_command_drift:{command_id}")
-    try:
-        readme = _normalized((capstone / "README.md").read_text(encoding="utf-8"))
-    except (OSError, UnicodeError):
-        readme = ""
-    for target in TARGET_COMMANDS:
-        if _normalized(target.command) not in readme:
-            failures.append(f"README_command_missing:{target.command_id}")
     if failures:
         return ReleaseCheck(
             "capstone.target_commands",
@@ -801,7 +829,7 @@ def _check_target_commands(
         return ReleaseCheck(
             "capstone.target_commands",
             CheckStatus.DEVIATION,
-            "The target CLI contract is documented but has no clean-room execution evidence.",
+            "The target CLI contract is locked but has no clean-room execution evidence.",
             TARGET_COMMAND_IDS,
         )
     records = evidence.get("target_commands")
@@ -968,7 +996,7 @@ def _check_course_tests(
             "--frozen",
             "pytest",
             "-q",
-            "course/capstone-shopping-assistant/tests",
+            "fixtures/seed/capstone-shopping-assistant/tests",
         ],
         cwd=root,
         env=environment,
@@ -1017,9 +1045,9 @@ def validate_capstone_course(
             manifest,
             implementation_variant=implementation_variant,
         ),
-        _check_documentation(capstone),
+        _check_assets(capstone),
         _check_live_fail_closed(capstone, manifest, evidence),
-        _check_target_commands(capstone, manifest, evidence),
+        _check_target_commands(manifest, evidence),
         _check_clean_room_evidence(
             evidence,
             current_tree_sha256=current_tree_sha256,
@@ -1247,7 +1275,8 @@ def _target_variables(destination: Path) -> dict[str, str]:
     return {
         "PROFILE": str(
             destination
-            / "course"
+            / "fixtures"
+            / "seed"
             / "capstone-shopping-assistant"
             / "profiles"
             / "fixed-v1.json"
@@ -1841,7 +1870,9 @@ __all__ = [
     "TARGET_COMMANDS",
     "TARGET_COMMAND_IDS",
     "CapstoneReleaseReport",
+    "CheckStatus",
     "MilestoneImplementationVariant",
+    "ReleaseCheck",
     "capstone_evidence_exit_code",
     "materialize_worktree",
     "run_capstone_clean_room",

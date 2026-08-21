@@ -20,7 +20,9 @@ from ses.shopping.profile import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PROFILE_ROOT = PROJECT_ROOT / "course" / "capstone-shopping-assistant" / "profiles"
+PROFILE_ROOT = (
+    PROJECT_ROOT / "fixtures" / "seed" / "capstone-shopping-assistant" / "profiles"
+)
 
 
 def _source_groups() -> tuple[ShoppingSourceGroup, ...]:

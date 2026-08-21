@@ -7,8 +7,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.release.capstone import validate_capstone_course
-from ses.release.validator import CheckStatus
+from ses.release.capstone import CheckStatus, validate_capstone_course
 
 
 def _parser() -> argparse.ArgumentParser:

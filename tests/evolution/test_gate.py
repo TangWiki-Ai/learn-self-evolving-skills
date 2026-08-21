@@ -45,7 +45,7 @@ from ses.evolution.workflow import run_evolution_workflow
 from ses.skills.installer import load_skill_manifest, write_skill_manifest
 
 ROOT = Path(__file__).parents[2]
-PARENT = ROOT / "course/ch07-create-v0/artifacts/skill/v0"
+PARENT = ROOT / "fixtures/seed/skill/v0"
 EVIDENCE = ROOT / "tests/fixtures/evolution/synthetic-failure-evidence.json"
 SELECTION_LOCK = ROOT / "data/testset/protected/selection-manifest.json"
 MEASURED_AT = datetime(2026, 8, 18, 8, tzinfo=UTC)

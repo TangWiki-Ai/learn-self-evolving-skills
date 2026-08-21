@@ -395,12 +395,10 @@ def build_fixed_auto_evolve_orchestrator(
 
     root = project_root.resolve(strict=True)
     output = output_root.resolve(strict=False)
-    accepted = (
-        accepted_skill or root / "course/ch07-create-v0/artifacts/skill/v0"
-    ).resolve(strict=True)
-    evidence = (
-        initial_evidence or root / "course/ch07-create-v0/artifacts/summary.json"
-    ).resolve(strict=True)
+    accepted = (accepted_skill or root / "fixtures/seed/skill/v0").resolve(strict=True)
+    evidence = (initial_evidence or root / "fixtures/seed/summary.json").resolve(
+        strict=True
+    )
     fixture = (
         failure_fixture
         or root / "tests/fixtures/evolution/synthetic-failure-evidence.json"

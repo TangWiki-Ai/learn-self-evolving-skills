@@ -111,6 +111,7 @@ def main() -> int:
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_CUSTOM_HEADERS",
+        "CHATANYWHERE_API_KEY",
         "SILICONFLOW_API_KEY",
     ):
         os.environ.pop(name, None)

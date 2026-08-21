@@ -14,6 +14,7 @@ from ses.cli import (
     doctor,
     evolution,
     governance,
+    journey,
     judge_calibration,
     qualify_cases,
     shopping_capstone,
@@ -84,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser(
         "capstone-index", help="Verify and index a complete shopping capstone."
+    )
+    commands.add_parser(
+        "journey", help="Run the live-first eight-station learner journey."
     )
     return parser
 
@@ -222,6 +226,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return shopping_capstone.portfolio_main(command_args)
     if command == "capstone-index":
         return shopping_capstone.capstone_index_main(command_args)
+    if command == "journey":
+        return journey.main(command_args)
     build_parser().parse_args(values)
     return 2
 

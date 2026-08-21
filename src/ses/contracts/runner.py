@@ -156,6 +156,7 @@ class RunRecord(VersionedRecord):
     turn_count: StrictNonNegativeInt = 0
     session_resumed: bool = False
     usage: Usage | None = None
+    cost_complete: bool = Field(default=True, exclude_if=lambda value: value)
     latency_ms: StrictNonNegativeInt = 0
     budget: BudgetState
     artifacts: RunArtifacts = Field(default_factory=RunArtifacts)
@@ -343,6 +344,7 @@ class PairedComparison(VersionedRecord):
     baseline_cost_amount: Decimal
     skill_cost_amount: Decimal
     cost_currency: CurrencyCode
+    cost_complete: bool = Field(default=True, exclude_if=lambda value: value)
     baseline_latency_ms: StrictNonNegativeInt
     skill_latency_ms: StrictNonNegativeInt
     cases: tuple[PairedCaseResult, ...]

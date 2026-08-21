@@ -34,7 +34,7 @@ module-name = "ses"
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
-testpaths = ["tests", "course"]
+testpaths = ["tests"]
 markers = [
   "live: explicit paid Claude Code and Provider integration tests",
 ]

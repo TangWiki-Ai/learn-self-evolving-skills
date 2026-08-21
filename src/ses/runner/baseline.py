@@ -121,6 +121,7 @@ class CaseEvaluation:
     output_tokens: int
     cost_amount: Decimal = Decimal(0)
     cost_currency: str = "CNY"
+    cost_complete: bool = True
     latency_ms: int = 0
     artifacts: RunArtifacts = field(default_factory=RunArtifacts)
     session_resumed: bool = False
@@ -535,6 +536,7 @@ class BaselineRunner:
                     cost_amount=evaluation.cost_amount,
                     cost_currency=evaluation.cost_currency,
                 ),
+                cost_complete=evaluation.cost_complete,
                 latency_ms=evaluation.latency_ms,
                 budget=attempt_budget,
                 artifacts=evaluation.artifacts,

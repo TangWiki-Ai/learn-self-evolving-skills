@@ -45,7 +45,7 @@ from ses.shopping.profile import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CAPSTONE_ROOT = PROJECT_ROOT / "course" / "capstone-shopping-assistant"
+CAPSTONE_ROOT = PROJECT_ROOT / "fixtures" / "seed" / "capstone-shopping-assistant"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 

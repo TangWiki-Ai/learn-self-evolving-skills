@@ -61,7 +61,7 @@ Skill hash 不一致时拒绝输出。
 
 ## Fixed 与 live 声明
 
-`course/ch07-create-v0/artifacts/` 是 fixed/offline reference。它真实执行
+`fixtures/seed/` 是 fixed/offline reference。它真实执行
 Runner、Shop 和 Judge，但 Agent 输出来自 deterministic fake engine。Fixed
 模式规范化 Trace 事件时钟；相同代码和输入会生成相同的 event、comparison 和
 L2 artifact hash。
@@ -69,4 +69,4 @@ L2 artifact hash。
 `--mode live` 使用 `models.lock.json` 的 Creator 和 Main 角色，并只从进程
 环境读取 `SILICONFLOW_API_KEY`。Creator、Trigger 和 paired 都走真实 Claude
 Code headless；只有实际完成两侧 15-case run 时，paired 才标记
-`live_measured`。Live artifact 必须写入临时目录，不能覆盖课程参考结果。
+`live_measured`。Live artifact 必须写入临时目录，不能覆盖签入的 seed reference。

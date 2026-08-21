@@ -28,7 +28,7 @@ from ses.shopping.registry import open_shopping_registry
 from ses.skills.installer import normalized_skill_sha256
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CAPSTONE_ROOT = PROJECT_ROOT / "course" / "capstone-shopping-assistant"
+CAPSTONE_ROOT = PROJECT_ROOT / "fixtures" / "seed" / "capstone-shopping-assistant"
 PROFILE = CAPSTONE_ROOT / "profiles" / "fixed-v1.json"
 
 

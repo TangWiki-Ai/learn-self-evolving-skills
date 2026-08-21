@@ -31,7 +31,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _load_module(root: Path, variant: str, milestone: str) -> ModuleType:
-    path = root / "course" / "capstone-shopping-assistant" / variant / f"{milestone}.py"
+    path = (
+        root
+        / "fixtures"
+        / "seed"
+        / "capstone-shopping-assistant"
+        / variant
+        / f"{milestone}.py"
+    )
     if not path.is_file() or path.is_symlink():
         raise ValueError("selected milestone implementation is not a regular file")
     spec = importlib.util.spec_from_file_location(
@@ -61,7 +68,8 @@ def _canonical_json_bytes(value: object) -> bytes:
 def _policy_fixture(root: Path, milestone: str) -> tuple[dict[str, object], str]:
     path = (
         root
-        / "course"
+        / "fixtures"
+        / "seed"
         / "capstone-shopping-assistant"
         / "fixtures"
         / "milestone-policy-v1.json"
@@ -168,7 +176,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RuntimeError("milestone changed the target exit code")
     implementation = (
         root
-        / "course"
+        / "fixtures"
+        / "seed"
         / "capstone-shopping-assistant"
         / args.variant
         / f"{args.milestone}.py"
@@ -187,7 +196,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 implementation.read_bytes()
             ).hexdigest(),
             "fixture_path": (
-                "course/capstone-shopping-assistant/fixtures/milestone-policy-v1.json"
+                "fixtures/seed/capstone-shopping-assistant/fixtures/"
+                "milestone-policy-v1.json"
             ),
             "fixture_sha256": fixture_sha256,
             "policy_result_sha256": policy_result_sha256,

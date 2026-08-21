@@ -2,95 +2,85 @@
 
 ## Problem Statement
 
-一个功能完整的自进化框架不自动等于一门可学的课程。学生需要在每一步亲手实现关键判断，又不能被环境、数据下载和安全隔离拖住；每课必须从稳定 starter 开始、通过测试获得反馈，并产出一个能和前一状态比较的数字。如果课程材料、代码版本和参考结果不同步，学生会在错误基础上继续，最终作品也无法复现。
+完整的自进化引擎不等于完整的学习体验。学习者需要在约一天内看懂证据、做出关键判断并跑完一次真实闭环，而不是重写 Python 管道。课程还必须区分 live 证据、CI 合成证据和不可获得的费用数据，避免把固定 fixture、模型估算或缺失费用写成真实 Provider 成绩。
+
+教学入口也必须保持单一。讲师、命令、进度和报告如果各自维护状态，学习者中断后无法可靠恢复，dashboard 也会与真实运行漂移。
 
 ## Solution
 
-把系统能力编排成 6 部分 10 课。每课包含概念讲义、starter、学生实现模块、公开测试、solution、一个对照产物、拓展阅读和预算说明。上一课 solution 必须等于下一课 starter。环境仿真与安全隔离由课程提供；测试集判断、Trace、Judge、Evaluator、Skill 创建验证、进化、Gate 和自动循环由学生实现。仓库提供锁版本数据、小型参考 run 和兜底 Skill，让无 Key 或生成效果差的学习者仍能理解课程。
+把已实现的系统能力编排成站 0–7 共八站的单日 Journey。项目级 instructor Skill 负责讲解、代跑命令和递进提示；`ses journey` 执行现有能力并把状态与证据写入 `.ses/`；本地 dashboard 只读 `.ses/status.json` 和其中列出的产物。
+
+学习者路径始终使用真实 Claude Code 和显式选择的 `siliconflow` 或 `chatanywhere`。`fixed` 模式只作为仓库 CI 的确定性测试缝，不属于学习者路径。旧 `course/` 十课、starter、solution 和每课测试已经删除；其必要种子资产迁入 `fixtures/seed/`。
 
 ## User Stories
 
-1. 作为具备 Python 和 Agent 基础的学习者，我想明确前置要求，以便判断自己是否适合课程。
-2. 作为学习者，我想从可运行 starter 开始，以便只关注本课新增机制。
-3. 作为学习者，我想先看到困惑和失败现象，再学习方法，以便理解为什么需要这个模块。
-4. 作为学习者，我想亲手补完核心判断逻辑，以便真正掌握评测和进化系统。
-5. 作为学习者，我想运行本课公开测试，以便在进入下一课前发现错误。
-6. 作为学习者，我想比较自己的结果和 solution 行为，以便理解差异而不是直接复制代码。
-7. 作为学习者，我想每课得到一个 before/after 或 with/without 产物，以便把学习过程变成实验记录。
-8. 作为学习者，我想看到本课预计和实测费用，以便控制总预算。
-9. 作为学习者，我想在生成 demo Skill 失败时使用参考 Skill，以便继续后续课程。
-10. 作为无 Key 的学习者，我想阅读参考 Trace 和报告，以便先学习机制再决定是否付费运行。
-11. 作为学习者，我想知道哪些代码是脚手架、哪些必须自己写，以便不绕过课程目标。
-12. 作为学习者，我想按课程命令导出作品集，以便展示完整系统而不只展示一份 Skill。
-13. 作为课程作者，我想让每课 solution 成为下一课 starter，以便代码与讲义不会漂移。
-14. 作为课程作者，我想把拓展阅读映射到具体段落和问题，以便阅读服务当前机制。
-15. 作为课程作者，我想锁定数据、模型和协议，以便参考数字可解释。
-16. 作为课程作者，我想清楚标记 benchmark 与角色扮演数据，以便不夸大数据来源。
-17. 作为测试作者，我想验证 starter 在正确位置失败、solution 全部通过，以便练习没有被意外补完或破坏。
-18. 作为评审者，我想从最终 portfolio 回到每课实验，以便确认学习者真的完成了链路。
-19. 作为维护者，我想独立更新系统模块 spec 和课程映射，以便架构演进不打乱教学顺序。
-20. 作为未来维护者，我想增加 Provider 说明或适配器，以便课程不永远绑定一个服务商。
+1. 作为学习者，我想对 coding agent 说“开始学习”，以便由讲师 Skill 带我开始或恢复当前站。
+2. 作为学习者，我想在新 live workspace 显式选择实验 Provider，以便系统不会从环境中的 Key 猜测或静默切换 Provider。
+3. 作为学习者，我想让讲师处理安装、doctor、命令和 dashboard，以便把时间用于理解证据和做判断。
+4. 作为学习者，我想在一张八站地图上看到当前进度和产物，以便中断后继续。
+5. 作为学习者，我想从真实失败中选择 bad case，以便分析对象来自当前运行而不是教学脚本。
+6. 作为学习者，我想区分环境、case 和 Skill 问题，再定位到具体文本，以便不因单次失败盲目修改 Skill。
+7. 作为学习者，我想只做一次最小修复并先回放目标 case，以便验证修复方向。
+8. 作为学习者，我想看到目标回放与全量回归两道 Gate，以便知道候选是否治好目标且没有伤害既有通过 case。
+9. 作为学习者，我想查看发版与回滚时间线，以便理解版本治理。
+10. 作为学习者，我想随时生成当前证据对应的简历、面试准备和概念清单，以便 Gate 未通过时也能如实总结。
+11. 作为学习者，我想区分 coding-agent 费用、实验引擎费用、估算和不可用费用，以便不把未知数据当成账单。
+12. 作为评审者，我想从站 7 产物回到结构化 evidence，以便核查每个数字和结论。
 
 ## Implementation Decisions
 
-- 目标学习者已经写过简单 Agent，理解 function calling 或 Agent 框架，了解 MCP 基本概念，并能读写 Pydantic、类型标注和 pytest。
-- 课程代码使用 Python 3.11+、Pydantic v2 和 pytest，不引入重型 Agent 框架。
-- 每课固定结构为：困惑、方法、业界做法、关键 insight、starter、实现任务、测试、对照产物、拓展阅读、预算。
-- 每课只要求学生实现与学习目标直接相关的判断逻辑。脚手架提供电商数据、shop 环境、MCP server、runtime 隔离、Simulator、安全 Creator Adapter 和 CLI 参数解析。
-- 学生实现 Trace、State/Rule/LLM/Agent Judge、Evaluator、Runner、Report、测试集清洗与生成、Static Gate、Trigger Evaluator、Evolution、Gate、Registry 和 Auto-Evolve。
-- 上一课 solution 的源码和数据状态必须机械生成或验证为下一课 starter，不能靠人工复制维护两份。
-- Starter 包含本课未实现点、公开接口、测试和最少上下文；Solution 只补本课目标，不提前泄漏后续课。
-- 每课测试覆盖外部行为，并提供失败信息指导学生定位概念问题，但不直接给出完整实现。
-- 课程与模块映射如下：
+- 课程定位是经历生成器，不是证书课程。完成状态代表产物已生成，不证明学习者独立完成了每个判断。
+- 讲师由 `.agents/skills/self-evolving-skill-instructor/` 下的一份 `SKILL.md` 和站 0–7 playbook 构成。`.claude/skills/` 只提供 Claude Code 的轻量发现入口，不维护第二份正文。
+- 讲师默认先提问、再指向证据、再给候选解释，最后才示范。学习者要求代做时，讲师可以代做并明确说明所作判断。
+- 每站使用一条 `uv run ses journey station N` 命令。讲师根据学习者决定补充该站参数；学习者无需编写 Python 管道。
+- Journey 的 canonical 状态位于 `.ses/status.json`。它记录站点状态、决定引用、产物引用、实验模式、Provider、模型锁哈希、token 和费用来源。恢复时必须沿用已保存的模式与 Provider。
+- dashboard 通过 `uv run ses journey dashboard` 启动。它只允许读取状态及已登记产物，不执行命令、不写文件、不读取 Key、不访问外网。
+- 新 live workspace 必须显式传入 `--provider siliconflow` 或 `--provider chatanywhere`。系统不根据现有 Key 自动选择 Provider，不在 Provider 之间路由或 fallback。
+- SiliconFlow 与 ChatAnywhere 使用各自的模型锁和环境变量。ChatAnywhere 只使用其锁定的 Claude 系列模型；不能复用 SiliconFlow 的 DeepSeek/Qwen 锁。
+- `--mode fixed` 只用于仓库 CI。fixed 状态使用 `synthetic_ci` 费用来源，任何 fixed 结果都不能作为 live 模型质量或真实费用证据。
+- 课程展示两笔账：coding agent 的订阅或 Key 费用由学习者自己的服务产生，仓库不计量；实验引擎记录 token 和费用来源。系统不实现预算硬停。
+- SiliconFlow live 费用来源为 `claude_code_estimate`，它是 Claude Code 估算而非 Provider 账单。ChatAnywhere 不提供可验证的 Provider 费用时，费用来源必须为 `unavailable`、`cost_complete=false`，界面不能显示零费用或推算费用。
+- Gate 未通过不会阻塞站 7。站 7 使用现有 evidence 生成草稿或已验证产物，并明确缺失的基线、全量回归、发版或 live 证据。
+- Part B 的生产对照正文和精选外链仍待 Owner 终审。讲师只能教授已批准的仓库机制和明确的沙盒边界，不能把待审内容写成正式课程结论。
 
-| 课 | 核心模块 | 学生交付 | 对照产物 |
-| --- | --- | --- | --- |
-| 1 | Foundation、Shop、Skill Creation | doctor 接入和 demo Skill 使用 | 同 case 无 Skill/有 Skill 两段 fresh 对话 |
-| 2 | Shop、Evaluation | Trace、State Judge、Rule Judge、expect | develop 6 题 baseline state pass 率 |
-| 3 | Evaluation | LLM Judge、evidence extractor、Agent Judge | 两类 Judge 与人工标签的一致性 |
-| 4 | Runtime、Simulation/Runner/Reporting | Evaluator、Runner、L1 Report | baseline 成功率、成本、耗时和方差 |
-| 5 | Testset Pipeline | ABCD 清洗聚类、tau2 去重分层 | 1,070 段到候选清单的漏斗 |
-| 6 | Shop、Evaluation、Testset Pipeline | 变体、重放、校准和 develop 入库 | 新题合格率与扩容后 baseline |
-| 7 | Skill Creation、Runner/Reporting | v0、Static Gate、Trigger Eval、L2 Report | trigger P/R 与 v0/baseline 配对表 |
-| 8 | Evolution | Failure Card 和结构化 Patch | 候选补丁及逐条证据链 |
-| 9 | Evolution、Registry、Runner | Selection Gate、promote/reject/rollback | v0/v1 GateDecision 与谱系 |
-| 10 | Automation、Reporting | Auto-Evolve、final、Portfolio | 进化曲线与 final 12 题报告 |
+课程与系统能力映射如下：
 
-- 第一课允许生成结果波动，课程提供参考 Skill 兜底并在报告中标记。兜底不能替代第七课的 v0 生成任务。
-- 第五课统一使用 benchmark 轨迹或真人角色扮演语料，避免把数据描述成生产日志。
-- 第六课只允许合格新题进入 develop。selection 和 final 在课程开始时锁定，后续课程不展示逐题反馈。
-- 第十课必须在预算内完成至少两轮完整候选流程，并复现至少一次接受和一次拒绝或回滚。
-- 每次 baseline、v0、candidate 和 final 都产生 fresh trace。参考 run 只供阅读，不能代替学习者结课运行。
-- 课程总预算目标不超过人民币 50 元。每课先给估算，课程发布前用小样本实测校准并注明价格日期。
-- 拓展阅读包括论文、Anthropic 文档、skill-up 和其他机制事实库。每条阅读必须指定阅读范围和要回答的问题。
-- 讲义和用户文档使用中文，代码标识、schema 字段和代码注释使用英文，避免同一 API 出现双语名称。
-- 作品集包含系统和实验证据，不把“Skill 变好”写成无条件结论。所有数字必须注明数据 split、协议和模型版本。
-- 多 Provider 作为 roadmap 文字说明。首版课程只教授薄 Engine 边界和硅基流动主路径，不增加额外 Provider 练习。
+| 站 | 简历短语 | 学习者判断 | 系统执行 | 主要产物 |
+| --- | --- | --- | --- | --- |
+| 0 | Execution & Monitoring | 观察，不下结论 | doctor、15-case v0 baseline、固定五条 no-Skill 对照 | baseline HTML 与执行证据 |
+| 1 | Bad Case Mining | 选择要分析的失败 case | 汇总基线失败 | 失败清单与选择记录 |
+| 2 | Failure Analysis | 判断环境 / case / Skill 归因 | 校验并保存归因 | 归因分布与决定记录 |
+| 3 | Skill Diagnosis | 选择诊断标签和文件位置 | 关联失败、Skill 文本与位置 | 诊断定位视图 |
+| 4 | Minimal Refinement | 给出最小修复方案 | 生成候选快照、diff 并运行静态门 | 候选 Skill 与修复 diff |
+| 5 | Regression Evaluation | 跟随 Gate、继续收窄或暂缓 | 目标回放 + 全量回归两道 Gate | Gate JSON/HTML 与回归决定 |
+| 6 | Version Release & Rollback | 发版、回滚演练或暂缓 | 写入不可变版本时间线 | 发版与回滚证据 |
+| 7 | Evidence-backed Portfolio | 核对事实 | 从 evidence 机器填充模板 | 中英简历、面试准备、概念清单与证据索引 |
 
 ## Testing Decisions
 
-- 每课有独立测试入口，先验证 starter 的预期失败，再验证 solution 全部通过。
-- 链式一致性测试逐课比较上一课 solution 与下一课 starter，排除本课预留缺口后其余内容必须一致。
-- 课程 smoke 测试从文档中的命令运行最短成功路径，避免讲义命令和 CLI 漂移。
-- 默认课程测试使用 fake engine 和固定小数据，不访问网络。标记清楚的 live exercises 才读取用户凭据。
-- 对照产物测试验证数据来源和协议兼容，而不是锁定某个分数。参考数字只在同模型锁和数据版本下比较。
-- 课程内容测试检查每课都有学习目标、给定/学生边界、实现任务、测试、对照指标、预算和阅读。
-- 防泄漏测试扫描所有 starter、solution、讲义、报告和可安装 Skill，确保没有 final gold、参考答案、密钥或本机路径。
-- 数据诚实性检查扫描公开话术，阻止“真实生产日志”等不符合来源的表述。
-- clean-room release test 在新环境按 10 课顺序执行，记录依赖安装、命令、测试、实测费用、时间和人工步骤。
-- 无 Key 路径测试验证参考 run、兜底 Skill 和报告可以离线阅读，且不会伪装为当前实验。
+- 默认测试使用 fixed fixture 和 fake engine，在临时 workspace 跑完整八站，不访问网络、不读取付费 Key。
+- fixed 测试必须把模式和费用来源标记为 `fixed` / `synthetic_ci`，站 7 必须将其表述为 CI 合成证据草稿。
+- live smoke 只在显式授权、显式 Provider 和匹配凭据下运行。SiliconFlow 与 ChatAnywhere 共用 Engine 合约，但分别验证模型锁、凭据隔离、Model 与 MCP 链路。
+- Journey 测试覆盖新 workspace 的 Provider 必选、恢复时 Provider 固定、跨 Provider 切换拒绝和模型锁哈希漂移拒绝。
+- dashboard 测试覆盖只读方法、目录穿越、symlink 逃逸、未登记产物和凭据材料拒绝。
+- 费用测试覆盖 `claude_code_estimate`、`unavailable` 和 `synthetic_ci` 三种来源。ChatAnywhere 的缺失费用必须贯穿 runner、报告、Journey 和 dashboard，不能在聚合时变成零。
+- 两道 Gate 测试分别验证所有目标 case 变绿、完整回归 case 集以及既有通过 case 的 `pass→fail = 0`。
+- 站 7 测试从 evidence JSON 校验所有数字，并验证没有完整证据时省略成绩声明而不是补造数字。
+- 包发布测试验证 instructor Skill、playbook、Journey 资源和 ChatAnywhere 模型锁随安装包交付；旧 `course/` 不再是发布输入。
+- 文档命令和 README 的最短路径必须通过 CLI 集成测试保持一致。
 
 ## Out of Scope
 
-- 面向完全没有 Python、Agent 或 MCP 基础的入门教学。
-- 替学生实现课程指定的核心判断模块。
-- 用视频平台、学习管理系统或营销网站替代可运行仓库。
-- 承诺不同日期、模型或 Provider 得到与参考 run 相同的精确分数。
-- 首版提供多语言讲义、Windows 全支持或多个业务领域。
-- 把拓展论文复述成课程主体，或要求学生复现论文全部算法。
+- 让学习者重写 Trace、Judge、Runner、Gate 或其他已有 Python 模块。
+- starter/solution 链式十课、每课独立测试和无 Key 回放课程。
+- 公开教学网站、LMS、证书或监考机制。
+- 自动 Provider 选择、跨 Provider fallback、负载均衡或结果等价保证。
+- 根据预算自动停止学习者运行，或把估算当成 Provider 最终账单。
+- 承诺模型一定产生失败、Gate 一定拒绝或不同时间得到相同分数。
+- 在 Owner 终审前发布 Part B 生产对照正文。
 
 ## Further Notes
 
-- 开发 tickets 按可验证纵向切片排序，可能与学生看到的课程序号不同；课程交付层负责最终教学顺序。
-- 课程发布前应让不同水平的三名模拟学习者完成第一课，确认无 Skill/有 Skill 差异可观察，同时保留参考 Skill 兜底。
-- 所有目标数字都必须在实现后实测。PRD 中的预算和一致率是待验证假设，不是既成事实。
+- 旧十课仍可从 Git 历史回查，但当前文档、测试和发布流程不得依赖 `course/`。
+- `.ses/` 是本地运行状态和证据目录，不提交 Git。学习者恢复时不应删除它。
+- 对外数字必须同时说明 sandbox、实验模式、Provider、模型锁和证据完整性。

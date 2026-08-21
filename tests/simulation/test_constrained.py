@@ -44,6 +44,23 @@ def test_simulator_reveals_only_requested_public_facts_then_stops() -> None:
     assert done.message is None
 
 
+def test_simulator_does_not_reveal_an_unrequested_fact_after_completion() -> None:
+    simulator = ConstrainedUserSimulator(
+        UserIntent(
+            want="I want to return a defective item.",
+            allowed_facts={"item_id": "ITEM-6006"},
+        )
+    )
+
+    simulator.next_turn(())
+    done = simulator.next_turn(
+        ("The return is complete. Would you like anything else for this item?",)
+    )
+
+    assert done.kind is SimulatorTurnKind.END
+    assert done.message is None
+
+
 def test_simulator_rejects_write_tool_capabilities() -> None:
     with pytest.raises(ValueError, match="write tools"):
         ConstrainedUserSimulator(

@@ -29,6 +29,8 @@ def test_ticket08_cli_runs_full_vertical_slice_offline(tmp_path: Path) -> None:
             "skill-v0-pipeline",
             "--output-root",
             str(tmp_path / "ticket08"),
+            "--provider",
+            "chatanywhere",
             "--json",
         ],
         cwd=ROOT,
@@ -67,6 +69,7 @@ def test_ticket08_cli_runs_full_vertical_slice_offline(tmp_path: Path) -> None:
         for path in output.rglob("*")
         if path.is_file()
     ).casefold()
+    assert "chatanywhere_api_key" not in combined
     assert "siliconflow_api_key" not in combined
     assert "sk-" not in combined
     assert str(ROOT).casefold() not in (output / "l2.html").read_text().casefold()
@@ -87,6 +90,8 @@ def test_ticket08_live_mode_rejects_pending_seed_review_before_provider_use(
             str(tmp_path / "live"),
             "--mode",
             "live",
+            "--provider",
+            "chatanywhere",
             "--creator-timeout",
             "0.1",
             "--json",
@@ -118,6 +123,8 @@ def test_create_v0_live_rejects_pending_seed_review(tmp_path: Path) -> None:
             str(tmp_path / "v0"),
             "--mode",
             "live",
+            "--provider",
+            "chatanywhere",
             "--json",
         ],
         cwd=ROOT,
@@ -131,3 +138,58 @@ def test_create_v0_live_rejects_pending_seed_review(tmp_path: Path) -> None:
     assert completed.returncode == 1
     assert "independent signed human review" in completed.stderr
     assert not (tmp_path / "v0").exists()
+
+
+def test_fixed_skill_subcommands_accept_chatanywhere_without_credentials(
+    tmp_path: Path,
+) -> None:
+    skill = ROOT / "fixtures" / "seed" / "skill" / "v0"
+    commands = (
+        (
+            "skill",
+            "create-v0",
+            "--out",
+            str(tmp_path / "created"),
+            "--mode",
+            "fixed",
+            "--provider",
+            "chatanywhere",
+            "--json",
+        ),
+        (
+            "trigger-eval",
+            "--skill",
+            str(skill),
+            "--mode",
+            "fixed",
+            "--provider",
+            "chatanywhere",
+            "--json",
+        ),
+        (
+            "paired-comparison",
+            "--skill",
+            str(skill),
+            "--output-root",
+            str(tmp_path / "paired"),
+            "--mode",
+            "fixed",
+            "--provider",
+            "chatanywhere",
+            "--json",
+        ),
+    )
+
+    for command in commands:
+        completed = subprocess.run(
+            [sys.executable, "-m", "ses.cli.app", *command],
+            cwd=ROOT,
+            env=_environment(),
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+
+        assert completed.returncode == 0, completed.stderr
+        assert "api_key" not in (completed.stdout + completed.stderr).casefold()

@@ -70,6 +70,17 @@ def _artifact_ref(
     return source.model_copy(update={"path": f"{run_id}/{source.path}"})
 
 
+def _attempt_cost_currency(attempt: Mapping[str, Any]) -> str:
+    usage = cast(Mapping[str, Any], attempt["usage"])
+    currency = usage.get("cost_currency")
+    if not isinstance(currency, str):
+        budget = cast(Mapping[str, Any], attempt["budget"])
+        currency = budget.get("cost_currency")
+    if not isinstance(currency, str):
+        raise ValueError("paired attempt has no cost currency")
+    return currency
+
+
 def _category(baseline: bool, skill: bool) -> PairCategory:
     if baseline and skill:
         return PairCategory.BOTH_PASS
@@ -226,12 +237,18 @@ def compare_run_events(
             )
         )
     counts = Counter(row.category for row in rows)
-    currencies = {
-        str(cast(Mapping[str, Any], attempt["usage"])["cost_currency"])
-        for attempt in (*baseline_attempts.values(), *skill_attempts.values())
-    }
+    attempts = (*baseline_attempts.values(), *skill_attempts.values())
+    currencies = {_attempt_cost_currency(attempt) for attempt in attempts}
     if len(currencies) != 1:
         raise ValueError("paired protocol mismatch: cost currency")
+    recorded_cost_complete = all(
+        attempt.get("cost_complete", True) is True for attempt in attempts
+    )
+    observed_cost_complete = all(
+        cast(Mapping[str, Any], attempt["usage"]).get("cost_amount") is not None
+        and cast(Mapping[str, Any], attempt["usage"]).get("cost_currency") is not None
+        for attempt in attempts
+    )
     baseline_ref = _file_ref(baseline_events_path, relative_to=output_root)
     skill_ref = _file_ref(skill_events_path, relative_to=output_root)
     for reference in (
@@ -310,6 +327,7 @@ def compare_run_events(
         ),
         skill_cost_amount=sum((row.skill_cost_amount for row in rows), Decimal(0)),
         cost_currency=currencies.pop(),
+        cost_complete=recorded_cost_complete and observed_cost_complete,
         baseline_latency_ms=sum(row.baseline_latency_ms for row in rows),
         skill_latency_ms=sum(row.skill_latency_ms for row in rows),
         cases=tuple(rows),
@@ -341,9 +359,13 @@ def run_fresh_paired(
     is_live = live_config is not None
     catalog = load_develop_catalog(mode="live" if is_live else "fixed")
     case_ids = tuple(catalog)
-    model_lock_hash = hashlib.sha256(
-        (project_root / "models.lock.json").read_bytes()
-    ).hexdigest()
+    model_lock_hash = (
+        live_config.model_lock_sha256
+        if live_config is not None and live_config.model_lock_sha256 is not None
+        else hashlib.sha256(
+            (project_root / "models.lock.json").read_bytes()
+        ).hexdigest()
+    )
     data_hash = develop_catalog_sha256(catalog)
     skill_hash = normalized_skill_sha256(skill_source)
     manifest = load_skill_manifest(skill_source)
@@ -357,7 +379,7 @@ def run_fresh_paired(
     budgets = BudgetLimits(
         max_cases=15,
         max_turns_per_case=3,
-        cost_currency="USD" if is_live else "CNY",
+        cost_currency=live_config.cost_currency if live_config is not None else "CNY",
     )
     run_suffix = "live" if is_live else "fixed"
     baseline = BaselineRunner(

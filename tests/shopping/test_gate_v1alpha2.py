@@ -36,7 +36,7 @@ from ses.evolution.workflow import run_evolution_workflow
 
 ROOT = Path(__file__).parents[2]
 SELECTION_LOCK = ROOT / "data/testset/protected/selection-manifest.json"
-PARENT = ROOT / "course/ch07-create-v0/artifacts/skill/v0"
+PARENT = ROOT / "fixtures/seed/skill/v0"
 EVIDENCE = ROOT / "tests/fixtures/evolution/synthetic-failure-evidence.json"
 SHA = "a" * 64
 MEASURED_AT = datetime(2026, 8, 19, 8, tzinfo=UTC)

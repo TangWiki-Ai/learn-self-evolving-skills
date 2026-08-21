@@ -37,7 +37,7 @@ from ses.reporting.l3 import L3ReportInputs, build_l3_data, render_l3_html
 from ses.skills.installer import normalized_skill_sha256, write_skill_manifest
 
 ROOT = Path(__file__).parents[2]
-ARTIFACTS = ROOT / "course/ch09-gate-and-govern-versions/artifacts"
+ARTIFACTS = ROOT / "fixtures/seed/registry-artifacts"
 NOW = datetime(2026, 8, 19, 9, tzinfo=UTC)
 
 

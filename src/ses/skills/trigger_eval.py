@@ -151,8 +151,8 @@ class ClaudeNativeDiscovery:
         self._timeout_seconds = timeout_seconds
         self.input_tokens = 0
         self.output_tokens = 0
-        self.cost_amount = Decimal(0)
-        self.cost_currency = "USD"
+        self.cost_amount: Decimal | None = Decimal(0)
+        self.cost_currency: str | None = None
         self.latency_ms = 0
 
     def observe(self, prompt: str) -> DiscoveryObservation:
@@ -237,7 +237,16 @@ class ClaudeNativeDiscovery:
                 terminal = payload.exit_status
         self.input_tokens += usage.input_tokens
         self.output_tokens += usage.output_tokens
-        self.cost_amount += usage.cost_amount or Decimal(0)
+        if self.cost_amount is not None:
+            if usage.cost_amount is None or usage.cost_currency is None:
+                self.cost_amount = None
+                self.cost_currency = None
+            elif self.cost_currency not in {None, usage.cost_currency}:
+                self.cost_amount = None
+                self.cost_currency = None
+            else:
+                self.cost_amount += usage.cost_amount
+                self.cost_currency = usage.cost_currency
         if error_codes or terminal is not EngineExitStatus.SUCCESS:
             diagnostic = ",".join(sorted(set(error_codes))) or "missing_success"
             return DiscoveryObservation(
@@ -317,13 +326,16 @@ def evaluate_triggers(
     ).hexdigest()
     input_tokens = int(getattr(discovery, "input_tokens", 0))
     output_tokens = int(getattr(discovery, "output_tokens", 0))
-    cost_amount = Decimal(str(getattr(discovery, "cost_amount", 0)))
-    cost_currency = getattr(discovery, "cost_currency", None)
+    raw_cost_amount = getattr(discovery, "cost_amount", None)
+    raw_cost_currency = getattr(discovery, "cost_currency", None)
+    cost_complete = raw_cost_amount is not None and isinstance(raw_cost_currency, str)
+    cost_amount = Decimal(str(raw_cost_amount)) if cost_complete else None
+    cost_currency = raw_cost_currency if cost_complete else None
     usage = Usage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        cost_amount=cost_amount if cost_amount else None,
-        cost_currency=cost_currency if cost_amount else None,
+        cost_amount=cost_amount,
+        cost_currency=cost_currency,
     )
     return TriggerEvalResult(
         schema_version=SchemaVersion.V1ALPHA1,

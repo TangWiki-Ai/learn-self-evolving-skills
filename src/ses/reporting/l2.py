@@ -298,12 +298,25 @@ def render_l2_html(
     )
     score_delta = paired.skill_pass_rate - paired.baseline_pass_rate
     cost_delta = paired.skill_cost_amount - paired.baseline_cost_amount
+    cost_panel = (
+        f"<p>Baseline: {paired.baseline_cost_amount} {html.escape(paired.cost_currency)}</p>"
+        f"<p>Skill: {paired.skill_cost_amount} {html.escape(paired.cost_currency)}</p>"
+        f"<p>Delta: {cost_delta:+} {html.escape(paired.cost_currency)}</p>"
+        if paired.cost_complete
+        else "<p>Baseline: unavailable</p><p>Skill: unavailable</p><p>Delta: unavailable</p>"
+    )
     category_cards = "".join(
         f"<li><strong>{html.escape(category.value)}</strong><span>{paired.category_counts[category]}</span></li>"
         for category in PairCategory
     )
     rows = []
     for row in paired.cases:
+        row_cost = (
+            f"{row.baseline_cost_amount} → {row.skill_cost_amount} "
+            f"{html.escape(paired.cost_currency)}"
+            if paired.cost_complete
+            else "unavailable"
+        )
         evidence = (
             ("baseline Trace", row.baseline_trace),
             ("Skill Trace", row.skill_trace),
@@ -325,7 +338,7 @@ def render_l2_html(
             f'<td><span class="badge {html.escape(row.category.value)}">{html.escape(row.category.value)}</span></td>'
             f"<td>{html.escape(row.baseline_status.value)} → {html.escape(row.skill_status.value)}<br>{row.baseline_score:.0f} → {row.skill_score:.0f} ({row.score_delta:+.0f})</td>"
             f"<td>{row.baseline_input_tokens + row.baseline_output_tokens} → {row.skill_input_tokens + row.skill_output_tokens}</td>"
-            f"<td>{row.baseline_cost_amount} → {row.skill_cost_amount} {html.escape(paired.cost_currency)}</td>"
+            f"<td>{row_cost}</td>"
             f"<td>{row.baseline_latency_ms} → {row.skill_latency_ms} ms</td>"
             f'<td class="links">{links or "No terminal evidence"}</td>'
             "</tr>"
@@ -348,7 +361,7 @@ def render_l2_html(
 </section>
 <h2>Paired outcomes</h2><ul class="categories">{category_cards}</ul>
 <section class="grid"><div class="panel"><h2>Score distribution</h2><div class="bars"><div class="bar" style="height:{max(24, paired.baseline_pass_rate * 140):.0f}px">Baseline {paired.baseline_pass_rate:.0%}</div><div class="bar skill" style="height:{max(24, paired.skill_pass_rate * 140):.0f}px">Skill {paired.skill_pass_rate:.0%}</div></div></div>
-<div class="panel"><h2>Cost difference</h2><p>Baseline: {paired.baseline_cost_amount} {html.escape(paired.cost_currency)}</p><p>Skill: {paired.skill_cost_amount} {html.escape(paired.cost_currency)}</p><p>Delta: {cost_delta:+} {html.escape(paired.cost_currency)}</p><p>Tokens: {paired.baseline_input_tokens + paired.baseline_output_tokens} → {paired.skill_input_tokens + paired.skill_output_tokens}</p><p>Elapsed: {paired.baseline_latency_ms} → {paired.skill_latency_ms} ms</p></div></section>
+<div class="panel"><h2>Cost difference</h2>{cost_panel}<p>Tokens: {paired.baseline_input_tokens + paired.baseline_output_tokens} → {paired.skill_input_tokens + paired.skill_output_tokens}</p><p>Elapsed: {paired.baseline_latency_ms} → {paired.skill_latency_ms} ms</p></div></section>
 {shopping_section}
 <h2>Provenance</h2><div class="panel"><p>Pair execution: {paired.pair_execution_sha256}</p><p>Model lock: {paired.model_lock_sha256}</p><p>Baseline log: {paired.baseline_events.sha256}</p><p>Skill log: {paired.skill_events.sha256}</p><p>Trigger prompt set: {trigger.prompt_set_sha256}</p><p>Trigger model: {html.escape(trigger.model_id)} · {trigger.measured_at.isoformat()}</p></div>
 <h2>Case-level evidence</h2><table><thead><tr><th>Case</th><th>Pair class</th><th>Score</th><th>Tokens</th><th>Cost</th><th>Elapsed</th><th>Evidence</th></tr></thead><tbody>{"".join(rows)}</tbody></table>
@@ -374,12 +387,17 @@ def _shopping_section(
     )
     assert paired.shopping_metrics is not None
     metrics_link = html.escape(paired.shopping_metrics.path, quote=True)
+    cost_delta = (
+        f"{metrics.cost_delta_amount:+} {html.escape(metrics.cost_currency)}"
+        if paired.cost_complete
+        else "unavailable"
+    )
     return f"""<h2>Shopping metrics</h2>
 <section class="grid" aria-label="Shopping metrics">
 <div class="metric">Full-success<strong>{metrics.baseline_full_success_count} → {metrics.skill_full_success_count}</strong></div>
 <div class="metric">Mean strict reward<strong>{metrics.baseline_mean_strict_reward} → {metrics.skill_mean_strict_reward}</strong></div>
 <div class="metric">Safety violations<strong>{metrics.baseline_safety_violation_count} → {metrics.skill_safety_violation_count}</strong></div>
-<div class="metric">Cost delta<strong>{metrics.cost_delta_amount:+} {html.escape(metrics.cost_currency)}</strong></div>
+<div class="metric">Cost delta<strong>{cost_delta}</strong></div>
 </section>
 <p><a href="{metrics_link}">ShoppingPairMetrics evidence</a></p>
 <table><thead><tr><th>Scenario stratum</th><th>Comparable</th><th>Full-success</th><th>Mean strict</th><th>Safety violations</th></tr></thead><tbody>{rows}</tbody></table>"""

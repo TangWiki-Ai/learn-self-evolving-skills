@@ -15,10 +15,11 @@ from ses.contracts import (
     EngineExitStatus,
     EngineRequest,
     ErrorPayload,
+    UsagePayload,
 )
 from ses.engines.events import make_event
 from ses.engines.stream_json import ClaudeStreamParser, StreamParseError
-from ses.foundation.config import LockedModel
+from ses.foundation.config import LockedModel, ProviderId
 from ses.foundation.credentials import (
     ProviderCredentials,
     build_claude_environment,
@@ -225,6 +226,18 @@ class ClaudeCodeEngine:
                         if isinstance(payload, CompletedPayload):
                             pending_completed = payload
                             continue
+                        if (
+                            self._credentials.provider is ProviderId.CHATANYWHERE
+                            and isinstance(payload, UsagePayload)
+                        ):
+                            payload = UsagePayload(
+                                usage=payload.usage.model_copy(
+                                    update={
+                                        "cost_amount": None,
+                                        "cost_currency": None,
+                                    }
+                                )
+                            )
                         yield make_event(
                             request_id=request.request_id,
                             sequence=sequence,

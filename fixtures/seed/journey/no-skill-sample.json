@@ -1,0 +1,12 @@
+{
+  "case_ids": [
+    "develop-return-01e57efeb7f9b2bb1179",
+    "develop-return-06308f2fc2391e1c0062",
+    "develop-return-29d1c939afee990529ca",
+    "develop-return-65a595515e9a2273cdab",
+    "develop-return-c24b05408eda7561ffbd"
+  ],
+  "note": "Fixed five-case stratified sample for the station-0 without-Skill comparison; n=5 is always displayed and is not presented as the full develop result.",
+  "record_type": "journey_no_skill_sample",
+  "schema_version": "v1alpha1"
+}

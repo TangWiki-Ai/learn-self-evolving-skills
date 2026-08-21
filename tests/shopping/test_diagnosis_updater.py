@@ -36,11 +36,8 @@ from ses.skills.installer import normalized_skill_sha256
 
 ROOT = Path(__file__).parents[2]
 SYNTHETIC = ROOT / "tests/fixtures/evolution/synthetic-failure-evidence.json"
-CARDS_JSON = (
-    ROOT
-    / "course/ch08-evidence-linked-candidate/artifacts/synthetic-failure-cards.json"
-)
-PARENT = ROOT / "course/ch07-create-v0/artifacts/skill/v0"
+CARDS_JSON = ROOT / "fixtures/seed/evolution/synthetic-failure-cards.json"
+PARENT = ROOT / "fixtures/seed/skill/v0"
 SHA = "a" * 64
 SHOPPING_SUBCODES = (
     ShoppingFailureSubcode.MISSED_PRE_PURCHASE,
