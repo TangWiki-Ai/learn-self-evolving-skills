@@ -28,7 +28,6 @@ from pydantic import JsonValue
 from ses.contracts import ArtifactRef, ArtifactRoot, Usage
 from ses.contracts.security import validate_public_data
 from ses.foundation.config import (
-    ModelRole,
     ProviderId,
     load_model_lock,
     load_runtime_config,
@@ -57,16 +56,6 @@ JourneyMode = Literal["live", "fixed"]
 JourneyResultStatus = Literal["completed", "needs_attention"]
 
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
-_STATION_NAMES = (
-    "Execution & Monitoring",
-    "Bad Case Mining",
-    "Failure Analysis",
-    "Skill Diagnosis",
-    "Minimal Refinement",
-    "Regression Evaluation",
-    "Version Release & Rollback",
-    "Summary",
-)
 _ATTRIBUTIONS = frozenset(
     {
         "environment",
@@ -129,15 +118,6 @@ class GateEvaluation:
     target_regression_pass_count: int
     regression_passed: bool
     accepted: bool
-
-
-def station_name(number: int) -> str:
-    """Return the stable resume/interview phrase for one station."""
-
-    try:
-        return _STATION_NAMES[number]
-    except IndexError as exc:
-        raise JourneyCourseError("station must be between 0 and 7") from exc
 
 
 def _sha256(path: Path) -> str:
@@ -324,7 +304,7 @@ def _runtime(
     if lock.provider is not provider:
         raise JourneyCourseError("selected provider differs from its model lock")
     return LiveDevelopConfig(
-        model=lock.roles[ModelRole.MAIN],
+        model=lock.model,
         credentials=read_provider_credentials(provider, os.environ),
         executable=config.claude_executable,
         environ=os.environ,
@@ -380,7 +360,7 @@ def _run_catalog(
             if skill_source is None
             else normalized_skill_sha256(skill_source)
         ),
-        protocol_version="ses-one-day-journey-v1",
+        protocol_version="ses-eight-step-journey-v1",
     )
     report = build_baseline_report(completed.events_path)
     report_path = completed.run_dir / "baseline-report.json"
@@ -422,8 +402,18 @@ def _evaluation_problem(
     return "; ".join(details)
 
 
-def _copy_initial_skill(*, project_root: Path, journey_root: Path) -> tuple[Path, Path]:
+def _copy_initial_skill(
+    *, project_root: Path, journey_root: Path, mode: JourneyMode
+) -> tuple[Path, Path]:
     source = project_root / "fixtures/seed/skill/v0"
+    manifest = load_skill_manifest(source)
+    if (
+        mode == "live"
+        and re.fullmatch(r".+-approved@[0-9a-f]{40}", manifest.source_version) is None
+    ):
+        raise JourneyCourseError(
+            "live journey requires a review-bound v0 Skill source manifest"
+        )
     normalized_skill_sha256(source)
     working = journey_root / "skills/working"
     accepted = journey_root / "versions/v0"
@@ -489,8 +479,6 @@ def run_station_0(
     doctor = run_doctor(
         project_root=project_root,
         config_path=project_root / "ses.json",
-        live=False,
-        timeout=timeout,
         environ=os.environ,
         provider=provider,
     )
@@ -523,11 +511,9 @@ def run_station_0(
         timeout=timeout,
         provider=provider,
     )
-    # The final Owner handoff authorizes this deterministic sandbox catalog for the
-    # learner journey.  The old release/holdout APIs remain fail-closed.
-    catalog = load_develop_catalog(mode="fixed")
+    catalog = load_develop_catalog(mode=mode)
     working, _accepted = _copy_initial_skill(
-        project_root=project_root, journey_root=journey_root
+        project_root=project_root, journey_root=journey_root, mode=mode
     )
     gate = run_static_gate(
         working, audit_path=journey_root / "evidence/v0-static-gate.json"
@@ -1072,7 +1058,7 @@ def _snapshot_candidate(
             name=manifest.name,
             version=f"v{round_number}",
             files=files,
-            source_version=f"one-day-journey-round-{round_number}",
+            source_version=f"eight-step-journey-round-{round_number}",
             provider_compatibility=manifest.provider_compatibility,
         )
         candidate_hash = normalized_skill_sha256(temporary)
@@ -1342,7 +1328,7 @@ def run_station_5(
         for case_id in _selection(journey_root)
         if attributions.get(case_id, "").startswith("skill:")
     )
-    catalog = load_develop_catalog(mode="fixed")
+    catalog = load_develop_catalog(mode=mode)
     if set(accepted_cases) != set(catalog):
         raise JourneyCourseError(
             "station 0 baseline does not cover the full regression catalog"
@@ -1818,17 +1804,17 @@ def run_station_7(*, workspace: Path) -> StationRun:
         cast(int, attribution_metrics.get("attribution_category_count", 0))
     )
     if not baseline_verified:
-        portfolio_status = "draft_missing_baseline"
+        evidence_status = "draft_missing_baseline"
     elif measurement_kind == "synthetic_offline":
-        portfolio_status = "synthetic_ci_only"
+        evidence_status = "synthetic_ci_only"
     elif not full_regression_ran:
-        portfolio_status = "draft_missing_full_regression"
+        evidence_status = "draft_missing_full_regression"
     elif gate_outcome != "accepted":
-        portfolio_status = "candidate_rejected"
+        evidence_status = "candidate_rejected"
     elif not release_completed:
-        portfolio_status = "gate_accepted_unreleased"
+        evidence_status = "gate_accepted_unreleased"
     else:
-        portfolio_status = "verified_released"
+        evidence_status = "verified_released"
     facts: dict[str, JsonValue] = {
         "attribution_category_count": category_count,
         "baseline_case_count": baseline_count if baseline_verified else None,
@@ -1844,7 +1830,7 @@ def run_station_7(*, workspace: Path) -> StationRun:
         "gate_outcome": gate_outcome,
         "measurement_kind": measurement_kind,
         "pass_to_fail_count": pass_to_fail,
-        "portfolio_status": portfolio_status,
+        "evidence_status": evidence_status,
         "post_gate_case_count": regression_case_count,
         "post_gate_pass_count": candidate_pass,
         "post_gate_pass_rate": post_gate_rate,
@@ -1865,7 +1851,7 @@ def run_station_7(*, workspace: Path) -> StationRun:
         deliverable_root / "evidence-facts.json",
         {
             "facts": facts,
-            "record_type": "journey_portfolio_facts",
+            "record_type": "journey_evidence_facts",
             "schema_version": "v1alpha1",
             "source": "machine-derived journey evidence only; null means not verified",
         },
@@ -2020,7 +2006,7 @@ Result: {result_en} Every number is traceable to `evidence-facts.json`; `null` m
         deliverable_root / "interview-prep.md",
         f"""# 复盘与面试问题（可选）
 
-> 回答时只引用本次沙盒证据，不把结果描述成生产流量。生产对照答案仍待 Owner 对 Part B 终审。
+> 回答时只引用本次沙盒证据，不把结果描述成生产流量。
 
 1. 你的 bad case 从哪里来，你如何挑选？
    - 证据：{evidence_line(".ses/evidence/bad-cases.json", ".ses/decisions/station-1-selection.json")}
@@ -2030,28 +2016,28 @@ Result: {result_en} Every number is traceable to `evidence-facts.json`; `null` m
    - 证据：{evidence_line(".ses/decisions/station-3-diagnoses.json", ".ses/reports/station-4-diff.html")}
 4. 你如何证明修复没有破坏原来通过的 case？生产里还缺什么？
    - 证据：{evidence_line(".ses/reports/station-5-gate.html")}
-   - 生产对照：待 Owner 终审后补入讲师 playbook；当前只陈述沙盒 Gate 证据。
+   - 边界：这些证据只覆盖当前 15-case 沙盒回归集。
 5. 如果把这个机制带到生产，你如何发布和回滚？
    - 证据：{evidence_line(".ses/evidence/version-timeline.json")}
-   - 生产对照：待 Owner 终审后补入讲师 playbook；不要把本地版本时间线说成线上发布。
+   - 边界：这是本地版本时间线，不是线上部署或流量切换。
 """,
     )
     concepts = _write_text(
         deliverable_root / "concepts.md",
         f"""# 概念清单
 
-| 站 | 你在沙盒亲手做的 | 证据文件 | 生产里的做法 |
-|---|---|---|---|
-| 0 | 运行 case，查看 Trace、终态和 Judge | {evidence_line(".ses/evidence/station-0.json")} | 待 Owner 终审 Part B 后补充 |
-| 1 | 从失败清单挑选分析对象 | {evidence_line(".ses/decisions/station-1-selection.json")} | 待 Owner 终审 Part B 后补充 |
-| 2 | 人工区分环境、case 与 Skill 归因 | {evidence_line(".ses/decisions/station-2-attributions.json")} | 待 Owner 终审 Part B 后补充 |
-| 3 | 把失败定位到 Skill 文件与行 | {evidence_line(".ses/decisions/station-3-diagnoses.json")} | 待 Owner 终审 Part B 后补充 |
-| 4 | 控制修改范围并查看 diff | {evidence_line(".ses/reports/station-4-diff.html")} | 待 Owner 终审 Part B 后补充 |
-| 5 | 跑目标回放与全量回归 | {evidence_line(".ses/reports/station-5-gate.html")} | 待 Owner 终审 Part B 后补充 |
-| 6 | 记录发版、回滚与恢复时间线 | {evidence_line(".ses/evidence/version-timeline.json")} | 待 Owner 终审 Part B 后补充 |
-| 7 | 核对证据索引和可选说明文件 | `.ses/deliverables/evidence-facts.json` | 待 Owner 终审 Part B 后补充 |
+| 步骤 | 核心判断 | 证据文件 |
+|---|---|---|
+| 0 | 用 Trace、工具调用、终态和 Judge 建立基线 | {evidence_line(".ses/evidence/station-0.json")} |
+| 1 | 从基线失败中选择分析对象 | {evidence_line(".ses/decisions/station-1-selection.json")} |
+| 2 | 区分环境、case 与 Skill 问题 | {evidence_line(".ses/decisions/station-2-attributions.json")} |
+| 3 | 把失败定位到 Skill 文本 | {evidence_line(".ses/decisions/station-3-diagnoses.json")} |
+| 4 | 用最小 diff 控制修改范围 | {evidence_line(".ses/reports/station-4-diff.html")} |
+| 5 | 先回放目标，再检查完整回归 | {evidence_line(".ses/reports/station-5-gate.html")} |
+| 6 | 根据 Gate 证据做版本决定 | {evidence_line(".ses/evidence/version-timeline.json")} |
+| 7 | 核对事实和证据索引 | `.ses/deliverables/evidence-facts.json` |
 
-本文件明确保留待审项，避免把未经 Owner 终审的生产经验写成定论。
+所有结论只覆盖本次 STATE-Bench 沙盒运行，不代表生产效果。
 """,
     )
     index_path = deliverable_root / "evidence-index.json"
@@ -2098,15 +2084,14 @@ Result: {result_en} Every number is traceable to `evidence-facts.json`; `null` m
                 f"<li><a href='/artifact/{path.relative_to(workspace).as_posix()}'>{html.escape(path.name)}</a></li>"
                 for path in artifacts
             )
-            + "</ul><p class='muted'>生产对照正文仍明确标为待 Owner 终审。</p>"
+            + "</ul><p class='muted'>所有结论只覆盖本次 STATE-Bench 沙盒运行。</p>"
         ),
     )
     artifacts = (*artifacts, report_path)
     metrics: dict[str, JsonValue] = {
         "deliverable_count": 6,
         "evidence_index_count": len(evidence_paths),
-        "portfolio_status": portfolio_status,
-        "production_content_review": "pending_owner_review",
+        "evidence_status": evidence_status,
     }
     summary_path = _write_json(
         _station_summary(journey_root, 7),

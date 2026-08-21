@@ -1,34 +1,19 @@
 # Pinned benchmark data
 
-This directory keeps the machine-readable source manifest, upstream licenses, source notes, and the small projections used by offline CI. Full benchmark downloads and generated candidate artifacts stay ignored.
+This directory records the provenance of the benchmark material used by the
+Journey. It contains pinned upstream commits, licenses, checksums, source notes,
+and the small local projections checked by station 0.
 
-Install the local testset adapter before running the fixture commands:
+The repository does not ship the historical data-preparation pipeline or full
+benchmark downloads. `manifest.json` documents how the committed projections
+were produced; it is not a runnable build recipe. Runtime checks only read the
+committed files listed under each source's `fixture_files` and verify their
+SHA256 digests.
 
-```bash
-uv sync --all-extras
-```
+- STATE-Bench supplies the executable customer-support tasks and environment.
+- ABCD supplies role-playing language and intent material.
+- tau2-bench supplies fixed deduplication and difficulty signals.
 
-Verify the manifest, licenses, and committed fixture bytes without network access:
-
-```bash
-uv run python scripts/prepare_data.py --verify-only
-```
-
-Run the small role-playing benchmark projection and write auditable candidate artifacts:
-
-```bash
-uv run python scripts/prepare_data.py --profile fixture
-```
-
-Fetch and process every pinned full asset only with both explicit flags:
-
-```bash
-uv run python scripts/prepare_data.py \
-  --download-full \
-  --allow-network \
-  --profile full
-```
-
-The downloader retries transient failures, checks byte counts and SHA256 digests, and atomically installs each completed asset. Candidate bundles use immutable content-addressed versions and an atomic local pointer switch. The processing path uses local TF-IDF adapters. It does not call an embedding service or a paid model.
-
-The output contains scrubbed ABCD role-playing benchmark records, per-record cluster assignments and confidence, deterministic cluster representative samples, label comparisons, task-level tau2 difficulty buckets, a non-executable candidate list, funnel counts, and an artifact manifest. It does not create cases, gold data, or benchmark splits.
+These sources are benchmark or role-playing data, not production logs. Do not
+replace a pinned file without updating its license, source note, checksum, and
+the review evidence that refers to it.

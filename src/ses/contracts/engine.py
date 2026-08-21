@@ -44,7 +44,6 @@ class EngineExitStatus(StrEnum):
     ERROR = "error"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
-    BUDGET_STOP = "budget_stop"
 
 
 class Usage(ContractModel):

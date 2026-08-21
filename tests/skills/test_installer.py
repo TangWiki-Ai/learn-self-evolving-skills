@@ -9,8 +9,8 @@ import pytest
 from ses.contracts import artifact_json_bytes
 from ses.skills.installer import (
     SkillInstallError,
-    install_skill,
     load_skill_manifest,
+    normalized_skill_sha256,
     write_skill_manifest,
 )
 
@@ -46,37 +46,20 @@ def _candidate(tmp_path: Path) -> Path:
     return source
 
 
-def test_install_skill_copies_exactly_the_manifest_declared_files(
-    tmp_path: Path,
-) -> None:
+def test_normalized_hash_uses_only_manifest_declared_files(tmp_path: Path) -> None:
     source = _candidate(tmp_path)
-    (source / "eval" / "gold").mkdir(parents=True)
-    (source / "eval" / "gold" / "answer.json").write_text(
-        '{"hidden": true}\n', encoding="utf-8"
-    )
-    (source / "references" / "undeclared.md").write_text(
-        "not installable", encoding="utf-8"
-    )
+    first = normalized_skill_sha256(source)
+    (source / "undeclared.md").write_text("not runtime material", encoding="utf-8")
 
-    destination = tmp_path / "workspace" / ".claude" / "skills" / "demo"
-    result = install_skill(source, destination)
-
-    assert result.installed_files == ("SKILL.md", "references/policy.md")
-    assert result.version == "demo-v1"
-    assert (destination / "SKILL.md").read_text(encoding="utf-8") == ("# Demo skill\n")
-    assert (destination / "references" / "policy.md").is_file()
-    assert not (destination / "skill-manifest.json").exists()
-    assert not (destination / "eval").exists()
-    assert not (destination / "references" / "undeclared.md").exists()
-    assert len(result.sha256) == 64
+    assert normalized_skill_sha256(source) == first
 
 
-def test_install_skill_rejects_manifest_hash_mismatch(tmp_path: Path) -> None:
+def test_manifest_validation_rejects_hash_mismatch(tmp_path: Path) -> None:
     source = _candidate(tmp_path)
     (source / "references" / "policy.md").write_text("tampered", encoding="utf-8")
 
     with pytest.raises(SkillInstallError, match="hash mismatch"):
-        install_skill(source, tmp_path / "workspace")
+        normalized_skill_sha256(source)
 
 
 @pytest.mark.parametrize(
@@ -88,7 +71,7 @@ def test_install_skill_rejects_manifest_hash_mismatch(tmp_path: Path) -> None:
         "references/.hidden.md",
     ],
 )
-def test_install_skill_rejects_manifest_path_escape(
+def test_manifest_validation_rejects_path_escape(
     tmp_path: Path, declared_path: str
 ) -> None:
     source = _candidate(tmp_path)
@@ -97,23 +80,10 @@ def test_install_skill_rejects_manifest_path_escape(
     (source / "skill-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(SkillInstallError, match="path"):
-        install_skill(source, tmp_path / "workspace")
+        normalized_skill_sha256(source)
 
 
-def test_install_skill_rejects_declared_files_outside_the_allowlist(
-    tmp_path: Path,
-) -> None:
-    source = _candidate(tmp_path)
-    (source / "notes.md").write_text("not runtime material", encoding="utf-8")
-    _write_manifest(source, ["SKILL.md", "references/policy.md", "notes.md"])
-
-    with pytest.raises(SkillInstallError, match=r"SKILL\.md and references"):
-        install_skill(source, tmp_path / "workspace")
-
-
-def test_install_skill_rejects_symlinks_in_source_and_destination(
-    tmp_path: Path,
-) -> None:
+def test_manifest_validation_rejects_source_symlinks(tmp_path: Path) -> None:
     source = _candidate(tmp_path)
     outside = tmp_path / "outside.md"
     outside.write_text("outside", encoding="utf-8")
@@ -121,16 +91,7 @@ def test_install_skill_rejects_symlinks_in_source_and_destination(
     (source / "references" / "policy.md").symlink_to(outside)
 
     with pytest.raises(SkillInstallError, match="symlink"):
-        install_skill(source, tmp_path / "workspace")
-
-    source = _candidate(tmp_path / "second")
-    real_destination = tmp_path / "real-destination"
-    real_destination.mkdir()
-    destination = tmp_path / "linked-destination"
-    destination.symlink_to(real_destination, target_is_directory=True)
-
-    with pytest.raises(SkillInstallError, match="symlink"):
-        install_skill(source, destination)
+        normalized_skill_sha256(source)
 
 
 def test_manifest_writer_is_canonical_and_never_overwrites(tmp_path: Path) -> None:

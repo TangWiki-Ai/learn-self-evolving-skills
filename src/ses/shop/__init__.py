@@ -6,7 +6,6 @@ from ses.shop.environment import (
     POLICY_VERSION,
     TOOL_SCHEMA_VERSION,
     CaseEnvironment,
-    ShopRole,
     state_diff,
 )
 from ses.shop.fixture import PINNED_CASE_FIXTURE, ReturnCaseFixture, load_case_fixture
@@ -22,7 +21,6 @@ __all__ = [
     "ReturnCaseFixture",
     "ReturnPolicyDecision",
     "ReturnReason",
-    "ShopRole",
     "compute_return_policy",
     "load_case_fixture",
     "state_diff",

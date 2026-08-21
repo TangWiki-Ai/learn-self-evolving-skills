@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 import pytest
 
@@ -17,14 +16,7 @@ from ses.contracts import (
     Trace,
     UsagePayload,
 )
-from ses.engines.fake import (
-    FakeEngine,
-    FakeFixture,
-    FakeFixtureError,
-    load_fake_fixture,
-)
-
-FIXTURES = Path(__file__).with_name("fixtures")
+from ses.engines.fake import FakeEngine, FakeFixture
 
 
 def _request(*, timeout: float = 1) -> EngineRequest:
@@ -41,10 +33,47 @@ async def _collect(engine: FakeEngine) -> list[EngineEvent]:
     return [event async for event in engine.stream(_request())]
 
 
-def test_fake_replays_text_tools_usage_and_terminal_event() -> None:
-    events = asyncio.run(
-        _collect(FakeEngine(load_fake_fixture(FIXTURES / "success.json")))
+def _success_fixture() -> FakeFixture:
+    return FakeFixture.model_validate(
+        {
+            "events": [
+                {
+                    "payload": {
+                        "kind": "text_delta",
+                        "message_id": "message-1",
+                        "text": "I will inspect the order.",
+                    }
+                },
+                {
+                    "payload": {
+                        "kind": "tool_call",
+                        "message_id": "message-1",
+                        "tool_call_id": "tool-1",
+                        "tool_name": "get_order",
+                        "arguments": {"order_id": "order-1"},
+                    }
+                },
+                {
+                    "payload": {
+                        "kind": "tool_result",
+                        "tool_call_id": "tool-1",
+                        "content": {"status": "ok"},
+                        "is_error": False,
+                    }
+                },
+                {
+                    "payload": {
+                        "kind": "usage",
+                        "usage": {"input_tokens": 10, "output_tokens": 5},
+                    }
+                },
+            ]
+        }
     )
+
+
+def test_fake_replays_text_tools_usage_and_terminal_event() -> None:
+    events = asyncio.run(_collect(FakeEngine(_success_fixture())))
 
     assert [event.sequence for event in events] == list(range(5))
     assert [event.payload.kind for event in events] == [
@@ -117,23 +146,22 @@ def test_fake_can_be_cancelled_during_a_delayed_replay() -> None:
     assert events[0].payload.exit_status is EngineExitStatus.CANCELLED
 
 
-def test_fake_cannot_be_cancelled_after_explicit_terminal_event(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "terminal.json"
-    path.write_text(
-        """{
-          "events": [{
-            "payload": {
-              "kind": "completed",
-              "exit_status": "success",
-              "session_id": "fixture-session"
+def test_fake_cannot_be_cancelled_after_explicit_terminal_event() -> None:
+    engine = FakeEngine(
+        FakeFixture.model_validate(
+            {
+                "events": [
+                    {
+                        "payload": {
+                            "kind": "completed",
+                            "exit_status": EngineExitStatus.SUCCESS,
+                            "session_id": "fixture-session",
+                        }
+                    }
+                ]
             }
-          }]
-        }""",
-        encoding="utf-8",
+        )
     )
-    engine = FakeEngine(load_fake_fixture(path))
 
     async def scenario() -> tuple[bool, list[EngineEvent]]:
         stream = engine.stream(_request())
@@ -150,30 +178,6 @@ def test_fake_cannot_be_cancelled_after_explicit_terminal_event(
     assert events[0].payload.exit_status is EngineExitStatus.SUCCESS
 
 
-def test_fake_fixture_rejects_unknown_and_malformed_fields(tmp_path: Path) -> None:
-    path = tmp_path / "bad.json"
-    path.write_text('{"events": [], "api_key": "not-allowed"}', encoding="utf-8")
-
-    with pytest.raises(FakeFixtureError):
-        load_fake_fixture(path)
-
-
-def test_fake_fixture_validation_does_not_expose_rejected_values(
-    tmp_path: Path,
-) -> None:
-    secret = "ordinary-secret-value"
-    path = tmp_path / "bad.json"
-    path.write_text(
-        '{"events": [], "unexpected": "ordinary-secret-value"}',
-        encoding="utf-8",
-    )
-
-    with pytest.raises(FakeFixtureError) as exc_info:
-        load_fake_fixture(path)
-
-    assert secret not in str(exc_info.value)
-
-
 def test_fake_fixture_rejects_conflicting_terminal_modes() -> None:
     with pytest.raises(ValueError, match="mutually exclusive"):
         FakeFixture(timeout=True, exit_code=1)
@@ -181,9 +185,7 @@ def test_fake_fixture_rejects_conflicting_terminal_modes() -> None:
 
 def test_fake_events_form_a_canonical_trace() -> None:
     request = _request()
-    events = asyncio.run(
-        _collect(FakeEngine(load_fake_fixture(FIXTURES / "success.json")))
-    )
+    events = asyncio.run(_collect(FakeEngine(_success_fixture())))
     usage = next(
         event.payload.usage
         for event in events

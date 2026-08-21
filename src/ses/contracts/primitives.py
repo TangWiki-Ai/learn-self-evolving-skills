@@ -21,11 +21,10 @@ class SchemaVersion(StrEnum):
     """Supported wire-schema versions."""
 
     V1ALPHA1 = "v1alpha1"
-    V1ALPHA2 = "v1alpha2"
 
 
 class RecordType(StrEnum):
-    """Persistent record discriminators frozen for Issue #2."""
+    """Persistent record discriminators used by the Journey runtime."""
 
     ENGINE_REQUEST = "engine_request"
     ENGINE_EVENT = "engine_event"
@@ -36,8 +35,6 @@ class RecordType(StrEnum):
     TRACE = "trace"
     ASSERTION_RESULT = "assertion_result"
     CASE_GRADE = "case_grade"
-    CALIBRATION_FIXTURE = "calibration_fixture"
-    JUDGE_CALIBRATION = "judge_calibration"
 
 
 def _validate_non_blank(value: str) -> str:

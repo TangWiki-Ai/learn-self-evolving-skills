@@ -365,6 +365,3 @@ def judge_state(
             judge_version=judge_version,
         ),
     )
-
-
-state_judge = judge_state

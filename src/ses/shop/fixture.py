@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ses.contracts import (
     CaseDefinition,
-    CaseSplit,
     Money,
     RecordType,
     SchemaVersion,
@@ -95,7 +94,7 @@ class ReturnCaseFixture(FixtureModel):
             source_id=self.source_id,
             source_version=self.source_commit,
             transformation_version=self.transformation_version,
-            split=CaseSplit.DEVELOP,
+            split="develop",
             user_prompt=self.user_prompt,
             fixture_id=self.fixture_id,
             required_tools=self.required_tools,

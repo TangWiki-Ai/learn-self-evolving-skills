@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from pathlib import Path
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    ValidationError,
     field_validator,
     model_validator,
 )
@@ -24,10 +22,6 @@ from ses.contracts import (
     ErrorPayload,
 )
 from ses.engines.events import make_event
-
-
-class FakeFixtureError(ValueError):
-    """A fake-engine fixture is not declarative or canonical."""
 
 
 class FakeStep(BaseModel):
@@ -101,23 +95,6 @@ class FakeFixture(BaseModel):
         if terminal_modes > 1 or (completed and terminal_modes):
             raise ValueError("fake fixture terminal modes are mutually exclusive")
         return self
-
-
-def load_fake_fixture(path: Path) -> FakeFixture:
-    """Load a strict fixture without accessing the network or process environment."""
-    try:
-        payload = path.read_text(encoding="utf-8")
-        return FakeFixture.model_validate_json(payload)
-    except ValidationError as exc:
-        details = "; ".join(
-            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-            for error in exc.errors(include_url=False, include_input=False)
-        )
-        raise FakeFixtureError(
-            f"invalid fake-engine fixture {path}: {details}"
-        ) from None
-    except (OSError, UnicodeError) as exc:
-        raise FakeFixtureError(f"invalid fake-engine fixture {path}: {exc}") from exc
 
 
 class FakeEngine:

@@ -440,11 +440,6 @@ def test_assertion_result_round_trips_with_exact_grade_and_judge_enums() -> None
     assert restored.judge is JudgeKind.RULE
 
 
-def test_model_judge_kinds_are_additive_contract_values() -> None:
-    assert JudgeKind("llm") is JudgeKind.LLM
-    assert JudgeKind("agent") is JudgeKind.AGENT
-
-
 @pytest.mark.parametrize("status", ["passed", "FAIL", "budget_stop"])
 def test_assertion_result_rejects_status_synonyms(status: str) -> None:
     data = _assertion().model_dump(mode="json")

@@ -3,7 +3,6 @@
   "record_type": "upstream_manifest",
   "transformation_version": "ses-testset-candidates-v2",
   "transformation": {
-    "entrypoint": "scripts/prepare_data.py",
     "stages": [
       "acquire",
       "exact_slice",

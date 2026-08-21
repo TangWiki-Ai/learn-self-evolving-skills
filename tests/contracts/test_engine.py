@@ -220,7 +220,7 @@ def test_engine_event_uses_exact_enums() -> None:
     completed = _event(
         {
             "kind": EngineEventKind.COMPLETED,
-            "exit_status": EngineExitStatus.BUDGET_STOP,
+            "exit_status": EngineExitStatus.CANCELLED,
         }
     )
 

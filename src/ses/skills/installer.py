@@ -1,12 +1,9 @@
-"""Install exactly the runtime files declared by a Skill artifact manifest."""
+"""Validate and hash the runtime files declared by a Skill manifest."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
-import shutil
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from pydantic import ValidationError
@@ -21,25 +18,6 @@ class SkillInstallError(ValueError):
 
 
 SkillManifest = SkillArtifactManifest
-
-
-@dataclass(frozen=True, slots=True)
-class SkillInstallation:
-    """The exact files and semantic identity installed for one run."""
-
-    destination: Path
-    installed_files: tuple[str, ...]
-    name: str
-    version: str
-    sha256: str
-
-    @property
-    def skill_version(self) -> str:
-        return self.version
-
-    @property
-    def skill_sha256(self) -> str:
-        return self.sha256
 
 
 def _regular_file(path: Path, *, label: str) -> None:
@@ -120,8 +98,6 @@ def write_skill_manifest(
     files: tuple[str, ...],
     source_version: str = "unspecified",
     provider_compatibility: tuple[str, ...] = ("claude-code-native",),
-    source_kind: str | None = None,
-    tool_protocol_sha256: str | None = None,
 ) -> Path:
     """Write a strict manifest for files already created below ``source``."""
     declared = tuple((relative, source / PurePosixPath(relative)) for relative in files)
@@ -133,8 +109,6 @@ def write_skill_manifest(
         "source_version": source_version,
         "content_sha256": _digest(declared),
         "provider_compatibility": provider_compatibility,
-        "source_kind": source_kind,
-        "tool_protocol_sha256": tool_protocol_sha256,
         "files": [
             {
                 "path": relative,
@@ -145,87 +119,8 @@ def write_skill_manifest(
             for relative in files
         ],
     }
-    if source_kind is None:
-        payload.pop("source_kind")
-    if tool_protocol_sha256 is None:
-        payload.pop("tool_protocol_sha256")
     manifest = SkillManifest.model_validate(payload)
     destination = source / _MANIFEST
     with destination.open("xb") as stream:
         stream.write(artifact_json_bytes(manifest))
     return destination
-
-
-def _prepare_destination(destination: Path) -> None:
-    if destination.is_symlink():
-        raise SkillInstallError(
-            f"Skill destination must not be a symlink: {destination}"
-        )
-    current = destination.parent
-    while current != current.parent:
-        if current.is_symlink():
-            raise SkillInstallError(f"Skill destination contains a symlink: {current}")
-        current = current.parent
-    if destination.exists():
-        if not destination.is_dir():
-            raise SkillInstallError(
-                f"Skill destination must be a directory: {destination}"
-            )
-        if any(destination.iterdir()):
-            raise SkillInstallError("Skill destination must be empty")
-    else:
-        destination.mkdir(parents=True)
-
-
-def _verify_installation(
-    destination: Path, files: tuple[tuple[str, Path], ...]
-) -> None:
-    expected = tuple(sorted(relative for relative, _ in files))
-    actual_files: list[str] = []
-    for path in destination.rglob("*"):
-        if path.is_symlink():
-            raise SkillInstallError(f"installed Skill contains a symlink: {path}")
-        if path.is_file():
-            actual_files.append(path.relative_to(destination).as_posix())
-    if tuple(sorted(actual_files)) != expected:
-        raise SkillInstallError(
-            "installed Skill file inventory does not match manifest"
-        )
-    source_hashes = {
-        relative: hashlib.sha256(source.read_bytes()).hexdigest()
-        for relative, source in files
-    }
-    for relative in expected:
-        target = destination / PurePosixPath(relative)
-        if hashlib.sha256(target.read_bytes()).hexdigest() != source_hashes[relative]:
-            raise SkillInstallError(f"installed Skill hash mismatch for {relative}")
-
-
-def install_skill(
-    source: Path,
-    destination: Path,
-    *,
-    version: str | None = None,
-) -> SkillInstallation:
-    """Copy only manifest-declared runtime files and verify the installed tree."""
-    manifest = load_skill_manifest(source)
-    if version is not None and version != manifest.version:
-        raise SkillInstallError("requested Skill version does not match manifest")
-    files = _declared_files(source, manifest)
-    _prepare_destination(destination)
-    for relative, source_path in files:
-        target = destination / PurePosixPath(relative)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source_path, target, follow_symlinks=False)
-        os.chmod(target, 0o600)
-    _verify_installation(destination, files)
-    installed_files = tuple(
-        (relative, destination / PurePosixPath(relative)) for relative, _ in files
-    )
-    return SkillInstallation(
-        destination=destination,
-        installed_files=tuple(relative for relative, _ in files),
-        name=manifest.name,
-        version=manifest.version,
-        sha256=_digest(installed_files),
-    )

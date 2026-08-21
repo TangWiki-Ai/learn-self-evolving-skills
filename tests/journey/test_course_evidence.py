@@ -107,7 +107,7 @@ def test_station_7_keeps_missing_evidence_null_and_is_idempotent(
     assert facts["baseline_case_count"] is None
     assert facts["post_gate_pass_count"] is None
     assert facts["pass_to_fail_count"] is None
-    assert facts["portfolio_status"] == "draft_missing_baseline"
+    assert facts["evidence_status"] == "draft_missing_baseline"
     resume = (tmp_path / ".ses/deliverables/resume-zh.md").read_text(encoding="utf-8")
     assert "尚未获得基线" in resume
     assert "0/0" not in resume
@@ -161,7 +161,7 @@ def test_station_7_reports_only_a_complete_full_regression(tmp_path: Path) -> No
     )
     assert facts["post_gate_pass_count"] == 2
     assert facts["post_gate_pass_rate"] == 1.0
-    assert facts["portfolio_status"] == "verified_released"
+    assert facts["evidence_status"] == "verified_released"
     resume = (tmp_path / ".ses/deliverables/resume-zh.md").read_text(encoding="utf-8")
     assert "全量回归结果为 2/2" in resume
     assert "锁定模型的真实评测" in resume

@@ -18,8 +18,8 @@ If they ask you to decide or edit for them, do it and say which decision you mad
   `CHATANYWHERE_API_KEY`. Ask the learner to set the matching variable in their
   shell. Never ask them to paste a key into chat, a file, a command argument, or
   an artifact. Never print or persist its value.
-- ChatAnywhere may use only the locked Claude-series model. Do not reuse a
-  SiliconFlow DeepSeek/Qwen lock or improvise another model.
+- ChatAnywhere may use only its locked Claude-series model. Do not reuse the
+  SiliconFlow DeepSeek lock or improvise another model.
 - On resume, read `experiment_provider` from `.ses/status.json` and keep it. Do
   not silently switch providers, infer a provider from whichever key exists, or
   fall back to the other provider.
@@ -33,15 +33,15 @@ If they ask you to decide or edit for them, do it and say which decision you mad
 - Do not block station 7 because an earlier station needs attention. The summary
   must state the actual evidence and unfinished work.
 - Do not turn fixed CI artifacts into claims about live model quality.
-- Part B production-comparison copy is pending Owner review. Until approval,
-  teach the repository mechanics and the explicit sandbox boundary. Do not
-  improvise or present the pending production claims as approved course content.
+- Treat every result as evidence from this repository's controlled benchmark
+  sandbox. Never present it as production traffic, production monitoring, or a
+  guarantee about production behavior.
 
 ## Start or resume
 
 1. Read `.ses/status.json` if it exists. Resume its `current_station` and saved
    `experiment_provider`; do not erase `.ses/` or select a different Provider.
-2. If this is a fresh clone, run `uv sync --all-extras --locked`.
+2. If this is a fresh clone, run `uv sync --no-dev --locked`.
 3. For a fresh live workspace, ask the learner to choose `siliconflow` or
    `chatanywhere`, unless they already chose one. Include that value in the first
    station command as `--provider PROVIDER`.
@@ -84,5 +84,4 @@ Only load the current station file unless the learner asks to look ahead.
 The exercise is handled when station 7 has produced `evidence-facts.json` and
 `evidence-index.json`. Resume, interview-prep, and concept files are optional
 ways to use those records, not completion requirements or proof of independent
-work. Report any `needs_attention` station and the pending production-content
-review accurately.
+work. Report any `needs_attention` station accurately.

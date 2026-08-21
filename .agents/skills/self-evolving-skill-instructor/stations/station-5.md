@@ -29,11 +29,6 @@ narrowed, held, or accepted according to the Gate.
 Open `.ses/reports/station-5-gate.html`. A releasable candidate needs both doors
 green. A rejected Gate may remain `needs_attention`; station 7 is still allowed.
 
-## Production comparison
-
-Pending Owner review. Limit the explanation to this repository's target replay
-and 15-case sandbox regression semantics.
-
 ## Further source
 
 - Machine Gate record: `.ses/evidence/gate-*.json`.

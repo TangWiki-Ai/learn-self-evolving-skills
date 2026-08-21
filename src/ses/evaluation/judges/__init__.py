@@ -1,8 +1,4 @@
-"""Deterministic judges available in Evaluation Core.
-
-LLM Judge and Agent Judge deliberately do not live in this package; they are
-part of the later calibration ticket.
-"""
+"""Deterministic State and Rule judges used by the Journey."""
 
 from ses.evaluation.judges.rule import (
     Rule,
@@ -10,13 +6,12 @@ from ses.evaluation.judges.rule import (
     forbidden_call,
     judge_rules,
     judge_rules_across_traces,
-    rule_judge,
     tool_arguments,
     tool_called,
     tool_count,
     tool_order,
 )
-from ses.evaluation.judges.state import judge_state, state_judge
+from ses.evaluation.judges.state import judge_state
 
 __all__ = [
     "Rule",
@@ -25,8 +20,6 @@ __all__ = [
     "judge_rules",
     "judge_rules_across_traces",
     "judge_state",
-    "rule_judge",
-    "state_judge",
     "tool_arguments",
     "tool_called",
     "tool_count",

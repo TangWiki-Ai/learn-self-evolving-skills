@@ -59,7 +59,7 @@ from ses.shop import CaseEnvironment, ReturnCaseFixture, state_diff
 from ses.simulation import FakeSimulator, UserIntent
 
 _FIXED_TRACE_TIME = datetime(2026, 8, 17, tzinfo=UTC)
-DevelopCatalogMode = Literal["fixed", "live", "release"]
+DevelopCatalogMode = Literal["fixed", "live"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +148,7 @@ def load_develop_catalog(
     *,
     mode: DevelopCatalogMode = "fixed",
 ) -> Mapping[str, ExecutableDevelopCase]:
-    """Load the fixed course catalog without treating it as human acceptance."""
+    """Load the catalog while enforcing its fixed/live review boundary."""
 
     if manifest_path is None:
         manifest_path = (
@@ -162,16 +162,33 @@ def load_develop_catalog(
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError("develop manifest must be an object")
-    if mode != "fixed":
+    review_status = payload.get("review_status")
+    intended_use = payload.get("intended_use")
+    approved = (
+        review_status == "human_approved" and intended_use == "fixed_and_live_journey"
+    )
+    if mode == "live" and (not approved):
         raise ValueError(
-            f"{mode} develop evaluation requires an independent signed human review; "
-            "the course catalog is pending"
+            "live develop evaluation requires the signed human review packet and "
+            "an approved catalog manifest"
         )
-    if (
-        payload.get("review_status") != "course_authored_pending_human_review"
-        or payload.get("intended_use") != "fixed_offline_course_only"
+    if mode == "fixed" and (
+        (review_status, intended_use)
+        not in {
+            (
+                "course_authored_pending_human_review",
+                "fixed_offline_course_only",
+            ),
+            ("human_approved", "fixed_and_live_journey"),
+        }
     ):
         raise ValueError("fixed develop manifest review boundary is invalid")
+    if approved and (
+        re.fullmatch(r"[0-9a-f]{40}", str(payload.get("review_commit"))) is None
+        or re.fullmatch(r"[0-9a-f]{64}", str(payload.get("asset_review_sha256")))
+        is None
+    ):
+        raise ValueError("approved develop manifest has no valid asset review binding")
     cases = payload.get("cases")
     data_version = payload.get("data_version")
     if not isinstance(cases, list) or not isinstance(data_version, str):

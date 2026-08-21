@@ -8,7 +8,6 @@ from pydantic import ValidationError
 
 from ses.foundation.config import (
     ConfigurationError,
-    ModelRole,
     ProviderId,
     RuntimeConfig,
     load_model_lock,
@@ -19,9 +18,7 @@ from ses.foundation.credentials import (
     build_claude_environment,
     credential_values,
     is_sensitive_name,
-    read_chatanywhere_credentials,
     read_provider_credentials,
-    read_siliconflow_credentials,
     redact,
     redact_data,
 )
@@ -40,9 +37,7 @@ def test_config_and_models_lock_are_strict_and_credential_free(tmp_path: Path) -
             "schema_version": "v1alpha1",
             "models_lock": "models.lock.json",
             "chatanywhere_models_lock": "models.chatanywhere.lock.json",
-            "default_provider": "siliconflow",
             "data_manifest": "data/upstream/manifest.json",
-            "workspace_root": ".ses/workspaces",
             "claude_executable": "claude",
         },
     )
@@ -57,32 +52,28 @@ def test_config_and_models_lock_are_strict_and_credential_free(tmp_path: Path) -
             "engine": "claude-code",
             "engine_version": "2.1.220",
             "provider": "siliconflow",
-            "roles": {name.value: role for name in ModelRole},
+            "model": role,
         },
     )
 
     config = load_runtime_config(config_path)
     lock = load_model_lock(lock_path)
 
-    assert config.workspace_root == ".ses/workspaces"
-    assert config.default_provider is ProviderId.SILICONFLOW
     assert config.models_lock_for(ProviderId.SILICONFLOW) == "models.lock.json"
     assert (
         config.models_lock_for(ProviderId.CHATANYWHERE)
         == "models.chatanywhere.lock.json"
     )
     assert lock.provider is ProviderId.SILICONFLOW
-    assert lock.roles[ModelRole.MAIN].base_url == "https://api.siliconflow.cn/"
+    assert lock.model.base_url == "https://api.siliconflow.cn/"
     assert "key" not in lock.model_dump_json().casefold()
-    with pytest.raises(TypeError):
-        lock.roles[ModelRole.MAIN] = role  # type: ignore[index]
 
 
-def test_runtime_config_defaults_to_system_temporary_workspaces() -> None:
+def test_runtime_config_has_safe_project_relative_defaults() -> None:
     config = RuntimeConfig(schema_version="v1alpha1")
 
-    assert config.workspace_root is None
-    assert config.default_provider is ProviderId.SILICONFLOW
+    assert config.models_lock == "models.lock.json"
+    assert config.data_manifest == "data/upstream/manifest.json"
 
 
 @pytest.mark.parametrize(
@@ -103,7 +94,7 @@ def test_runtime_config_rejects_unknown_and_unsafe_fields(
         load_runtime_config(path)
 
 
-def test_models_lock_requires_every_role_and_https(tmp_path: Path) -> None:
+def test_models_lock_requires_one_https_model(tmp_path: Path) -> None:
     path = tmp_path / "models.lock.json"
     _write_json(
         path,
@@ -111,11 +102,9 @@ def test_models_lock_requires_every_role_and_https(tmp_path: Path) -> None:
             "schema_version": "v1alpha1",
             "engine": "claude-code",
             "engine_version": "2.1.220",
-            "roles": {
-                "main": {
-                    "model_id": "model",
-                    "base_url": "http://provider.invalid/?api_key=secret",
-                }
+            "model": {
+                "model_id": "model",
+                "base_url": "http://provider.invalid/?api_key=secret",
             },
         },
     )
@@ -145,7 +134,7 @@ def test_model_lock_binds_provider_to_an_exact_official_base_url(
             "engine": "claude-code",
             "engine_version": "2.1.220",
             "provider": provider,
-            "roles": {name.value: role for name in ModelRole},
+            "model": role,
         },
     )
 
@@ -169,22 +158,22 @@ def test_chatanywhere_model_lock_accepts_both_official_hosts(
             "engine": "claude-code",
             "engine_version": "2.1.220",
             "provider": "chatanywhere",
-            "roles": {name.value: role for name in ModelRole},
+            "model": role,
         },
     )
 
     lock = load_model_lock(path)
 
     assert lock.provider is ProviderId.CHATANYWHERE
-    assert lock.roles[ModelRole.MAIN].base_url == base_url.rstrip("/") + "/"
+    assert lock.model.base_url == base_url.rstrip("/") + "/"
 
 
 def test_credentials_only_come_from_environment_and_repr_is_safe() -> None:
     with pytest.raises(CredentialError, match="SILICONFLOW_API_KEY"):
-        read_siliconflow_credentials({})
+        read_provider_credentials(ProviderId.SILICONFLOW, {})
 
-    credentials = read_siliconflow_credentials(
-        {"SILICONFLOW_API_KEY": "exact-process-secret"}
+    credentials = read_provider_credentials(
+        ProviderId.SILICONFLOW, {"SILICONFLOW_API_KEY": "exact-process-secret"}
     )
 
     assert "exact-process-secret" not in repr(credentials)
@@ -192,7 +181,7 @@ def test_credentials_only_come_from_environment_and_repr_is_safe() -> None:
     assert credentials.provider is ProviderId.SILICONFLOW
 
     with pytest.raises(CredentialError, match="CHATANYWHERE_API_KEY"):
-        read_chatanywhere_credentials({})
+        read_provider_credentials(ProviderId.CHATANYWHERE, {})
 
     chatanywhere = read_provider_credentials(
         ProviderId.CHATANYWHERE,
@@ -203,7 +192,9 @@ def test_credentials_only_come_from_environment_and_repr_is_safe() -> None:
 
 
 def test_claude_environment_removes_global_provider_state(tmp_path: Path) -> None:
-    credentials = read_siliconflow_credentials({"SILICONFLOW_API_KEY": "new-secret"})
+    credentials = read_provider_credentials(
+        ProviderId.SILICONFLOW, {"SILICONFLOW_API_KEY": "new-secret"}
+    )
 
     child = build_claude_environment(
         {
@@ -254,8 +245,8 @@ def test_claude_environment_preserves_explicit_proxy_route_and_redacts_it(
         "ALL_PROXY": proxy_url,
         "NO_PROXY": "localhost,127.0.0.1",
     }
-    credentials = read_chatanywhere_credentials(
-        {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
+    credentials = read_provider_credentials(
+        ProviderId.CHATANYWHERE, {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
     )
 
     child = build_claude_environment(
@@ -288,8 +279,8 @@ def test_claude_environment_preserves_explicit_proxy_route_and_redacts_it(
 
 
 def test_chatanywhere_uses_only_anthropic_auth_token(tmp_path: Path) -> None:
-    credentials = read_chatanywhere_credentials(
-        {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
+    credentials = read_provider_credentials(
+        ProviderId.CHATANYWHERE, {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
     )
 
     child = build_claude_environment(
@@ -316,8 +307,8 @@ def test_chatanywhere_uses_only_anthropic_auth_token(tmp_path: Path) -> None:
 def test_claude_environment_rejects_provider_endpoint_mismatch(
     tmp_path: Path,
 ) -> None:
-    credentials = read_chatanywhere_credentials(
-        {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
+    credentials = read_provider_credentials(
+        ProviderId.CHATANYWHERE, {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
     )
 
     with pytest.raises(ValueError, match="not allowed"):

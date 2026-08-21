@@ -11,7 +11,7 @@ import webbrowser
 from collections.abc import Sequence
 from pathlib import Path
 
-from ses.dashboard import DEFAULT_HOST, DEFAULT_PORT, create_dashboard_server
+from ses.dashboard import DEFAULT_PORT, create_dashboard_server
 from ses.foundation.config import ProviderId, load_model_lock, load_runtime_config
 from ses.foundation.credentials import CredentialError, credential_values, redact
 from ses.journey import (
@@ -79,7 +79,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "dashboard", help="Start the local read-only dashboard."
     )
     dashboard.add_argument("--workspace", type=Path, default=Path.cwd())
-    dashboard.add_argument("--host", default=DEFAULT_HOST)
     dashboard.add_argument("--port", type=int, default=DEFAULT_PORT)
     dashboard.add_argument("--no-open", action="store_true")
 
@@ -357,9 +356,7 @@ def _dashboard_main(args: argparse.Namespace) -> int:
     if store.status_path.exists():
         store.load()
     try:
-        with create_dashboard_server(
-            workspace, host=args.host, port=args.port
-        ) as server:
+        with create_dashboard_server(workspace, port=args.port) as server:
             host, port = server.server_address[:2]
             host_text = host.decode() if isinstance(host, bytes) else str(host)
             url = f"http://{host_text}:{int(port)}/"

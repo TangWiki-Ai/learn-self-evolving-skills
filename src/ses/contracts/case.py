@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Literal
 
 from pydantic import field_validator
@@ -15,14 +14,6 @@ from ses.contracts.primitives import (
 )
 
 
-class CaseSplit(StrEnum):
-    """Persisted executable-case partitions used through Issue #7."""
-
-    DEVELOP = "develop"
-    SELECTION = "selection"
-    FINAL = "final"
-
-
 class CaseDefinition(VersionedRecord):
     """Public inputs needed to execute one isolated benchmark case."""
 
@@ -31,7 +22,7 @@ class CaseDefinition(VersionedRecord):
     source_id: NonEmptyStr
     source_version: NonEmptyStr
     transformation_version: NonEmptyStr
-    split: CaseSplit
+    split: Literal["develop"]
     user_prompt: NonEmptyStr
     fixture_id: NonEmptyStr
     required_tools: tuple[NonEmptyStr, ...] = ()

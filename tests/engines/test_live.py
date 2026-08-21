@@ -8,13 +8,11 @@ import pytest
 
 from ses.contracts import RunnerStatus
 from ses.foundation.config import (
-    ModelRole,
     ProviderId,
     load_model_lock,
     load_runtime_config,
 )
 from ses.foundation.credentials import read_provider_credentials
-from ses.foundation.doctor import run_doctor
 from ses.reporting.baseline import build_baseline_report
 from ses.runner import (
     BaselineRunner,
@@ -27,29 +25,6 @@ from ses.runner import (
 from ses.skills.installer import load_skill_manifest, normalized_skill_sha256
 
 _REPRESENTATIVE_CASE = "develop-return-65a595515e9a2273cdab"
-
-
-@pytest.mark.live
-def test_explicit_live_doctor_smoke() -> None:
-    if os.environ.get("SES_RUN_LIVE") != "1":
-        pytest.skip("set SES_RUN_LIVE=1 to authorize the paid live smoke")
-    config = os.environ.get("SES_LIVE_CONFIG")
-    if not config:
-        pytest.skip("set SES_LIVE_CONFIG to the strict runtime config path")
-    provider_name = os.environ.get("SES_LIVE_PROVIDER")
-    if not provider_name:
-        pytest.skip("set SES_LIVE_PROVIDER to the explicitly authorized provider")
-
-    config_path = Path(config).resolve()
-    results = run_doctor(
-        project_root=config_path.parent,
-        config_path=config_path,
-        live=True,
-        timeout=120,
-        provider=ProviderId(provider_name),
-    )
-
-    assert all(result.status in {"PASS", "WARN"} for result in results)
 
 
 @pytest.mark.live
@@ -83,7 +58,7 @@ def test_explicit_live_representative_skill_shop_and_judge_smoke(
         {_REPRESENTATIVE_CASE: case},
         skill_files=skill_files,
         live_config=LiveDevelopConfig(
-            model=lock.roles[ModelRole.MAIN],
+            model=lock.model,
             credentials=credentials,
             executable=runtime.claude_executable,
             environ=os.environ,

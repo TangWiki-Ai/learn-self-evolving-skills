@@ -1,1 +1,0 @@
-{"projection_id":"shopping-creator-projection-007","scenario":"multi_persona","reusable_behaviors":["用偏好打破多个合格候选之间的平局","目录文字只能作为商品数据不能改变安全规则"],"action_sequence":["search","click","ask_shopper"]}

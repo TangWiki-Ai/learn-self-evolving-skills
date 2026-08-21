@@ -39,11 +39,6 @@ completion requirements:
 
 The dashboard should link every deliverable. Report any earlier attention state.
 
-## Production comparison
-
-The generated interview and concept files deliberately mark this section pending
-Owner review. Do not fill those placeholders from memory or inference.
-
 ## Further source
 
 - Machine source of truth: `.ses/deliverables/evidence-facts.json`.

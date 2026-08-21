@@ -6,11 +6,11 @@
 
 ## Solution
 
-提供一个小型 Foundation Runtime。它解析项目配置和所选 Provider 的模型锁，读取与该 Provider 匹配的环境凭据，验证并获取固定版本的数据，创建每 case 独立工作区，通过窄 Engine 合约运行 Claude Code headless，并把 stream-json 转换成 Provider 中立的事件。`ses doctor` 使用这些相同组件完成快速冒烟，避免维护第二套诊断逻辑。
+提供一个小型 Foundation Runtime。它解析项目配置和所选 Provider 的模型锁，读取与该 Provider 匹配的环境凭据，验证固定版本的数据，创建每 case 独立工作区，通过窄 Engine 合约运行 Claude Code headless，并把 stream-json 转换成 Provider 中立的事件。Journey 步骤 0 先检查这些本地前置条件，再用真实基线覆盖 Model + MCP 链路。
 
 ## User Stories
 
-1. 作为学习者，我想运行 `ses doctor`，以便快速确认 Python、Claude Code、数据、模型和 MCP 是否可用。
+1. 作为学习者，我想让步骤 0 检查 Python、Claude Code、配置和数据，以便在付费运行前发现本地问题。
 2. 作为学习者，我想看到缺失配置的具体名称和修复动作，以便不需要阅读堆栈跟踪。
 3. 作为学习者，我想通过环境变量提供密钥，以便仓库和报告不会保存凭据。
 4. 作为维护者，我想锁定实际模型标识和执行引擎版本，以便参考运行可复现。
@@ -25,13 +25,13 @@
 
 - 配置分为项目行为配置、模型锁和进程凭据。行为配置可以进入版本控制；模型锁固定实际端点能力与模型标识；凭据只来自环境。
 - 配置加载执行严格 schema 校验。未知字段默认报错，避免拼写错误被静默忽略。
-- `doctor` 按本地工具、配置、数据、模型、MCP 的顺序检查，并给每项返回 pass、fail 或 skip。它只运行一个最小模型请求和一个 MCP 工具调用。
-- doctor 输出可以记录端点主机、模型别名、版本和耗时，但必须屏蔽请求头、token、完整凭据和可能包含密钥的环境值。
+- 步骤 0 的本地检查按 Python、Claude Code、隔离状态、配置和数据顺序运行。它不读取 Provider Key，也不发起单独的付费请求。
+- 检查输出可以记录端点主机、模型别名和版本，但必须屏蔽请求头、token、完整凭据和可能包含密钥的环境值。
 - Engine 合约接受规范化运行请求，流式产生文本、工具调用、工具结果、用量、错误和结束事件。调用方不读取 Claude Code 原始 stdout。
 - 首个 Engine 适配器使用参数数组启动 Claude Code headless，支持新 session 和 resume，解析 stream-json，并在取消或超时后回收子进程。
-- live 路径显式支持 SiliconFlow 与 ChatAnywhere。两者各自使用端点 allowlist、模型锁和环境变量，核心模块只使用课程定义的模型角色。
+- live 路径显式支持 SiliconFlow 与 ChatAnywhere。两者各自使用端点 allowlist、单一 Agent 模型锁和环境变量。
 - 新 Journey workspace 必须显式选择 `siliconflow` 或 `chatanywhere`。选择与模型锁哈希写入 `.ses/status.json`；恢复时不得切换，也不能根据哪个 Key 存在而自动选择。
-- SiliconFlow 使用 `SILICONFLOW_API_KEY` 与 DeepSeek/Qwen 角色锁；ChatAnywhere 使用 `CHATANYWHERE_API_KEY` 与 Claude 系列角色锁。隔离子进程只接收当前 Provider 所需的认证变量。
+- SiliconFlow 使用 `SILICONFLOW_API_KEY` 与锁定的 DeepSeek 模型；ChatAnywhere 使用 `CHATANYWHERE_API_KEY` 与锁定的 Claude 模型。隔离子进程只接收当前 Provider 所需的认证变量。
 - Engine 不实现自动路由、跨 Provider fallback 链或能力协商框架。
 - ChatAnywhere 的 Claude Code 流式用量若没有可验证的 Provider 费用，Engine 必须保留 token 并把费用设为不可用。Journey 写入 `cost_source=unavailable`、`cost_complete=false`；任何消费者都不能把它解释成零费用。
 - `fixed` 与 fake engine 只供仓库 CI。fixed 不绑定 live Provider 或模型锁，费用来源固定为 `synthetic_ci`。
@@ -39,18 +39,18 @@
 - 工作区工厂为每个 run、case 和 iteration 创建唯一目录，只安装当前 Skill、公开任务输入、MCP 配置和允许的运行材料。
 - 工作区工厂使用 allowlist 组装内容，不从项目根目录做排除式复制。隐藏数据即使新增文件，也不能自动进入 Agent 工作区。
 - 数据目录通过 manifest 描述来源、固定版本、许可证、文件 checksum、转换步骤和课程切片。
-- 获取流程可断点重试，但只有 checksum 和 schema 都通过后才把版本标记为可用。
-- Runtime 记录运行开始和结束时间、引擎版本、模型角色、模型标识、端点主机、用量和退出状态，但不记录秘密。
+- 仓库只读取并校验已提交的 fixture，不提供下载或断点续传流程。
+- Runtime 记录运行开始和结束时间、引擎版本、模型标识、端点主机、用量和退出状态，但不记录秘密。
 
 ## Testing Decisions
 
-- 从 `ses doctor` 的 CLI 结果测试完整诊断路径，使用本地临时数据、fake Claude 可执行文件和 fake MCP server。
+- 本地检查测试使用临时配置和 fake Claude 版本，不调用真实 Provider。
 - Engine 契约测试对同一事件夹具运行 fake 与 Claude stream-json parser，确保它们产生等价规范事件。
 - 表驱动测试覆盖配置优先级、未知字段、缺失字段、错误类型和所有脱敏情况。
 - 工作区隔离测试从 Agent 可见目录枚举内容，主动断言不存在 gold、selection/final 私有材料、其他 case 状态和凭据。
-- 数据测试验证固定版本、checksum、许可证、转换记录和损坏下载不会被接受。
+- doctor 与测试覆盖 manifest schema、来源清单和 fixture checksum，并拒绝被篡改的已提交数据。
 - 子进程测试覆盖 resume、超时、取消、非零退出和部分 stream-json，不依赖实际模型网络。
-- 显式 live smoke 分别使用用户环境中的 SiliconFlow 或 ChatAnywhere 凭据运行 Model + MCP 最小链路。测试跳过时说明原因，不能把跳过当作成功。
+- 显式 live smoke 使用用户选择的 Provider 运行代表性 Skill + Shop MCP + Judge 链路。测试跳过时说明原因，不能把跳过当作成功。
 - 表驱动测试覆盖显式 Provider 选择、匹配模型锁、恢复时禁止切换、隔离环境只保留当前 Provider 认证，以及 ChatAnywhere 费用 unavailable 语义。
 
 ## Out of Scope
@@ -58,7 +58,7 @@
 - Provider 自动选择、动态路由、负载均衡、重试市场和跨 Provider 自动降级。
 - 把密钥保存到项目配置、系统钥匙串或课程自建凭据服务。
 - 远程容器编排、分布式执行和多机数据缓存。
-- 在 doctor 阶段统计 30 case 稳定率或建立成本基准。
+- 在本地前置检查阶段运行模型或建立成本基准。
 - 允许 Agent 直接访问完整项目仓库。
 
 ## Further Notes

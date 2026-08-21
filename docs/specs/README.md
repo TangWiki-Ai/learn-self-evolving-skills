@@ -1,58 +1,21 @@
-# 系统与模块规格
+# 系统规格
 
-这些文档把产品需求拆成稳定的系统边界。站 0–7 的单日 Journey 会跨模块组合能力，但实现、测试和 Provider 接入仍以这些模块契约为准。GitHub 上的 [spec tracking issue](https://github.com/TangWiki-Ai/learn-self-evolving-skills/issues/13) 提供统一入口。
-
-## 规格索引
+这些文档只描述当前 8 步 Journey 使用的模块。
 
 | 规格 | 负责范围 |
 | --- | --- |
-| [00 系统总览](00-system-overview.md) | 端到端目标、核心约束、角色、模块关系和全局验收 |
-| [01 基础运行时](01-foundation-runtime.md) | 配置、凭据、数据获取、工作区隔离、Engine 和 doctor |
-| [02 电商环境与 MCP](02-shop-environment.md) | 订单状态、政策 oracle、工具、MCP server、snapshot 和 StateDiff |
-| [03 评测与 Judges](03-evaluation-judges.md) | Trace、expect、State/Rule/LLM/Agent Judge 和证据模型 |
-| [04 模拟、运行与报告](04-simulation-runner-reporting.md) | 用户模拟器、批量执行、预算、恢复、L1/L2/L3 报告 |
-| [05 测试集流水线](05-testset-pipeline.md) | 清洗、聚类、分层、变体、校准、切分和数据可见性 |
-| [06 Skill 创建与触发](06-skill-creation-triggering.md) | Skill 安装、Creator、静态门、触发评测和 v0 对照 |
-| [07 进化与版本治理](07-evolution-governance.md) | 失败卡片、结构化补丁、selection gate、注册表和回滚 |
-| [08 自动进化与作品集](08-automation-portfolio.md) | 有界自动循环、final 纪律、L3 报告和 portfolio |
-| [09 课程交付](09-course-delivery.md) | 八站 Journey、instructor Skill、dashboard、证据产物和发布验收 |
-| [10 跨模块契约](10-cross-module-contracts.md) | 记录归属、序列化不变量、版本与 contract 变更协议 |
-| [11 ShopSimulator 迁移毕业项目](11-shop-simulator-capstone.md) | 购物域 create → eval → evolve → gate → final → package 的迁移路线、外部 Adapter、数据协议和验收 |
-
-## 模块关系
+| [00 系统总览](00-system-overview.md) | 产品边界、模块关系和全局约束 |
+| [01 基础运行时](01-foundation-runtime.md) | 配置、模型锁、凭据、工作区隔离和 Engine |
+| [02 电商环境与 MCP](02-shop-environment.md) | 订单状态、政策、工具、snapshot 和 StateDiff |
+| [03 评测](03-evaluation-judges.md) | Trace、State Judge、Rule Judge 和证据模型 |
+| [04 模拟、运行与报告](04-simulation-runner-reporting.md) | 多轮模拟、批量运行、恢复和 HTML 报告 |
+| [05 Skill 检查](05-skill-validation.md) | Skill manifest、安装 allowlist 和静态检查 |
+| [06 Journey 交付](06-course-delivery.md) | 8 个步骤、instructor Skill、本地看板和输出 |
 
 ```text
-Foundation Runtime -----> Shop Environment -----> Evaluation & Judges
-       |                         |                         |
-       +-------------------------+-----------> Simulation/Runner/Reports
-       |                                                   |
-       +----> Testset Pipeline ----> Skill Creation -------+
-                                          |
-                                          v
-                              Evolution & Governance
-                                          |
-                                          v
-                              Automation & Portfolio
-
-Course Delivery consumes every module and packages the learner journey.
-
-Instructor Skill -----> Journey CLI -----> .ses/status.json -----> Dashboard
-
-ShopSimulator Capstone 作为可选迁移项目复用同一组 Interface；它只增加外部环境
-Adapter 和领域 policy，不创建平行系统。
+Foundation → Shop MCP → Evaluation → Runner → Journey → Dashboard
+                              ↑          ↑
+                      Skill checks   Simulator
 ```
 
-Cross-module Contracts 约束所有模块交换的持久记录，但不承载业务实现。
-
-并行开发不要按“一人一份完整 spec”直接开工。具体波次、文件所有权和 handoff 见[多 Agent 并行实施](../development/parallel-implementation.md)。
-
-## 测试边界
-
-系统把 `ses` CLI 当作主要验收边界。默认 CI 在临时工作区使用 fixed 数据和 fake engine，从命令输入一直验证到 `.ses/status.json`、结构化结果和 HTML 产物。政策、状态差异、判分、补丁和 gate 等确定性逻辑使用更窄的单元测试。学习者路径只使用 live 模式；真实模型调用只通过显式 Provider smoke 或 learner command 运行，CI 不读取付费凭据。
-
-## 变更规则
-
-- 修改跨模块契约时，先更新系统总览和相关模块 spec，再更新 tickets。
-- SiliconFlow 与 ChatAnywhere 必须复用同一 Engine 边界，各自保持独立模型锁和凭据。学习者显式选择 Provider；系统不自动路由或 fallback。
-- 修改数据切分或可见性规则时，必须重新审查防泄漏测试和 final 纪律。
-- spec 只记录稳定行为和决策，不绑定容易变化的源码路径。
+默认测试使用 fixed 数据和 fake engine，不访问网络或付费 Provider。学习者只通过 `ses journey` 进入产品；live 运行必须显式选择 Provider。

@@ -14,8 +14,8 @@ from ses.shop.artifacts import SnapshotArtifactWriter
 
 
 class _McpClient:
-    def __init__(self, role: str = "agent", artifact_root: Path | None = None) -> None:
-        command = [sys.executable, "-m", "ses.shop.mcp_server", "--role", role]
+    def __init__(self, artifact_root: Path | None = None) -> None:
+        command = [sys.executable, "-m", "ses.shop.mcp_server"]
         if artifact_root is not None:
             command.extend(["--artifact-root", str(artifact_root)])
         self._process = subprocess.Popen(
@@ -57,9 +57,9 @@ class _McpClient:
 
 @contextmanager
 def _mcp_client(
-    role: str = "agent", artifact_root: Path | None = None
+    artifact_root: Path | None = None,
 ) -> Generator[_McpClient, None, None]:
-    client = _McpClient(role, artifact_root)
+    client = _McpClient(artifact_root)
     try:
         yield client
     finally:
@@ -214,24 +214,3 @@ def test_mcp_writes_before_and_after_snapshots_from_the_same_process(
 def test_snapshot_artifact_writer_rejects_a_filesystem_root() -> None:
     with pytest.raises(ValueError, match="filesystem root"):
         SnapshotArtifactWriter(Path("/"))
-
-
-def test_mcp_enforces_role_permissions() -> None:
-    with _mcp_client("judge") as client:
-        listed = _result(client.request(1, "tools/list"))
-        denied = _result(
-            client.request(
-                2,
-                "tools/call",
-                {
-                    "name": "process_return",
-                    "arguments": {"item_id": "ITEM-9050", "reason": "defective"},
-                },
-            )
-        )
-
-        assert listed["tools"] == []
-        assert denied["isError"] is True
-        structured = denied["structuredContent"]
-        assert isinstance(structured, Mapping)
-        assert structured["error_code"] == "permission_denied"

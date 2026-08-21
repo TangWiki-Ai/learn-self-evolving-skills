@@ -70,6 +70,3 @@ def aggregate_case_grade(
         status=aggregate_status(items, infrastructure_error=infrastructure_error),
         assertions=items,
     )
-
-
-aggregate = aggregate_status
