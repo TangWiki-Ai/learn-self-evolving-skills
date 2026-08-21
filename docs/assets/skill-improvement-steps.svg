@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1260" viewBox="0 0 1200 1260" role="img" aria-labelledby="title desc">
+  <title id="title">Skill 改进的 8 个运行步骤</title>
+  <desc id="desc">八个步骤依次为运行基线、选择失败用例、分析失败原因、定位 Skill 问题、做最小修改、回放与回归、做版本决定、核对输出。</desc>
+  <defs>
+    <style>
+      .sans { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .serif { font-family: Georgia, "Songti SC", "STSong", serif; }
+      .ink { fill: #22211e; }
+      .muted { fill: #67645f; }
+      .brand { fill: #a94b37; }
+      .step-title { font-size: 27px; font-weight: 750; }
+      .step-copy { font-size: 19px; }
+      .record { font-size: 16px; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="1260" rx="18" fill="#f7f6f1"/>
+  <rect x="1" y="1" width="1198" height="1258" rx="17" fill="none" stroke="#e1ded6" stroke-width="2"/>
+
+  <text x="36" y="55" class="sans brand" font-size="19" font-weight="750" letter-spacing=".04em">8 个运行步骤</text>
+  <text x="36" y="116" class="serif ink" font-size="48" font-weight="700">Skill 改进步骤</text>
+  <text x="36" y="160" class="sans muted" font-size="21">每个步骤只处理一种判断，并保留对应的运行记录。</text>
+  <text x="1080" y="160" text-anchor="middle" class="sans muted" font-size="15" font-weight="700" letter-spacing=".08em">主要记录</text>
+
+  <!-- Row 1 -->
+  <line x1="36" y1="190" x2="1164" y2="190" stroke="#dedbd3"/>
+  <circle cx="82" cy="252" r="28" fill="#ffffff" stroke="#dedbd3" stroke-width="1.5"/>
+  <text x="82" y="260" text-anchor="middle" class="sans muted" font-size="19" font-weight="750">01</text>
+  <text x="150" y="238" class="sans ink step-title">运行基线</text>
+  <text x="150" y="275" class="sans muted step-copy">观察 15 个用例的执行结果，先不修改 Skill。</text>
+  <rect x="1001" y="229" width="158" height="44" rx="22" fill="#ffffff" stroke="#dedbd3"/>
+  <text x="1080" y="257" text-anchor="middle" class="sans muted record">基线报告</text>
+
+  <!-- Row 2 -->
+  <line x1="36" y1="315" x2="1164" y2="315" stroke="#dedbd3"/>
+  <circle cx="82" cy="377" r="28" fill="#ffffff" stroke="#dedbd3" stroke-width="1.5"/>
+  <text x="82" y="385" text-anchor="middle" class="sans muted" font-size="19" font-weight="750">02</text>
+  <text x="150" y="363" class="sans ink step-title">选择失败用例</text>
+  <text x="150" y="400" class="sans muted step-copy">从基线结果中选择值得继续分析的失败用例。</text>
+  <rect x="1001" y="354" width="158" height="44" rx="22" fill="#ffffff" stroke="#dedbd3"/>
+  <text x="1080" y="382" text-anchor="middle" class="sans muted record">失败选择</text>
+
+  <!-- Row 3 -->
+  <line x1="36" y1="440" x2="1164" y2="440" stroke="#dedbd3"/>
+  <circle cx="82" cy="502" r="28" fill="#ffffff" stroke="#dedbd3" stroke-width="1.5"/>
+  <text x="82" y="510" text-anchor="middle" class="sans muted" font-size="19" font-weight="750">03</text>
+  <text x="150" y="488" class="sans ink step-title">分析失败原因</text>
+  <text x="150" y="525" class="sans muted step-copy">判断问题来自环境、用例还是 Skill。</text>
+  <rect x="1001" y="479" width="158" height="44" rx="22" fill="#ffffff" stroke="#dedbd3"/>
+  <text x="1080" y="507" text-anchor="middle" class="sans muted record">归因记录</text>
+
+  <!-- Row 4 -->
+  <line x1="36" y1="565" x2="1164" y2="565" stroke="#dedbd3"/>
+  <circle cx="82" cy="627" r="28" fill="#ffffff" stroke="#dedbd3" stroke-width="1.5"/>
+  <text x="82" y="635" text-anchor="middle" class="sans muted" font-size="19" font-weight="750">04</text>
+  <text x="150" y="613" class="sans ink step-title">定位 Skill 问题</text>
+  <text x="150" y="650" class="sans muted step-copy">把诊断定位到具体知识块、步骤或文本位置。</text>
+  <rect x="1001" y="604" width="158" height="44" rx="22" fill="#ffffff" stroke="#dedbd3"/>
+  <text x="1080" y="632" text-anchor="middle" class="sans muted record">诊断记录</text>
+
+  <!-- Row 5 -->
+  <line x1="36" y1="690" x2="1164" y2="690" stroke="#dedbd3"/>
+  <circle cx="82" cy="752" r="28" fill="#ffffff" stroke="#dedbd3" stroke-width="1.5"/>
+  <text x="82" y="760" text-anchor="middle" class="sans muted" font-size="19" font-weight="750">05</text>
+  <text x="150" y="738" class="sans ink step-title">做最小修改</text>
+  <text x="150" y="775" class="sans muted step-copy">只修改与当前诊断有关的 Skill 内容。</text>
+  <rect x="1001" y="729" width="158" height="44" rx="22" fill="#ffffff" stroke="#dedbd3"/>
+  <text x="1080" y="757" text-anchor="middle" class="sans muted record">候选快照</text>
+
+  <!-- Row 6 -->
+  <line x1="36" y1="815" x2="1164" y2="815" stroke="#dedbd3"/>
+  <circle cx="82" cy="877" r="28" fill="#ffffff" stroke="#dedbd3" stroke-width="1.5"/>
+  <text x="82" y="885" text-anchor="middle" class="sans muted" font-size="19" font-weight="750">06</text>
+  <text x="150" y="863" class="sans ink step-title">回放与回归</text>
+  <text x="150" y="900" class="sans muted step-copy">先回放目标用例，再检查完整基线是否出现回归。</text>
+  <rect x="1001" y="854" width="158" height="44" rx="22" fill="#ffffff" stroke="#dedbd3"/>
+  <text x="1080" y="882" text-anchor="middle" class="sans muted record">回归检查</text>
+
+  <!-- Row 7 -->
+  <line x1="36" y1="940" x2="1164" y2="940" stroke="#dedbd3"/>
+  <circle cx="82" cy="1002" r="28" fill="#ffffff" stroke="#dedbd3" stroke-width="1.5"/>
+  <text x="82" y="1010" text-anchor="middle" class="sans muted" font-size="19" font-weight="750">07</text>
+  <text x="150" y="988" class="sans ink step-title">版本决定</text>
+  <text x="150" y="1025" class="sans muted step-copy">决定发布、暂缓，或发布后做本地回滚恢复演练。</text>
+  <rect x="1001" y="979" width="158" height="44" rx="22" fill="#ffffff" stroke="#dedbd3"/>
+  <text x="1080" y="1007" text-anchor="middle" class="sans muted record">版本时间线</text>
+
+  <!-- Row 8 -->
+  <line x1="36" y1="1065" x2="1164" y2="1065" stroke="#dedbd3"/>
+  <circle cx="82" cy="1127" r="28" fill="#ffffff" stroke="#dedbd3" stroke-width="1.5"/>
+  <text x="82" y="1135" text-anchor="middle" class="sans muted" font-size="19" font-weight="750">08</text>
+  <text x="150" y="1113" class="sans ink step-title">核对输出</text>
+  <text x="150" y="1150" class="sans muted step-copy">核对由现有运行记录生成的输出文件。</text>
+  <rect x="1001" y="1104" width="158" height="44" rx="22" fill="#ffffff" stroke="#dedbd3"/>
+  <text x="1080" y="1132" text-anchor="middle" class="sans muted record">证据索引</text>
+
+  <line x1="36" y1="1190" x2="1164" y2="1190" stroke="#dedbd3"/>
+  <text x="36" y="1225" class="sans muted" font-size="15">静态总览不显示运行状态；实时进度、当前步骤和已登记输出以本地看板为准。</text>
+</svg>

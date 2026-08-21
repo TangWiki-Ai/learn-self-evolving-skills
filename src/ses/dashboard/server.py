@@ -94,7 +94,7 @@ def _json_bytes(value: Mapping[str, object]) -> bytes:
 def _waiting_status() -> StatusSnapshot:
     data: dict[str, object] = {
         "overall_status": "waiting",
-        "message": "等待第一站写入本地进度。",
+        "message": "等待第一个步骤写入本地进度。",
         "stations": [],
     }
     return StatusSnapshot(payload=_json_bytes(data), data=data)
@@ -103,7 +103,7 @@ def _waiting_status() -> StatusSnapshot:
 def _error_status() -> StatusSnapshot:
     data: dict[str, object] = {
         "overall_status": "error",
-        "message": "status.json 无法安全读取, 请回终端查看最近一条命令。",
+        "message": "status.json 无法安全读取\uff0c请回终端查看最近一条命令。",
         "stations": [],
     }
     return StatusSnapshot(payload=_json_bytes(data), data=data)

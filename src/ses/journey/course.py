@@ -1982,7 +1982,7 @@ def run_station_7(*, workspace: Path) -> StationRun:
         )
     resume_cn = _write_text(
         deliverable_root / "resume-zh.md",
-        f"""# 简历项目描述（中文）
+        f"""# 项目说明（中文，可选）
 
 {cn_disclosure}
 
@@ -1994,7 +1994,7 @@ def run_station_7(*, workspace: Path) -> StationRun:
     )
     resume_en = _write_text(
         deliverable_root / "resume-en.md",
-        f"""# Resume project statement (English)
+        f"""# Project notes (English, optional)
 
 {en_disclosure}
 
@@ -2018,7 +2018,7 @@ Result: {result_en} Every number is traceable to `evidence-facts.json`; `null` m
 
     interview = _write_text(
         deliverable_root / "interview-prep.md",
-        f"""# 面试追问准备
+        f"""# 复盘与面试问题（可选）
 
 > 回答时只引用本次沙盒证据，不把结果描述成生产流量。生产对照答案仍待 Owner 对 Part B 终审。
 
@@ -2049,7 +2049,7 @@ Result: {result_en} Every number is traceable to `evidence-facts.json`; `null` m
 | 4 | 控制修改范围并查看 diff | {evidence_line(".ses/reports/station-4-diff.html")} | 待 Owner 终审 Part B 后补充 |
 | 5 | 跑目标回放与全量回归 | {evidence_line(".ses/reports/station-5-gate.html")} | 待 Owner 终审 Part B 后补充 |
 | 6 | 记录发版、回滚与恢复时间线 | {evidence_line(".ses/evidence/version-timeline.json")} | 待 Owner 终审 Part B 后补充 |
-| 7 | 核对机器事实并生成三件套 | `.ses/deliverables/evidence-facts.json` | 待 Owner 终审 Part B 后补充 |
+| 7 | 核对证据索引和可选说明文件 | `.ses/deliverables/evidence-facts.json` | 待 Owner 终审 Part B 后补充 |
 
 本文件明确保留待审项，避免把未经 Owner 终审的生产经验写成定论。
 """,
@@ -2082,11 +2082,11 @@ Result: {result_en} Every number is traceable to `evidence-facts.json`; `null` m
     )
     artifacts: tuple[Path, ...] = (
         facts_path,
+        index_path,
         resume_cn,
         resume_en,
         interview,
         concepts,
-        index_path,
     )
     report_path = _write_html(
         journey_root / "reports/station-7-summary.html",
