@@ -111,6 +111,13 @@ def test_station_7_keeps_missing_evidence_null_and_is_idempotent(
     resume = (tmp_path / ".ses/deliverables/resume-zh.md").read_text(encoding="utf-8")
     assert "尚未获得基线" in resume
     assert "0/0" not in resume
+    station_summary = _json(tmp_path / ".ses/evidence/station-7.json")
+    artifact_paths = station_summary["artifact_paths"]
+    assert isinstance(artifact_paths, list)
+    assert artifact_paths[:2] == [
+        ".ses/deliverables/evidence-facts.json",
+        ".ses/deliverables/evidence-index.json",
+    ]
     _assert_index_hashes(tmp_path)
 
     run_station_7(workspace=tmp_path)

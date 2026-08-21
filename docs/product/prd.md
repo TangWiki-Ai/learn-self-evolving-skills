@@ -6,35 +6,34 @@
 
 ---
 
-## 0. 一句话与价值主张
+## 0. 一句话定位
 
-> 用约一天跑完一次可追溯的 Skill 自进化闭环。
+> 面向 Agent 开发者、基于可执行评测的 Skill 改进实战。
 
-学习者在 STATE-Bench 客服退货沙盒里运行真实模型，亲手完成失败选择、归因定位、最小修复和回归取舍。结束时，系统根据真实 evidence 生成中英简历段落、面试准备、概念清单和证据索引。
+你在 STATE-Bench 客服退货沙盒中运行基线评测，筛选失败用例，完成归因定位和最小修复，再用目标回放与全量回归检查验证改动。站 7 可以根据现有 evidence 生成中英项目说明、面试准备和概念清单；这些是可选用的辅助输出，不定义产品。
 
 三个支柱：
 
-1. **真实环境**：生产式电商业务流程（STATE-Bench 数据），Agent 真实调用工具、真实写库、按最终状态判分——不是问答 demo。
-2. **证据闭环**：每站产生结构化决定或报告，最终文案只引用 evidence JSON 中已存在的事实。
-3. **单日 Journey**：instructor Skill 带学习者沿站 0–7 运行已有引擎；本地 dashboard 从 `.ses/status.json` 展示进度和产物。
+1. **可执行环境**：使用 STATE-Bench 的电商客服沙盒，Agent 调用工具、更新隔离状态，系统按最终状态判分。
+2. **证据闭环**：每个步骤产生结构化决定或报告，最终文案只引用 evidence JSON 中已存在的事实。
+3. **8 个步骤**：instructor Skill 带你沿站 0–7 运行已有引擎；本地看板从 `.ses/status.json` 展示进度和输出文件。
 
-Journey 主线：
+8 个步骤：
 
 ```text
-Execution & Monitoring → Bad Case Mining → Failure Analysis
-→ Skill Diagnosis → Minimal Refinement → Regression Evaluation
-→ Version Release & Rollback → Evidence-backed Portfolio
+准备与基线 → 筛选失败用例 → 失败归因 → Skill 诊断
+→ 最小修复 → 回归检查 → 发布与回滚 → 结果整理
 ```
 
 ## 1. 定位与差异化
 
 | | learn-claude-code | learn-harness-engineering | **learn-self-evolving-skills** |
 | --- | --- | --- | --- |
-| 教什么 | 从零手搓 Agent 本体 | 给 Agent 搭工作环境（harness） | **让 Agent 的能力（Skill）随数据自动进化** |
-| 学习者做什么 | Agent 循环本身 | 工作区/索引/回路模板 | **基于真实证据做失败选择、归因定位、最小修复和回归取舍** |
+| 教什么 | 从零手搓 Agent 本体 | 给 Agent 搭工作环境（harness） | **基于可执行评测和运行证据改进 Agent Skill** |
+| 学习者做什么 | Agent 循环本身 | 工作区/索引/回路模板 | **基于运行证据筛选失败用例、归因定位、完成最小修复和回归取舍** |
 | 环境 | 自己搭 | 基础应用给定 | 电商环境、数据包、CLI 骨架给定 |
-| 教学法 | 逐版本递进 | 每项目 weak vs strong 对照 | **instructor Skill 引导八站 Journey，每站一类判断与一组证据** |
-| 可视化 | 无（纯终端） | Electron 应用充当活前端，对比靠手动 checklist | **只读 dashboard 展示 `.ses/status.json` 与已登记报告** |
+| 教学法 | 逐版本递进 | 每项目 weak vs strong 对照 | **instructor Skill 引导 8 个步骤，每个步骤聚焦一类判断与一组证据** |
+| 可视化 | 无（纯终端） | Electron 应用充当活前端，对比靠手动 checklist | **本地只读看板展示 `.ses/status.json` 与已登记报告** |
 
 借用的经验：learn-harness-engineering 的对照实验纪律与 learn-claude-code 的动手深度。不绑定任何上游框架；SkillOpt、SkillForge、SkillCAT、DSPy、skill-up 和 skill-eval 只作为待终审的延伸材料来源。
 
@@ -48,41 +47,37 @@ Execution & Monitoring → Bad Case Mining → Failure Analysis
 
 ## 3. 交付标准
 
-**主产出是一段可回查证据的真实经历。**
+**核心结果是一条可回查的 Skill 修改与验证记录。**
 
-结课验收（全部满足）：
+交付验收（全部满足）：
 
 1. 学习者路径使用 live Claude Code 和显式选择的 SiliconFlow 或 ChatAnywhere，不用 fixed fixture 冒充成绩；
 2. 站 0 完成 15-case v0 baseline，并保留固定五条 no-Skill 对照样本；
-3. 失败选择、归因、诊断、候选 diff、Gate、版本事件和最终文案都能回链到 `.ses/` 下的 evidence；
+3. 失败选择、归因、诊断、候选 diff、Gate、版本事件和输出文件都能回链到 `.ses/` 下的 evidence；
 4. 站 5 同时报告目标回放和全量回归，净提升不能抵消既有通过 case 的 `pass→fail`；
-5. 站 7 生成中英简历、面试准备、概念清单和证据索引，没有完整证据时如实标记草稿或缺失；
-6. dashboard 只读 `.ses/status.json` 和已登记产物，不执行命令、不读取 Key、不访问外网。
+5. 站 7 生成证据事实与索引；可选说明文件没有完整证据时如实标记草稿或缺失；
+6. 本地看板只读 `.ses/status.json` 和已登记输出，不执行命令、不读取 Key、不访问外网。
 
-学生简历句：
+站 7 的核心证据文件是 `evidence-facts.json` 和 `evidence-index.json`。它还会生成可选用的 `resume-zh.md`、`resume-en.md`、`interview-prep.md` 和 `concepts.md`。
 
-> 我在 STATE-Bench 客服退货沙盒中运行真实模型，建立可追溯的执行、失败分析、最小修复、目标回放、全量回归 Gate 与版本回滚链路，并用结构化证据核验改动结果。
+## 4. 8 个步骤
 
-站 7 导出物：`resume-zh.md`、`resume-en.md`、`interview-prep.md`、`concepts.md`、`evidence-facts.json` 和 `evidence-index.json`。
+每个步骤由 instructor Skill 讲解并代跑一条 learner command。你不写管道，只对当前 evidence 做判断。内部状态和 CLI 仍使用站 0–7 的编号。
 
-## 4. 八站 Journey
-
-每站由 instructor Skill 讲解并代跑一条 learner command。学习者不写管道，只对当前 evidence 做判断。
-
-| 站 | 简历短语 | 学习者判断 | 主要产物 |
+| 步骤 | 任务 | 你的判断 | 主要输出 |
 | --- | --- | --- | --- |
-| 0 | Execution & Monitoring | 观察，不下结论 | 15-case v0 baseline + 固定五条 no-Skill 样本 |
-| 1 | Bad Case Mining | 选择失败 case | 失败清单与选择记录 |
-| 2 | Failure Analysis | 环境 / case / Skill 归因 | 归因分布与决定记录 |
-| 3 | Skill Diagnosis | 诊断标签和文件位置 | 诊断定位视图 |
-| 4 | Minimal Refinement | 最小修复方案 | 候选快照、diff 与静态门 |
-| 5 | Regression Evaluation | 跟随 Gate、继续收窄或暂缓 | 目标回放 + 全量回归两道 Gate |
-| 6 | Version Release & Rollback | 发版、回滚演练或暂缓 | 不可变版本时间线 |
-| 7 | Evidence-backed Portfolio | 核对事实 | 中英简历、面试准备、概念清单和证据索引 |
+| 0 | 准备与基线 | 观察，不下结论 | 15 个 v0 基线用例 + 固定五条 no-Skill 样本 |
+| 1 | 筛选失败用例 | 选择要分析的失败用例 | 失败清单与选择记录 |
+| 2 | 失败归因 | 判断环境、用例或 Skill 问题 | 归因分布与决定记录 |
+| 3 | Skill 诊断 | 选择诊断标签和文件位置 | 诊断定位视图 |
+| 4 | 最小修复 | 提出最小修复方案 | 候选快照、diff 与静态检查 |
+| 5 | 回归检查 | 根据 Gate 结果继续收窄或暂缓 | 目标回放 + 全量回归两道 Gate |
+| 6 | 发布与回滚 | 发布、回滚演练或暂缓 | 不可变版本时间线 |
+| 7 | 结果整理 | 核对事实 | 证据索引和可选说明文件 |
 
-Gate 未通过不阻塞站 7。模型没有暴露可立案失败时，Journey 如实记录现状，不制造一次教学性失败或拒收。
+发布检查（Gate）未通过不阻塞站 7。模型没有暴露可立案失败时，系统如实记录现状，不制造教学性失败或拒收。
 
-## 5. 课程 insight 素材（待 Owner 终审）
+## 5. 内容素材（待 Owner 终审）
 
 **评测（P2）**：
 
@@ -104,14 +99,14 @@ Gate 未通过不阻塞站 7。模型没有暴露可立案失败时，Journey �
 
 1. 判分信号越可靠，进化可以越自动越激进；信号越噪，人工卡口越多；
 2. 未经验证的合并有害——补丁要在留出集上过门，平局也拒；
-3. 貌似合理的修改会伤真实表现：门控拒绝 → 回滚是最有戏剧性的教学时刻。
+3. 貌似合理的修改也可能造成退化；门控拒绝与回滚用于暴露和撤回这类改动。
 
 ## 6. 展示与前端策略
 
 - **教学入口**：项目级 instructor Skill 读取当前站 playbook，在 coding-agent 终端讲解并代跑命令。
-- **活前端**：本地 dashboard 轮询 `.ses/status.json`，展示八站进度、Provider、token、费用来源和已登记产物。
-- dashboard 只读，不执行 learner command、不写状态、不读取 Key、不访问外网；教学正文不复制进页面。
-- HTML 报告保留为 evidence 产物，由 dashboard 链接。项目不建设公开站或 LMS。
+- **本地看板**：轮询 `.ses/status.json`，展示 8 个步骤的进度、Provider、token、费用来源和已登记输出。
+- 本地看板只读，不执行 learner command、不写状态、不读取 Key、不访问外网；教学正文不复制进页面。
+- HTML 报告保留为 evidence 输出，由本地看板链接。项目不建设公开站或 LMS。
 
 ## 7. 引擎与学习者边界
 
@@ -121,7 +116,7 @@ Gate 未通过不阻塞站 7。模型没有暴露可立案失败时，Journey �
 | Trace、StateDiff、Judges、Runner 和报告 | 选择要分析的失败 case |
 | 归因与诊断记录入口 | 判断环境 / case / Skill 归因并定位文本 |
 | 候选快照、diff、静态门与两道 Gate | 提出最小修复并根据回归证据取舍 |
-| 版本时间线、回滚和机器模板 portfolio | 决定发版/回滚并核对最终事实 |
+| 版本时间线、回滚和机器输出模板 | 决定发版/回滚并核对最终事实 |
 
 学习者可以要求讲师代做判断；产品记录实际决定，不把参与深度当成认证。
 
@@ -144,7 +139,7 @@ Gate 未通过不阻塞站 7。模型没有暴露可立案失败时，Journey �
 
 ```text
 learn-self-evolving-skills/
-├── README.md                      # 当前学习入口与八站地图
+├── README.md                      # 项目定位、适用人群与最短使用路径
 ├── pyproject.toml
 ├── ses.json                       # 全局配置
 ├── models.lock.json               # 模型与 CLI 版本锁定
@@ -169,7 +164,7 @@ learn-self-evolving-skills/
 │   ├── cli/                         # 参数解析与呈现
 │   ├── contracts/                   # 跨模块版本化记录
 │   ├── foundation/  engines/        # 配置、隔离与 Engine adapters
-│   ├── journey/  dashboard/         # 八站状态、恢复与只读看板
+│   ├── journey/  dashboard/         # 8 步状态、恢复与只读看板
 │   ├── shop/                        # state、policy、tools、MCP
 │   ├── evaluation/                  # Trace、expect、evidence、Judges
 │   ├── evaluator/  runner/          # 单 case 与批量编排
@@ -181,19 +176,14 @@ learn-self-evolving-skills/
 └── .ses/                          # 本地状态与证据，运行后生成且不提交 Git
 ```
 
-当前学习者命令面：
+当前学习者命令骨架：
 
 ```bash
-uv run ses journey station 0
-uv run ses journey station 1
-uv run ses journey station 2
-uv run ses journey station 3
-uv run ses journey station 4
-uv run ses journey station 5
-uv run ses journey station 6
-uv run ses journey station 7
+uv run ses journey station <0-7> [当前步骤参数]
 uv run ses journey dashboard
 ```
+
+讲师会补齐当前步骤需要的参数：新实时工作目录必须选择 Provider；步骤 1–4 需要你的选择、归因或修改理由；步骤 6 需要发布、回滚或暂缓决定。不要把命令骨架当作可直接执行的完整命令。
 
 ## 9. 固定数据与证据来源
 
@@ -205,14 +195,14 @@ uv run ses journey dashboard
 | **ABCD**（`product_defect` 等子集） | 1,070 段真人扮演退货退款对话（口语、错字、寒暄），自带原文→脱敏双版本与意图标注 | MIT | 固定派生材料：表达与意图来源，不作为生产日志 |
 | **tau2-bench** retail 历史轨迹 | 1,824 条 Agent 运行日志（114 任务×16 次，含工具调用+reward） | MIT | 固定派生材料：去重与难度信号，只读、不重放执行 |
 
-数据诚实性：全部为 benchmark/角色扮演数据，课程话术是「生产式业务流程/真人对话语料」，不是「真实生产日志」；报告标注「基于 STATE 数据的课程评测」。
+数据诚实性：全部为 benchmark/角色扮演数据，项目文案可以写「生产式业务流程/真人对话语料」，不能写「真实生产日志」；报告标注「基于 STATE 数据的沙盒评测」。
 
 ### 9.2 切分（selection/final 锁死，develop 可扩容）
 
 | 数据组 | 数量 | 用途 | Creator/Updater 可见 | Agent 可见 |
 | --- | ---: | --- | --- | --- |
 | `creator` | 9 | 生成 v0（已审核成功轨迹） | 全部 | 不运行 |
-| `develop` | 15 | Journey baseline、失败分析与全量回归 | 失败轨迹 + Judge 证据 | 当前消息/Skill/工具结果 |
+| `develop` | 15 | 8 步基线、失败分析与全量回归 | 失败轨迹 + Judge 证据 | 当前消息/Skill/工具结果 |
 | `selection` | 6（**锁死**） | 门控比较 | 只见汇总分 | 同上 |
 | `final` | 12（**锁死**） | 最终验收，不参与修改 | 不可见 | 同上 |
 | `trigger-eval` | 20 | 触发评测（10 正 10 负） | — | — |
@@ -226,11 +216,11 @@ uv run ses journey dashboard
 | 开销 | 来源 | 产品语义 |
 | --- | --- | --- |
 | 讲师 token | 学习者自己的 coding-agent 订阅或 Key | 仓库无法可靠计量，由学习者查看自己的服务方案 |
-| 实验引擎 | Claude Code 经显式选择的 Provider 运行 | dashboard 展示 token、费用完整性和费用来源 |
+| 实验引擎 | Claude Code 经显式选择的 Provider 运行 | 本地看板展示 token、费用完整性和费用来源 |
 
 系统不写未经校准的总价，也不因预算自动停止。`claude_code_estimate` 只是 Claude Code 估算；`unavailable` 表示没有可靠 Provider 费用，不能显示成零；`synthetic_ci` 只描述 fixed CI。
 
-## 10. 课程规则（诚实性）
+## 10. 证据规则
 
 - live 与 fixed 证据必须分别标记；fixed 结果只能形成 CI 合成证据草稿。
 - 站 7 的数字只从 evidence JSON 机器填充，不经 LLM 改写，也不补造缺失成绩。
@@ -242,7 +232,7 @@ uv run ses journey dashboard
 
 | # | 事项 | 产出 |
 | --- | --- | --- |
-| 1 | fixed 八站 Journey 在干净 workspace 全链路通过 | `.ses/status.json`、报告与站 7 产物 |
+| 1 | fixed 8 步路径在干净 workspace 全链路通过 | `.ses/status.json`、报告与站 7 产物 |
 | 2 | SiliconFlow live 路径验证模型、MCP、Skill 和 Judge | 显式 live smoke 记录 |
 | 3 | ChatAnywhere live 路径验证锁定 Claude 模型、MCP、Skill 和 Judge | 显式 live smoke 记录 |
 | 4 | Provider 选择、恢复、模型锁和凭据隔离 fail closed | 配置与集成测试 |
@@ -253,9 +243,9 @@ uv run ses journey dashboard
 
 ## 12. 运营默认值
 
-- 正文中文主线，README 含英文摘要；
+- 正文和 README 以中文为主；命令、状态字段和必要技术名保留英文；
 - License：课程代码 Apache-2.0，数据继承上游 MIT 并保留原始 LICENSE、commit、ID 与 SHA256；
-- 首发标准：八站 Journey、instructor Skill、dashboard、双 Provider 和 §11 检查全部完成；
+- 首发标准：8 个步骤、instructor Skill、本地看板、双 Provider 和 §11 检查全部完成；
 - CLI 名 `ses`（可在首发前调整）。
 
 ## 13. 与 skill-up 的关系

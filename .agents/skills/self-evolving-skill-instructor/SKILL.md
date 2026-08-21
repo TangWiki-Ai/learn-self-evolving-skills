@@ -1,14 +1,13 @@
 ---
 name: self-evolving-skill-instructor
-description: Guide a learner through this repository's eight-station, one-day self-evolving Skill journey. Use when the learner says “开始学习”, wants to start or resume the course, asks what to do next in the journey, or needs help interpreting its dashboard and evidence.
+description: Guide an Agent developer through this repository's eight-step, executable-evaluation workflow for improving a Skill. Use when they say “开始学习”, want to start or resume the exercise, ask what to do next, or need help interpreting its local dashboard and evidence.
 ---
 
 # Self-evolving Skill instructor
 
-You are the learner's instructor and terminal operator. The learner makes the
-meaningful judgments; you explain the evidence and run the existing commands.
-If the learner asks you to decide or edit for them, do it and say which decision
-you made. This product is a tool, not an exam.
+You guide the developer through eight steps and operate the terminal. They make
+the meaningful judgments; you explain the evidence and run the existing commands.
+If they ask you to decide or edit for them, do it and say which decision you made.
 
 ## Non-negotiable boundaries
 
@@ -49,14 +48,14 @@ you made. This product is a tool, not an exam.
 4. Confirm the matching `SILICONFLOW_API_KEY` or `CHATANYWHERE_API_KEY` is set
    without printing its value. Do not inspect or use the other Provider's key.
 5. Start `uv run ses journey dashboard` in a separate long-running terminal.
-   Tell the learner the local URL. The dashboard is read-only.
+   Tell the learner the local URL. This local dashboard is read-only.
 6. Open the matching station playbook below. Before a paid command, explain that
    the live path still needs Provider-specific doctor evidence and that displayed
    cost may be estimated or unavailable. While it runs, teach the station's
    sandbox concept from the playbook.
-7. After every station, point the learner to its dashboard status and artifacts.
+7. After every step, point the learner to its dashboard status and output files.
 
-## Station router
+## Step router
 
 - [Station 0 — Execution & Monitoring](stations/station-0.md)
 - [Station 1 — Bad Case Mining](stations/station-1.md)
@@ -82,6 +81,8 @@ Only load the current station file unless the learner asks to look ahead.
 
 ## Completion
 
-The journey is handled when station 7 produced the resume, interview-prep,
-concept-list, and evidence-index files. Report any `needs_attention` station and
-the pending production-content review honestly. Never call this a certificate.
+The exercise is handled when station 7 has produced `evidence-facts.json` and
+`evidence-index.json`. Resume, interview-prep, and concept files are optional
+ways to use those records, not completion requirements or proof of independent
+work. Report any `needs_attention` station and the pending production-content
+review accurately.

@@ -1,60 +1,60 @@
-# 课程交付 Spec
+# 8 步 Skill 改进实战交付 Spec
 
 ## Problem Statement
 
-完整的自进化引擎不等于完整的学习体验。学习者需要在约一天内看懂证据、做出关键判断并跑完一次真实闭环，而不是重写 Python 管道。课程还必须区分 live 证据、CI 合成证据和不可获得的费用数据，避免把固定 fixture、模型估算或缺失费用写成真实 Provider 成绩。
+这是面向 Agent 开发者、基于可执行评测的 Skill 改进实战。开发者使用已实现的引擎查看证据、做出关键判断并完成一轮改进，无需重写 Python 管道。项目还必须区分 live 证据、CI 合成证据和不可获得的费用数据，避免把固定 fixture、模型估算或缺失费用写成 Provider 实测成绩。
 
-教学入口也必须保持单一。讲师、命令、进度和报告如果各自维护状态，学习者中断后无法可靠恢复，dashboard 也会与真实运行漂移。
+教学入口也必须保持单一。讲师、命令、进度和报告如果各自维护状态，学习者中断后无法可靠恢复，本地看板也会与实际运行漂移。
 
 ## Solution
 
-把已实现的系统能力编排成站 0–7 共八站的单日 Journey。项目级 instructor Skill 负责讲解、代跑命令和递进提示；`ses journey` 执行现有能力并把状态与证据写入 `.ses/`；本地 dashboard 只读 `.ses/status.json` 和其中列出的产物。
+把已实现的系统能力编排成 8 个步骤，内部状态与 CLI 仍按站 0–7 编号。项目级 instructor Skill 负责讲解、代跑命令和递进提示；`ses journey` 执行现有能力并把状态与证据写入 `.ses/`；本地看板只读 `.ses/status.json` 和其中列出的输出文件。
 
 学习者路径始终使用真实 Claude Code 和显式选择的 `siliconflow` 或 `chatanywhere`。`fixed` 模式只作为仓库 CI 的确定性测试缝，不属于学习者路径。旧 `course/` 十课、starter、solution 和每课测试已经删除；其必要种子资产迁入 `fixtures/seed/`。
 
 ## User Stories
 
-1. 作为学习者，我想对 coding agent 说“开始学习”，以便由讲师 Skill 带我开始或恢复当前站。
+1. 作为学习者，我想对 coding agent 说“开始学习”，以便由讲师 Skill 带我开始或恢复当前步骤。
 2. 作为学习者，我想在新 live workspace 显式选择实验 Provider，以便系统不会从环境中的 Key 猜测或静默切换 Provider。
-3. 作为学习者，我想让讲师处理安装、doctor、命令和 dashboard，以便把时间用于理解证据和做判断。
-4. 作为学习者，我想在一张八站地图上看到当前进度和产物，以便中断后继续。
-5. 作为学习者，我想从真实失败中选择 bad case，以便分析对象来自当前运行而不是教学脚本。
-6. 作为学习者，我想区分环境、case 和 Skill 问题，再定位到具体文本，以便不因单次失败盲目修改 Skill。
-7. 作为学习者，我想只做一次最小修复并先回放目标 case，以便验证修复方向。
-8. 作为学习者，我想看到目标回放与全量回归两道 Gate，以便知道候选是否治好目标且没有伤害既有通过 case。
+3. 作为学习者，我想让讲师处理安装、doctor、命令和本地看板，以便把时间用于理解证据和做判断。
+4. 作为学习者，我想在一张 8 步地图上看到当前进度和输出，以便中断后继续。
+5. 作为学习者，我想从当前运行中选择失败用例，以便分析对象来自运行结果而不是教学脚本。
+6. 作为学习者，我想区分环境、用例和 Skill 问题，再定位到具体文本，以便不因单次失败盲目修改 Skill。
+7. 作为学习者，我想只做一次最小修复并先回放目标用例，以便验证修复方向。
+8. 作为学习者，我想看到目标回放与全量回归两道检查（Gate），以便知道候选是否修复目标问题且没有引入新问题。
 9. 作为学习者，我想查看发版与回滚时间线，以便理解版本治理。
-10. 作为学习者，我想随时生成当前证据对应的简历、面试准备和概念清单，以便 Gate 未通过时也能如实总结。
+10. 作为学习者，我想按需生成当前证据对应的项目说明、面试准备和概念清单，以便复盘或对外说明。
 11. 作为学习者，我想区分 coding-agent 费用、实验引擎费用、估算和不可用费用，以便不把未知数据当成账单。
-12. 作为评审者，我想从站 7 产物回到结构化 evidence，以便核查每个数字和结论。
+12. 作为评审者，我想从站 7 输出文件回到结构化 evidence，以便核查每个数字和结论。
 
 ## Implementation Decisions
 
-- 课程定位是经历生成器，不是证书课程。完成状态代表产物已生成，不证明学习者独立完成了每个判断。
+- 产品定位是面向 Agent 开发者、基于可执行评测的 Skill 改进实战。完成状态只表示系统已记录相应步骤和输出，不评价学习者的参与程度。
 - 讲师由 `.agents/skills/self-evolving-skill-instructor/` 下的一份 `SKILL.md` 和站 0–7 playbook 构成。`.claude/skills/` 只提供 Claude Code 的轻量发现入口，不维护第二份正文。
 - 讲师默认先提问、再指向证据、再给候选解释，最后才示范。学习者要求代做时，讲师可以代做并明确说明所作判断。
-- 每站使用一条 `uv run ses journey station N` 命令。讲师根据学习者决定补充该站参数；学习者无需编写 Python 管道。
+- 每个步骤使用一条 `uv run ses journey station N` 命令。讲师根据学习者决定补充当前 station 参数；学习者无需编写 Python 管道。
 - Journey 的 canonical 状态位于 `.ses/status.json`。它记录站点状态、决定引用、产物引用、实验模式、Provider、模型锁哈希、token 和费用来源。恢复时必须沿用已保存的模式与 Provider。
-- dashboard 通过 `uv run ses journey dashboard` 启动。它只允许读取状态及已登记产物，不执行命令、不写文件、不读取 Key、不访问外网。
+- 本地看板通过 `uv run ses journey dashboard` 启动。它只允许读取状态及已登记输出，不执行命令、不写文件、不读取 Key、不访问外网。
 - 新 live workspace 必须显式传入 `--provider siliconflow` 或 `--provider chatanywhere`。系统不根据现有 Key 自动选择 Provider，不在 Provider 之间路由或 fallback。
 - SiliconFlow 与 ChatAnywhere 使用各自的模型锁和环境变量。ChatAnywhere 只使用其锁定的 Claude 系列模型；不能复用 SiliconFlow 的 DeepSeek/Qwen 锁。
 - `--mode fixed` 只用于仓库 CI。fixed 状态使用 `synthetic_ci` 费用来源，任何 fixed 结果都不能作为 live 模型质量或真实费用证据。
-- 课程展示两笔账：coding agent 的订阅或 Key 费用由学习者自己的服务产生，仓库不计量；实验引擎记录 token 和费用来源。系统不实现预算硬停。
+- 项目展示两笔账：coding agent 的订阅或 Key 费用由学习者自己的服务产生，仓库不计量；实验引擎记录 token 和费用来源。系统不实现预算硬停。
 - SiliconFlow live 费用来源为 `claude_code_estimate`，它是 Claude Code 估算而非 Provider 账单。ChatAnywhere 不提供可验证的 Provider 费用时，费用来源必须为 `unavailable`、`cost_complete=false`，界面不能显示零费用或推算费用。
-- Gate 未通过不会阻塞站 7。站 7 使用现有 evidence 生成草稿或已验证产物，并明确缺失的基线、全量回归、发版或 live 证据。
-- Part B 的生产对照正文和精选外链仍待 Owner 终审。讲师只能教授已批准的仓库机制和明确的沙盒边界，不能把待审内容写成正式课程结论。
+- 发布检查（Gate）未通过不会阻塞站 7。站 7 使用现有 evidence 生成证据索引和可选说明文件，并明确缺失的基线、全量回归、发布或 live 证据。
+- Part B 的生产对照正文和精选外链仍待 Owner 终审。讲师只能教授已批准的仓库机制和明确的沙盒边界，不能把待审内容写成已发布项目结论。
 
-课程与系统能力映射如下：
+实战与系统能力映射如下：
 
-| 站 | 简历短语 | 学习者判断 | 系统执行 | 主要产物 |
+| 步骤 | 任务 | 学习者判断 | 系统执行 | 主要输出 |
 | --- | --- | --- | --- | --- |
-| 0 | Execution & Monitoring | 观察，不下结论 | doctor、15-case v0 baseline、固定五条 no-Skill 对照 | baseline HTML 与执行证据 |
-| 1 | Bad Case Mining | 选择要分析的失败 case | 汇总基线失败 | 失败清单与选择记录 |
-| 2 | Failure Analysis | 判断环境 / case / Skill 归因 | 校验并保存归因 | 归因分布与决定记录 |
-| 3 | Skill Diagnosis | 选择诊断标签和文件位置 | 关联失败、Skill 文本与位置 | 诊断定位视图 |
-| 4 | Minimal Refinement | 给出最小修复方案 | 生成候选快照、diff 并运行静态门 | 候选 Skill 与修复 diff |
-| 5 | Regression Evaluation | 跟随 Gate、继续收窄或暂缓 | 目标回放 + 全量回归两道 Gate | Gate JSON/HTML 与回归决定 |
-| 6 | Version Release & Rollback | 发版、回滚演练或暂缓 | 写入不可变版本时间线 | 发版与回滚证据 |
-| 7 | Evidence-backed Portfolio | 核对事实 | 从 evidence 机器填充模板 | 中英简历、面试准备、概念清单与证据索引 |
+| 0 | 准备与基线 | 观察，不下结论 | doctor、15 个 v0 基线用例、固定五条 no-Skill 对照 | baseline HTML 与执行证据 |
+| 1 | 筛选失败用例 | 选择要分析的失败用例 | 汇总基线失败 | 失败清单与选择记录 |
+| 2 | 失败归因 | 判断环境、用例或 Skill 问题 | 校验并保存归因 | 归因分布与决定记录 |
+| 3 | Skill 诊断 | 选择诊断标签和文件位置 | 关联失败、Skill 文本与位置 | 诊断定位视图 |
+| 4 | 最小修复 | 给出最小修复方案 | 生成候选快照、diff 并运行静态检查 | 候选 Skill 与修复 diff |
+| 5 | 回归检查 | 根据 Gate 结果继续收窄或暂缓 | 目标回放 + 全量回归两道 Gate | Gate JSON/HTML 与回归决定 |
+| 6 | 发布与回滚 | 发布、回滚演练或暂缓 | 写入不可变版本时间线 | 发布与回滚证据 |
+| 7 | 结果整理 | 核对事实 | 从 evidence 机器填充模板 | 证据索引和可选说明文件 |
 
 ## Testing Decisions
 

@@ -19,17 +19,23 @@ refresh the current facts.
 ## Decision prompt
 
 There is no required product decision. Ask the learner to verify three numbers
-against `.ses/deliverables/evidence-facts.json`, then practice answering the
-interview questions with the cited files open.
+against `.ses/deliverables/evidence-facts.json`, then confirm that
+`.ses/deliverables/evidence-index.json` links each claim to an existing file. If
+they want to prepare an external explanation, offer the optional project notes,
+review questions, and concept list after that check.
 
 ## Checkpoint
 
-Confirm these files exist:
+Confirm the two core records exist:
+
+- `evidence-facts.json` and `evidence-index.json`
+
+Then point out the optional explanation files without treating them as
+completion requirements:
 
 - `resume-zh.md` and `resume-en.md`
 - `interview-prep.md`
 - `concepts.md`
-- `evidence-facts.json` and `evidence-index.json`
 
 The dashboard should link every deliverable. Report any earlier attention state.
 

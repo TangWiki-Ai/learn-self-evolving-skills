@@ -50,7 +50,7 @@ def _safe_message(exc: Exception) -> str:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ses journey",
-        description="Run and resume the live-first one-day Skill evolution journey.",
+        description="Run or resume the eight-step executable-evaluation workflow.",
     )
     commands = parser.add_subparsers(dest="action", required=True)
     station = commands.add_parser("station", help="Run one station from 0 through 7.")

@@ -6,18 +6,18 @@
 
 本节取代 2026-08-15 关于“六部分十课、学习者实现管道、单一 SiliconFlow 主路径、预算硬护栏和无 Key 回放”的决定。
 
-### 产品与旅程
+### 产品与 8 个步骤
 
-- 产品是约一天完成的经历生成器，不是证书课程。学习者在 STATE-Bench 客服退货沙盒跑完一次真实 Skill 进化闭环，带走中英简历段落、面试准备、概念清单和证据索引。
-- 学习路径是站 0–7 共八站：Execution & Monitoring → Bad Case Mining → Failure Analysis → Skill Diagnosis → Minimal Refinement → Regression Evaluation → Version Release & Rollback → Evidence-backed Portfolio。
-- 引擎已经实现。学习者不写 Python 管道，只做选择失败、归因与定位、最小修复与回归取舍三类判断；需要时可以让讲师代做。
-- Gate 只决定候选能否发版，不是毕业门槛。站 7 随时可运行，并按现有 evidence 如实标记缺失或未完成状态。
+- 产品面向 Agent 开发者，是基于可执行评测的 Skill 改进实战。你在 STATE-Bench 客服退货沙盒中运行模型，完成基线评测、失败用例筛选、归因定位、最小修复和回归检查。
+- 学习路径包含 8 个步骤，内部状态与 CLI 仍按站 0–7 编号：准备与基线 → 筛选失败用例 → 失败归因 → Skill 诊断 → 最小修复 → 回归检查 → 发布与回滚 → 结果整理。
+- 引擎已经实现。你不写 Python 管道，只做失败用例筛选、归因与定位、最小修复与回归取舍三类判断；需要时可以让讲师代做。
+- 站 5 的发布检查（Gate）只决定候选版本能否发布，不决定练习是否完成。站 7 随时可运行，并按现有 evidence 如实标记缺失或未完成状态。它可以生成中英项目说明、面试准备、概念清单和证据索引；这些是可选用的辅助输出，不定义产品。
 
 ### 教学界面与状态
 
-- 学习者只面对 coding-agent 终端里的 instructor Skill 和本地只读 dashboard。
+- 你只面对 coding-agent 终端里的 instructor Skill 和本地只读看板。
 - instructor Skill 的 canonical 正文位于 `.agents/skills/self-evolving-skill-instructor/`；`.claude/skills/` 只提供发现入口。
-- `ses journey` 把进度、Provider、模型锁哈希、token、费用来源、决定和产物引用原子写入 `.ses/status.json`。dashboard 只读该状态及其 allowlist 产物，不执行命令、不写文件、不读取 Key、不访问外网。
+- `ses journey` 把进度、Provider、模型锁哈希、token、费用来源、决定和输出引用原子写入 `.ses/status.json`。本地看板只读该状态及其 allowlist 文件，不执行命令、不写文件、不读取 Key、不访问外网。
 - 旧 `course/` 十课、starter、solution 和每课 tests 已删除。引擎或 CI 仍需的固定资产迁入 `fixtures/seed/`；Git 历史保留旧内容。
 
 ### Provider 与费用
@@ -30,9 +30,9 @@
 
 ### 内容与验收
 
-- 每站一条 learner command、一个主要产物和一类判断。站 5 先要求目标 case 全部通过，再要求完整回归中既有通过 case 的 `pass→fail = 0`。
+- 每个步骤使用一条 learner command，产生一个主要输出，并聚焦一类判断。站 5 先要求目标用例全部通过，再要求完整回归中既有通过用例的 `pass→fail = 0`。
 - 站 7 数字只来自 evidence JSON，不经 LLM 改写；fixed 结果只能生成明确标注的 CI 合成证据草稿。
-- Part B 生产对照正文和精选外链仍待 Owner 终审。终审前，讲师不能把这些待审材料表述为正式课程内容。
+- Part B 生产对照正文和精选外链仍待 Owner 终审。终审前，讲师不能把这些待审材料表述为已发布内容。
 - 默认 CI 使用 fixed fixture 和 fake engine；live smoke 必须显式选择 Provider、使用匹配凭据，并保持默认测试离线。
 
 ## 仍然有效的 2026-08-15 基础决定

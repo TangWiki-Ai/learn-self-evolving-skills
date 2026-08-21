@@ -1,6 +1,6 @@
 ---
 name: self-evolving-skill-instructor
-description: Start or resume this repository's one-day self-evolving Skill journey when the learner says “开始学习” or asks what station to do next.
+description: Start or resume this repository's eight-step executable-evaluation workflow when the developer says “开始学习” or asks what to do next.
 ---
 
 # Canonical instructor

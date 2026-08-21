@@ -3,21 +3,38 @@ from __future__ import annotations
 from ses.dashboard import STATIONS, render_dashboard_html
 
 
-def test_home_leads_with_the_graduation_sample_and_all_eight_stations() -> None:
+def test_home_leads_with_run_state_and_one_eight_step_list() -> None:
     rendered = render_dashboard_html()
 
     assert rendered.startswith("<!doctype html>")
-    assert "毕业产物样例" in rendered
-    assert "Self-evolving Skill 实战" in rendered
-    assert "以上均为版式样例" in rendered
-    assert "中英简历段落" in rendered
-    assert "面试追问准备" in rendered
-    assert "概念清单" in rendered
+    assert "<h1>运行进度</h1>" in rendered
+    assert 'id="current-step-title"' in rendered
+    assert 'id="current-command"' in rendered
+    assert '<details class="run-details">' in rendered
     assert len(STATIONS) == 8
-    assert rendered.count('<li class="flow-item" data-flow-station="') == 8
-    assert rendered.count('<article class="station-card" id="station-') == 8
-    for station_id in range(8):
-        assert f"uv run ses journey station {station_id}" in rendered
+    assert rendered.count('class="step-item" id="step-') == 8
+    assert 'class="flow-item"' not in rendered
+    assert 'class="station-card"' not in rendered
+    assert 'class="reports-panel"' not in rendered
+    assert "最近的输出" not in rendered
+    assert "uv run ses journey station" not in rendered
+
+
+def test_home_does_not_embed_marketing_copy_or_sample_results() -> None:
+    rendered = render_dashboard_html()
+
+    for text in (
+        "ONE-DAY PRACTICE",
+        "从一次失败\uff0c到一段能追问的经历",
+        "毕业产物样例",
+        "SAMPLE OUTPUT",
+        "68.8%",
+        "87.5%",
+        "+18.7pp",
+        "经历生成器",
+        "Evidence-backed Portfolio",
+    ):
+        assert text not in rendered
 
 
 def test_home_is_self_contained_and_only_polls_same_origin_status() -> None:
@@ -40,14 +57,14 @@ def test_home_has_keyboard_and_screen_reader_landmarks() -> None:
 
     assert '<html lang="zh-CN">' in rendered
     assert 'class="skip-link" href="#dashboard"' in rendered
-    assert "<main>" in rendered
-    assert '<nav class="flow-wrap" aria-label="八站学习流程">' in rendered
-    assert '<ol class="flow">' in rendered
+    assert '<main class="shell" id="dashboard">' in rendered
+    assert '<ol class="step-list" aria-label="Skill 改进的 8 个步骤">' in rendered
+    assert '<progress id="progress-bar" max="8" value="0">' in rendered
+    assert '<label class="sr-only" for="progress-bar">' in rendered
+    assert 'progressBar.setAttribute("aria-valuetext", progressText)' in rendered
     assert 'role="status" aria-live="polite"' in rendered
-    assert 'aria-label="课程属性"' in rendered
     assert ":focus-visible" in rendered
     assert "prefers-reduced-motion" in rendered
-    assert rendered.count('href="#station-') == 8
     assert rendered.count('aria-live="polite"') == 1
     assert "data-station-artifacts aria-live" not in rendered
 
@@ -68,7 +85,7 @@ def test_home_uses_filenames_and_collapses_raw_case_evidence() -> None:
     assert "link.title = item.path" in rendered
     assert "isPerCaseEvidence(item)" in rendered
     assert 'path.includes("/workspaces/")' in rendered
-    assert "原始逐 case 证据" in rendered
+    assert "原始逐用例记录" in rendered
     assert 'details.className = "raw-artifacts"' in rendered
 
 
@@ -82,7 +99,7 @@ def test_home_shows_provider_mode_model_lock_and_cost_provenance() -> None:
     assert 'firstValue(data, ["experiment_provider"])' in rendered
     assert 'firstValue(data, ["model_lock_sha256"])' in rendered
     assert 'firstValue(data, ["cost_source"])' in rendered
-    assert "FIXED CI JOURNEY" in rendered
+    assert 'fixed ? "固定 CI" : mode === "live" ? "实时评测"' in rendered
     assert "固定 CI 不调用外部 Provider" in rendered
     assert "SiliconFlow" in rendered
     assert "ChatAnywhere" in rendered
@@ -92,7 +109,7 @@ def test_home_fails_closed_when_cost_is_unavailable_partial_or_unattributed() ->
     rendered = render_dashboard_html()
 
     assert 'source === "unavailable"' in rendered
-    assert "费用不可用 · status 没有可靠成本" in rendered
+    assert "费用不可用 · 本地状态没有可靠成本" in rendered
     assert "部分数据 · 不能作为完整账单" in rendered
     assert "固定 CI 合成值 · 不代表 live 成本" in rendered
     assert "Claude Code 估算 · 以 Provider 最终账单为准" in rendered
@@ -116,10 +133,42 @@ def test_home_supports_generic_status_fields_without_embedding_status_data() -> 
         "artifacts",
         "artifact_refs",
         "decision_refs",
-        "command",
+        "attention_reason",
         "error_message",
     ):
         assert field in rendered
     assert "SILICONFLOW_API_KEY" not in rendered
     assert "CHATANYWHERE_API_KEY" not in rendered
     assert "sk-" not in rendered
+
+
+def test_home_uses_quiet_document_style_without_horizontal_step_scrolling() -> None:
+    rendered = render_dashboard_html()
+
+    assert "--canvas: #f7f6f1" in rendered
+    assert "--brand: #c45c43" in rendered
+    assert "ui-serif, Georgia" in rendered
+    assert ".step-list" in rendered
+    assert "overflow-x: auto" not in rendered
+    assert "transform: rotate" not in rendered
+
+
+def test_home_distinguishes_running_waiting_attention_and_completion() -> None:
+    rendered = render_dashboard_html()
+
+    assert 'overall === "running" && currentState === "pending"' in rendered
+    assert 'step.setAttribute("aria-current", "step")' in rendered
+    assert "当前步骤尚未启动" in rendered
+    assert "完整命令请以终端记录为准" in rendered
+    assert "无需继续运行" in rendered
+    assert "attention_reason" in rendered
+    assert "上次内容可能已过期" in rendered
+
+
+def test_home_does_not_turn_missing_usage_into_zero() -> None:
+    rendered = render_dashboard_html()
+
+    assert "function tokenDisplay(value)" in rendered
+    assert 'number >= 0 ? number.toLocaleString("zh-CN") : "—"' in rendered
+    assert '<dd id="input-token-label">—</dd>' in rendered
+    assert '<dd id="output-token-label">—</dd>' in rendered
