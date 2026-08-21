@@ -43,7 +43,8 @@ SHA = "a" * 64
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_MANIFEST = (
     PROJECT_ROOT
-    / "course"
+    / "fixtures"
+    / "seed"
     / "capstone-shopping-assistant"
     / "sources"
     / "shop-simulator-live-no-go.json"

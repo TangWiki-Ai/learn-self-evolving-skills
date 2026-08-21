@@ -48,7 +48,7 @@ from ses.skills.installer import (
 from ses.skills.static_gate import StaticGateStatus, run_static_gate
 
 ROOT = Path(__file__).resolve().parents[2]
-CAPSTONE = ROOT / "course" / "capstone-shopping-assistant"
+CAPSTONE = ROOT / "fixtures" / "seed" / "capstone-shopping-assistant"
 MEASURED_AT = datetime(2026, 8, 20, tzinfo=UTC)
 SHA = "a" * 64
 

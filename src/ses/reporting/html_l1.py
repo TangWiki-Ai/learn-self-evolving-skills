@@ -72,10 +72,15 @@ def _repetition(result: Mapping[str, object]) -> str:
     timeline = result.get("tool_timeline", [])
     state_diff = result.get("state_diff", {})
     transcript = result.get("transcript", [])
+    cost = (
+        "unavailable"
+        if result.get("cost_complete", True) is not True
+        else f"{usage.get('cost_amount')} {usage.get('cost_currency')}"
+    )
     return f"""
 <section class="repeat">
   <h3>{_escape(result.get("iteration_id"))}: <span class="status {status}">{status}</span></h3>
-  <p><strong>Usage / cost / latency:</strong> input={_escape(usage.get("input_tokens"))}, output={_escape(usage.get("output_tokens"))}, cost={_escape(usage.get("cost_amount"))} {_escape(usage.get("cost_currency"))}, latency={_escape(result.get("latency_ms"))} ms, turns={_escape(result.get("turn_count"))}</p>
+  <p><strong>Usage / cost / latency:</strong> input={_escape(usage.get("input_tokens"))}, output={_escape(usage.get("output_tokens"))}, cost={_escape(cost)}, latency={_escape(result.get("latency_ms"))} ms, turns={_escape(result.get("turn_count"))}</p>
   <details open><summary>Evidence</summary><pre>{_json(evidence)}</pre></details>
   {_artifact_links(result)}
   <details><summary>Tool timeline</summary><pre>{_json(timeline)}</pre></details>
@@ -94,6 +99,11 @@ def render_l1_html(report: Mapping[str, object]) -> str:
     )
     totals: Mapping[str, object] = (
         totals_value if isinstance(totals_value, Mapping) else {}
+    )
+    total_cost = (
+        "unavailable"
+        if totals.get("cost_complete", True) is not True
+        else f"{totals.get('cost_amount')} {totals.get('cost_currency')}"
     )
     raw_cases = report.get("cases")
     cases = (
@@ -136,7 +146,7 @@ def render_l1_html(report: Mapping[str, object]) -> str:
 <div class="card"><div class="muted">pass^k (k={_escape(metrics.get("k"))})</div><div class="metric">{_escape(metrics.get("pass_power_k"))}</div></div>
 <div class="card"><div class="muted">Cases / iterations</div><div class="metric">{_escape(metrics.get("sample_size"))} / {_escape(metrics.get("iteration_sample_size"))}</div></div>
 <div class="card"><div class="muted">Tokens</div><div class="metric">{_escape(totals.get("input_tokens"))} in / {_escape(totals.get("output_tokens"))} out</div></div>
-<div class="card"><div class="muted">Cost</div><div class="metric">{_escape(totals.get("cost_amount"))} {_escape(totals.get("cost_currency"))}</div></div>
+<div class="card"><div class="muted">Cost</div><div class="metric">{_escape(total_cost)}</div></div>
 <div class="card"><div class="muted">Latency</div><div class="metric">{_escape(totals.get("latency_ms"))} ms</div></div>
 </section>
 <h2>Per-case status</h2><table><thead><tr><th>Case</th><th>First result</th><th>Repeated results</th></tr></thead><tbody>{"".join(rows)}</tbody></table>

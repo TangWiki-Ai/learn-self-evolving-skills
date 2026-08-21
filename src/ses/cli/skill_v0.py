@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -11,8 +12,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ses.contracts import MeasurementKind
-from ses.foundation.config import ModelRole, load_model_lock, load_runtime_config
-from ses.foundation.credentials import read_siliconflow_credentials
+from ses.foundation.config import (
+    ModelRole,
+    ProviderId,
+    load_model_lock,
+    load_runtime_config,
+)
+from ses.foundation.credentials import read_provider_credentials
 from ses.reporting.l2 import write_l2_html
 from ses.runner import LiveDevelopConfig
 from ses.skills.paired import run_fresh_paired
@@ -36,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-root", type=Path, default=Path(".ses/ticket08"))
     parser.add_argument("--mode", choices=("fixed", "live"), default="fixed")
+    parser.add_argument("--provider", type=ProviderId, choices=tuple(ProviderId))
     parser.add_argument(
         "--seed-manifest",
         type=Path,
@@ -66,6 +73,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output_root=args.output_root,
                 seed_manifest=args.seed_manifest,
                 mode=args.mode,
+                provider=args.provider,
                 creator_timeout=args.creator_timeout,
                 trigger_timeout=args.trigger_timeout,
                 paired_timeout=args.paired_timeout,
@@ -94,6 +102,7 @@ def skill_main(argv: Sequence[str]) -> int:
     create = commands.add_parser("create-v0")
     create.add_argument("--out", type=Path, required=True)
     create.add_argument("--mode", choices=("fixed", "live"), default="fixed")
+    create.add_argument("--provider", type=ProviderId, choices=tuple(ProviderId))
     create.add_argument("--project-root", type=Path, default=root)
     create.add_argument("--timeout", type=float, default=180)
     create.add_argument(
@@ -115,10 +124,15 @@ def skill_main(argv: Sequence[str]) -> int:
                 creator = FakeV0Creator()
             else:
                 config = load_runtime_config(args.project_root / "ses.json")
-                lock = load_model_lock(args.project_root / config.models_lock)
+                provider = args.provider or config.default_provider
+                lock = load_model_lock(
+                    args.project_root / config.models_lock_for(provider)
+                )
+                if lock.provider is not provider:
+                    raise ValueError("selected provider differs from its model lock")
                 creator = LiveV0Creator(
                     model=lock.roles[ModelRole.CREATOR],
-                    credentials=read_siliconflow_credentials(os.environ),
+                    credentials=read_provider_credentials(provider, os.environ),
                     executable=config.claude_executable,
                     environ=os.environ,
                     timeout_seconds=args.timeout,
@@ -141,6 +155,9 @@ def skill_main(argv: Sequence[str]) -> int:
                 "output_tokens": 0 if usage is None else usage.output_tokens,
                 "cost_amount": (
                     "0"
+                    if args.mode == "fixed"
+                    and (usage is None or usage.cost_amount is None)
+                    else None
                     if usage is None or usage.cost_amount is None
                     else str(usage.cost_amount)
                 ),
@@ -166,6 +183,7 @@ def trigger_main(argv: Sequence[str]) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--project-root", type=Path, default=root)
     parser.add_argument("--mode", choices=("fixed", "live"), default="fixed")
+    parser.add_argument("--provider", type=ProviderId, choices=tuple(ProviderId))
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--workspace-root", type=Path)
     parser.add_argument("--json", action="store_true", dest="as_json")
@@ -175,7 +193,10 @@ def trigger_main(argv: Sequence[str]) -> int:
         if gate.status is not StaticGateStatus.PASS:
             raise ValueError("static gate failed")
         config = load_runtime_config(args.project_root / "ses.json")
-        lock = load_model_lock(args.project_root / config.models_lock)
+        provider = args.provider or config.default_provider
+        lock = load_model_lock(args.project_root / config.models_lock_for(provider))
+        if lock.provider is not provider:
+            raise ValueError("selected provider differs from its model lock")
         discovery: DiscoveryBackend
         if args.mode == "fixed":
             discovery = SyntheticDiscoveryFixture()
@@ -183,7 +204,7 @@ def trigger_main(argv: Sequence[str]) -> int:
             discovery = ClaudeNativeDiscovery(
                 skill_source=args.skill,
                 model=lock.roles[ModelRole.MAIN],
-                credentials=read_siliconflow_credentials(os.environ),
+                credentials=read_provider_credentials(provider, os.environ),
                 executable=config.claude_executable,
                 environ=os.environ,
                 workspace_root=(
@@ -212,9 +233,13 @@ def trigger_main(argv: Sequence[str]) -> int:
             **result_payload,
             "mode": args.mode,
             "network_used": args.mode == "live",
-            "input_tokens": getattr(discovery, "input_tokens", 0),
-            "output_tokens": getattr(discovery, "output_tokens", 0),
-            "cost_amount": str(getattr(discovery, "cost_amount", 0)),
+            "input_tokens": result.usage.input_tokens,
+            "output_tokens": result.usage.output_tokens,
+            "cost_amount": (
+                None
+                if result.usage.cost_amount is None
+                else str(result.usage.cost_amount)
+            ),
         }
         if args.output is not None:
             _write_json(args.output, result_payload)
@@ -233,6 +258,7 @@ def paired_main(argv: Sequence[str]) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--project-root", type=Path, default=root)
     parser.add_argument("--mode", choices=("fixed", "live"), default="fixed")
+    parser.add_argument("--provider", type=ProviderId, choices=tuple(ProviderId))
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
@@ -241,13 +267,20 @@ def paired_main(argv: Sequence[str]) -> int:
         engine_version: str | None = None
         if args.mode == "live":
             config = load_runtime_config(args.project_root / "ses.json")
-            lock = load_model_lock(args.project_root / config.models_lock)
+            provider = args.provider or config.default_provider
+            lock_path = args.project_root / config.models_lock_for(provider)
+            lock = load_model_lock(lock_path)
+            if lock.provider is not provider:
+                raise ValueError("selected provider differs from its model lock")
             live_config = LiveDevelopConfig(
                 model=lock.roles[ModelRole.MAIN],
-                credentials=read_siliconflow_credentials(os.environ),
+                credentials=read_provider_credentials(provider, os.environ),
                 executable=config.claude_executable,
                 environ=os.environ,
                 timeout_seconds=args.timeout,
+                provider=provider,
+                model_lock_sha256=hashlib.sha256(lock_path.read_bytes()).hexdigest(),
+                cost_currency=("CNY" if provider is ProviderId.CHATANYWHERE else "USD"),
             )
             engine_version = f"{lock.engine}:{lock.engine_version}"
         result = run_fresh_paired(

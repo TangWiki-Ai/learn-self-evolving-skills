@@ -18,12 +18,13 @@ from ses.release.capstone import (
     TARGET_COMMAND_IDS,
     TARGET_COMMANDS,
     CapstoneReleaseReport,
+    CheckStatus,
+    ReleaseCheck,
     capstone_evidence_exit_code,
     materialize_worktree,
     run_capstone_clean_room,
     validate_capstone_course,
 )
-from ses.release.validator import CheckStatus, ReleaseCheck
 
 _ROOT = Path(__file__).resolve().parents[2]
 
@@ -149,7 +150,7 @@ def test_capstone_is_an_independent_five_milestone_course() -> None:
     assert report.milestone_count == 5
     assert checks["capstone.identity"].status is CheckStatus.PASS
     assert checks["capstone.milestones"].status is CheckStatus.PASS
-    assert checks["capstone.documentation"].status is CheckStatus.PASS
+    assert checks["capstone.assets"].status is CheckStatus.PASS
     assert checks["capstone.live_fail_closed"].status is CheckStatus.PASS
     assert checks["capstone.target_commands"].status is CheckStatus.DEVIATION
     assert set(checks["capstone.target_commands"].details) == set(TARGET_COMMAND_IDS)
@@ -203,11 +204,7 @@ def test_capstone_validator_rejects_lesson_eleven_wording(tmp_path: Path) -> Non
     target = root / CAPSTONE_RELATIVE_ROOT
     target.parent.mkdir(parents=True)
     shutil.copytree(_ROOT / CAPSTONE_RELATIVE_ROOT, target)
-    readme = target / "README.md"
-    readme.write_text(
-        readme.read_text(encoding="utf-8") + "\n这是第 11 课。\n",
-        encoding="utf-8",
-    )
+    (target / "README.md").write_text("这是第 11 课。\n", encoding="utf-8")
 
     check = _checks(validate_capstone_course(root))["capstone.identity"]
 
@@ -222,10 +219,8 @@ def test_capstone_validator_rejects_executable_live_shell_blocks(
     target = root / CAPSTONE_RELATIVE_ROOT
     target.parent.mkdir(parents=True)
     shutil.copytree(_ROOT / CAPSTONE_RELATIVE_ROOT, target)
-    live_setup = target / "LIVE_SETUP.md"
-    live_setup.write_text(
-        live_setup.read_text(encoding="utf-8")
-        + "\n```bash\nuv run ses doctor --profile profiles/live-v1.json --live\n```\n",
+    (target / "LIVE_SETUP.md").write_text(
+        "```bash\nuv run ses doctor --profile profiles/live-v1.json --live\n```\n",
         encoding="utf-8",
     )
 
@@ -330,7 +325,7 @@ class _RecordingRunner:
                         implementation.read_bytes()
                     ).hexdigest(),
                     "fixture_path": (
-                        "course/capstone-shopping-assistant/fixtures/"
+                        "fixtures/seed/capstone-shopping-assistant/fixtures/"
                         "milestone-policy-v1.json"
                     ),
                     "fixture_sha256": hashlib.sha256(fixture_content).hexdigest(),
@@ -838,9 +833,9 @@ def test_validator_rejects_clean_room_evidence_after_worktree_changes(
     )
     evidence_path = tmp_path / "evidence.json"
     evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
-    readme = capstone / "README.md"
-    readme.write_text(
-        readme.read_text(encoding="utf-8") + "\nworktree changed\n",
+    manifest = capstone / "course-manifest.json"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + "\n",
         encoding="utf-8",
     )
 

@@ -24,7 +24,7 @@ class CapstoneMilestonePolicyCheck(VersionedRecord):
     implementation_path: str
     implementation_sha256: Sha256Digest
     fixture_path: Literal[
-        "course/capstone-shopping-assistant/fixtures/milestone-policy-v1.json"
+        "fixtures/seed/capstone-shopping-assistant/fixtures/milestone-policy-v1.json"
     ]
     fixture_sha256: Sha256Digest
     policy_result_sha256: Sha256Digest
@@ -34,7 +34,7 @@ class CapstoneMilestonePolicyCheck(VersionedRecord):
     @model_validator(mode="after")
     def _bound_paths(self) -> CapstoneMilestonePolicyCheck:
         expected = (
-            "course/capstone-shopping-assistant/"
+            "fixtures/seed/capstone-shopping-assistant/"
             f"{self.implementation_variant}/{self.milestone}.py"
         )
         if self.implementation_path != expected:

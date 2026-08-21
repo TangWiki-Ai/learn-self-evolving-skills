@@ -27,7 +27,7 @@ from ses.skills.static_gate import StaticGateStatus, run_static_gate
 from ses.skills.trigger_eval import evaluate_triggers
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CAPSTONE_ROOT = PROJECT_ROOT / "course" / "capstone-shopping-assistant"
+CAPSTONE_ROOT = PROJECT_ROOT / "fixtures" / "seed" / "capstone-shopping-assistant"
 
 
 def _rewrite_manifest(

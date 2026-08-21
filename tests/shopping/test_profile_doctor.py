@@ -7,7 +7,7 @@ import pytest
 from ses.cli.app import main
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PROFILE_ROOT = PROJECT_ROOT / "course/capstone-shopping-assistant/profiles"
+PROFILE_ROOT = PROJECT_ROOT / "fixtures/seed/capstone-shopping-assistant/profiles"
 
 
 def test_fixed_profile_doctor_is_offline_and_reports_live_no_go(

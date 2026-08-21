@@ -18,7 +18,7 @@ def test_claude_code_live_paired_rejects_pending_course_catalog(
 ) -> None:
     runtime = load_runtime_config(ROOT / "ses.json")
     lock = load_model_lock(ROOT / runtime.models_lock)
-    skill = ROOT / "course/ch07-create-v0/artifacts/skill/v0"
+    skill = ROOT / "fixtures/seed/skill/v0"
 
     with pytest.raises(ValueError, match="independent signed human review"):
         run_fresh_paired(

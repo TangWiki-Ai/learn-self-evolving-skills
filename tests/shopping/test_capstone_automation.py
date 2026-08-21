@@ -64,7 +64,7 @@ PROFILE_SHA256 = hashlib.sha256(b"shopping-fixed-v1-profile").hexdigest()
 FAILURE_FIXTURE = (
     PROJECT_ROOT / "tests/fixtures/evolution/synthetic-failure-evidence.json"
 )
-CAPSTONE = PROJECT_ROOT / "course/capstone-shopping-assistant"
+CAPSTONE = PROJECT_ROOT / "fixtures/seed/capstone-shopping-assistant"
 
 
 def _orchestrator(

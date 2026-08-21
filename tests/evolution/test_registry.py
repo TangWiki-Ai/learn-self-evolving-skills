@@ -53,8 +53,8 @@ from ses.skills.installer import (
 from ses.skills.static_gate import StaticCheck, StaticGateReport, StaticGateStatus
 
 ROOT = Path(__file__).parents[2]
-PARENT = ROOT / "course/ch07-create-v0/artifacts/skill/v0"
-SEED_EVIDENCE = ROOT / "course/ch07-create-v0/artifacts/summary.json"
+PARENT = ROOT / "fixtures/seed/skill/v0"
+SEED_EVIDENCE = ROOT / "fixtures/seed/summary.json"
 FAILURE_EVIDENCE = ROOT / "tests/fixtures/evolution/synthetic-failure-evidence.json"
 SELECTION_LOCK = ROOT / "data/testset/protected/selection-manifest.json"
 NOW = datetime(2026, 8, 18, 9, tzinfo=UTC)

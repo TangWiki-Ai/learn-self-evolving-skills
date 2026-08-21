@@ -32,7 +32,7 @@ def _profile_main(argv: Sequence[str]) -> int:
     try:
         loaded = load_shopping_profile(profile_path)
         source = load_shop_simulator_source_manifest(
-            project_root / "course/capstone-shopping-assistant/sources/"
+            project_root / "fixtures/seed/capstone-shopping-assistant/sources/"
             "shop-simulator-live-no-go.json"
         )
     except (OSError, TypeError, ValueError) as exc:

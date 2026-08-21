@@ -39,7 +39,7 @@ from ses.shopping.profile import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CAPSTONE_ROOT = PROJECT_ROOT / "course" / "capstone-shopping-assistant"
+CAPSTONE_ROOT = PROJECT_ROOT / "fixtures" / "seed" / "capstone-shopping-assistant"
 EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 

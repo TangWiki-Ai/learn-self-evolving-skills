@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1alpha1",
+  "engine": "claude-code",
+  "engine_version": "2.1.220",
+  "provider": "chatanywhere",
+  "roles": {
+    "main": {
+      "model_id": "claude-sonnet-4-6",
+      "base_url": "https://api.chatanywhere.tech/"
+    },
+    "creator": {
+      "model_id": "claude-sonnet-4-6",
+      "base_url": "https://api.chatanywhere.tech/"
+    },
+    "simulator": {
+      "model_id": "claude-haiku-4-5-20251001",
+      "base_url": "https://api.chatanywhere.tech/"
+    },
+    "judge": {
+      "model_id": "claude-haiku-4-5-20251001",
+      "base_url": "https://api.chatanywhere.tech/"
+    }
+  }
+}

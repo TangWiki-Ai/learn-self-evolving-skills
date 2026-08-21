@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import sys
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
@@ -50,7 +51,7 @@ from ses.evaluation import (
     trace_tool_calls,
 )
 from ses.evaluator.multi_turn import MultiTurnEvaluator, MultiTurnOutcome
-from ses.foundation.config import LockedModel
+from ses.foundation.config import LockedModel, ProviderId
 from ses.foundation.credentials import ProviderCredentials
 from ses.foundation.workspace import WorkspaceFactory
 from ses.runner.baseline import CaseEvaluation, EvaluationContext
@@ -80,6 +81,19 @@ class LiveDevelopConfig:
     executable: str
     environ: Mapping[str, str]
     timeout_seconds: float = 300
+    provider: ProviderId = ProviderId.SILICONFLOW
+    model_lock_sha256: str | None = None
+    cost_currency: str = "USD"
+
+    def __post_init__(self) -> None:
+        if self.credentials.provider is not self.provider:
+            raise ValueError("live provider differs from its credentials")
+        if self.model_lock_sha256 is not None and not re.fullmatch(
+            r"[0-9a-f]{64}", self.model_lock_sha256
+        ):
+            raise ValueError("live model lock hash is invalid")
+        if not self.cost_currency.strip():
+            raise ValueError("live cost currency must not be blank")
 
 
 def _verify_reference(root: Path, value: object) -> Path:
@@ -601,6 +615,7 @@ class DevelopCatalogEvaluator:
                 max_cost_amount=context.max_cost_amount,
                 cost_currency=context.cost_currency,
             )
+            cost_complete = multi.usage.cost_amount is not None
             usage_cost = multi.usage.cost_amount or Decimal(0)
             usage_currency = multi.usage.cost_currency or "CNY"
             resumed = any(
@@ -627,6 +642,7 @@ class DevelopCatalogEvaluator:
                     output_tokens=multi.usage.output_tokens,
                     cost_amount=usage_cost,
                     cost_currency=usage_currency,
+                    cost_complete=cost_complete,
                     latency_ms=(
                         self._fixed_latency_ms
                         if self._fixed_latency_ms is not None

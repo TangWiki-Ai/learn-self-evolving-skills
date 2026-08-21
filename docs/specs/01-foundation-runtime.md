@@ -6,7 +6,7 @@
 
 ## Solution
 
-提供一个小型 Foundation Runtime。它解析项目配置和锁定模型，按固定优先级读取环境凭据，验证并获取固定版本的数据，创建每 case 独立工作区，通过窄 Engine 合约运行 Claude Code headless，并把 stream-json 转换成 Provider 中立的事件。`ses doctor` 使用这些相同组件完成快速冒烟，避免维护第二套诊断逻辑。
+提供一个小型 Foundation Runtime。它解析项目配置和所选 Provider 的模型锁，读取与该 Provider 匹配的环境凭据，验证并获取固定版本的数据，创建每 case 独立工作区，通过窄 Engine 合约运行 Claude Code headless，并把 stream-json 转换成 Provider 中立的事件。`ses doctor` 使用这些相同组件完成快速冒烟，避免维护第二套诊断逻辑。
 
 ## User Stories
 
@@ -18,7 +18,7 @@
 6. 作为 evaluator，我想为每个 case 获得干净工作区和独立 Claude 配置，以便运行之间不会共享状态。
 7. 作为 evaluator，我想从 Engine 获得统一事件和用量，以便业务模块不解析供应商私有输出。
 8. 作为测试作者，我想注入 fake engine，以便默认测试能覆盖成功、工具调用、超时和错误路径。
-9. 作为未来维护者，我想新增 Provider 适配器，以便不修改 runner、judge 或课程练习。
+9. 作为学习者，我想显式选择 SiliconFlow 或 ChatAnywhere，并在恢复时沿用该选择，以便系统不会自动路由或读取错误的 Key。
 10. 作为安全评审者，我想验证 Agent 工作区中不存在 gold、参考轨迹和凭据，以便防止意外泄漏。
 
 ## Implementation Decisions
@@ -29,8 +29,12 @@
 - doctor 输出可以记录端点主机、模型别名、版本和耗时，但必须屏蔽请求头、token、完整凭据和可能包含密钥的环境值。
 - Engine 合约接受规范化运行请求，流式产生文本、工具调用、工具结果、用量、错误和结束事件。调用方不读取 Claude Code 原始 stdout。
 - 首个 Engine 适配器使用参数数组启动 Claude Code headless，支持新 session 和 resume，解析 stream-json，并在取消或超时后回收子进程。
-- 硅基流动的端点、认证头映射和模型标识封装在适配器配置中。核心模块只使用课程定义的模型角色。
-- 未来 Provider 通过实现相同 Engine 合约接入。首版不实现自动路由、fallback 链或能力协商框架。
+- live 路径显式支持 SiliconFlow 与 ChatAnywhere。两者各自使用端点 allowlist、模型锁和环境变量，核心模块只使用课程定义的模型角色。
+- 新 Journey workspace 必须显式选择 `siliconflow` 或 `chatanywhere`。选择与模型锁哈希写入 `.ses/status.json`；恢复时不得切换，也不能根据哪个 Key 存在而自动选择。
+- SiliconFlow 使用 `SILICONFLOW_API_KEY` 与 DeepSeek/Qwen 角色锁；ChatAnywhere 使用 `CHATANYWHERE_API_KEY` 与 Claude 系列角色锁。隔离子进程只接收当前 Provider 所需的认证变量。
+- Engine 不实现自动路由、跨 Provider fallback 链或能力协商框架。
+- ChatAnywhere 的 Claude Code 流式用量若没有可验证的 Provider 费用，Engine 必须保留 token 并把费用设为不可用。Journey 写入 `cost_source=unavailable`、`cost_complete=false`；任何消费者都不能把它解释成零费用。
+- `fixed` 与 fake engine 只供仓库 CI。fixed 不绑定 live Provider 或模型锁，费用来源固定为 `synthetic_ci`。
 - fake engine 从声明式事件夹具重放，可模拟分块文本、多个工具调用、畸形事件、非零退出、超时和部分用量。
 - 工作区工厂为每个 run、case 和 iteration 创建唯一目录，只安装当前 Skill、公开任务输入、MCP 配置和允许的运行材料。
 - 工作区工厂使用 allowlist 组装内容，不从项目根目录做排除式复制。隐藏数据即使新增文件，也不能自动进入 Agent 工作区。
@@ -46,11 +50,12 @@
 - 工作区隔离测试从 Agent 可见目录枚举内容，主动断言不存在 gold、selection/final 私有材料、其他 case 状态和凭据。
 - 数据测试验证固定版本、checksum、许可证、转换记录和损坏下载不会被接受。
 - 子进程测试覆盖 resume、超时、取消、非零退出和部分 stream-json，不依赖实际模型网络。
-- 一个显式 live smoke 测试使用用户环境中的凭据运行最小请求。测试跳过时说明原因，不能把跳过当作成功。
+- 显式 live smoke 分别使用用户环境中的 SiliconFlow 或 ChatAnywhere 凭据运行 Model + MCP 最小链路。测试跳过时说明原因，不能把跳过当作成功。
+- 表驱动测试覆盖显式 Provider 选择、匹配模型锁、恢复时禁止切换、隔离环境只保留当前 Provider 认证，以及 ChatAnywhere 费用 unavailable 语义。
 
 ## Out of Scope
 
-- 多 Provider UI、动态路由、负载均衡、重试市场和跨模型自动降级。
+- Provider 自动选择、动态路由、负载均衡、重试市场和跨 Provider 自动降级。
 - 把密钥保存到项目配置、系统钥匙串或课程自建凭据服务。
 - 远程容器编排、分布式执行和多机数据缓存。
 - 在 doctor 阶段统计 30 case 稳定率或建立成本基准。
@@ -58,6 +63,5 @@
 
 ## Further Notes
 
-- Phase 0 的实现应保持可删除和可替换；核心价值是快速发现主路径是否根本不可用。
-- 后续 Provider spec 应先证明 Engine 合约不足，再扩展合约，不能预先加入供应商特有字段。
+- 扩展 Provider 前应先证明 Engine 合约不足；供应商特有字段只能留在配置、锁或适配器内。
 - live 测试必须使用当前有效且可随时轮换的凭据，任何示例和参考运行都只能记录脱敏后的配置。

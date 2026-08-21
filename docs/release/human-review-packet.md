@@ -9,9 +9,9 @@
 - 审核 commit：________________
 - 审核环境与 Provider：________________
 
-## A. Lesson 3 标签复核
+## A. Judge 标签复核
 
-你需要查看 [`agreement-experiment.json`](../../course/ch03-calibrate-judges/agreement-experiment.json) 及 [`calibration.json`](../../tests/fixtures/judges/calibration.json)，逐题核对课程作者给出的目标标签，再决定是否接受。固定响应只证明解析协议可重复，不证明标签已经由人确认。
+你需要查看 [`judge-model-calibration.json`](../../data/testset/ticket07/generated/private/judge-model-calibration.json) 及 [`calibration.json`](../../tests/fixtures/judges/calibration.json)，逐题核对课程作者给出的目标标签，再决定是否接受。固定响应只证明解析协议可重复，不证明标签已经由人确认。
 
 | Case | 课程作者当前标签 | 你的标签 | 证据充分 | 备注 |
 | --- | --- | --- | --- | --- |
@@ -22,7 +22,7 @@
 
 - [ ] 我检查了四题的 rubric、StateDiff、工具时间线、金额对账和关键消息。
 - [ ] 我检查了 LLM Judge 与 Agent Judge 的三处分歧，没有根据当前结果反向改标签。
-- [ ] 我确认讲义只把该实验称为课程作者 fixed/offline 标签，直到我另行签署。
+- [ ] 我确认材料只把该实验称为课程作者 fixed/offline 标签，直到我另行签署。
 
 ## B. Creator 9 条来源链复核
 

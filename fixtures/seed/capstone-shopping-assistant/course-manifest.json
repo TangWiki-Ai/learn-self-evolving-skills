@@ -1,0 +1,60 @@
+{
+  "schema_version": "v1alpha1",
+  "record_type": "shopping_capstone_course_manifest",
+  "course_id": "capstone-shopping-assistant",
+  "course_kind": "independent_capstone",
+  "public_name": "ShopSimulator-inspired fixed workflow",
+  "learning_completion_target": "workflow_complete",
+  "fixed_measurement_level": "synthetic_offline",
+  "live_execution_policy": "blocked_phase0_no_go",
+  "milestone_execution": {
+    "default_variant": "starter",
+    "reference_variant": "solution",
+    "entrypoint": "execute_target",
+    "policy_fixture": "fixtures/milestone-policy-v1.json",
+    "policy_validation": "before_target_exactly_once",
+    "target_execution": "exactly_once"
+  },
+  "milestones": [
+    {"id": "create", "starter": "starter/create.py", "solution": "solution/create.py", "test": "tests/test_milestones.py"},
+    {"id": "eval", "starter": "starter/eval.py", "solution": "solution/eval.py", "test": "tests/test_milestones.py"},
+    {"id": "evolve", "starter": "starter/evolve.py", "solution": "solution/evolve.py", "test": "tests/test_milestones.py"},
+    {"id": "gate", "starter": "starter/gate.py", "solution": "solution/gate.py", "test": "tests/test_milestones.py"},
+    {"id": "automation", "starter": "starter/automation.py", "solution": "solution/automation.py", "test": "tests/test_milestones.py"}
+  ],
+  "target_commands": [
+    {"id": "doctor.fixed", "milestone": "create", "command": "uv run --offline --frozen ses doctor --profile \"$PROFILE\""},
+    {"id": "create.v0", "milestone": "create", "command": "uv run --offline --frozen ses skill create-v0 --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "create.static", "milestone": "create", "command": "uv run --offline --frozen ses skill static-gate --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "create.trigger", "milestone": "create", "command": "uv run --offline --frozen ses trigger-eval --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "eval.paired", "milestone": "eval", "command": "uv run --offline --frozen ses paired-comparison --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "eval.inspect_paired_trace", "milestone": "eval", "command": "uv run --offline --frozen ses inspect paired-trace \"$PAIRED_TRACE\" --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "gate.registry_init", "milestone": "gate", "command": "uv run --offline --frozen ses registry init --profile \"$PROFILE\" --registry \"$REGISTRY\" --experiment-root \"$ROOT\" --initial-skill \"$ROOT/skill/v0\" --initial-evidence \"$ROOT/v0-pipeline-summary.json\""},
+    {"id": "evolve.manual", "milestone": "evolve", "command": "uv run --offline --frozen ses evolve --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "evolve.inspect_failure_evidence", "milestone": "evolve", "command": "uv run --offline --frozen ses inspect failure-evidence \"$ROOT/failure-evidence.json\" --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "evolve.inspect_failure_card", "milestone": "evolve", "command": "uv run --offline --frozen ses inspect failure-card \"$ROOT/manual-evolution/failure-cards.json\" --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "gate.registry_register", "milestone": "gate", "command": "uv run --offline --frozen ses registry register --profile \"$PROFILE\" --experiment-root \"$ROOT\" --registry \"$REGISTRY\" --candidate \"$ROOT/manual-evolution\""},
+    {"id": "gate.candidate", "milestone": "gate", "command": "uv run --offline --frozen ses gate candidate --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "gate.promote_accepted", "milestone": "gate", "command": "uv run --offline --frozen ses registry promote --profile \"$PROFILE\" --experiment-root \"$ROOT\" --registry \"$REGISTRY\" --candidate-id \"$ACCEPTED_CANDIDATE_ID\" --gate-decision \"$MANUAL_GATE_DECISION\""},
+    {"id": "automation.auto_evolve", "milestone": "automation", "command": "uv run --offline --frozen ses auto-evolve --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "gate.inspect_rejected_decision", "milestone": "gate", "command": "uv run --offline --frozen ses inspect gate-decision \"$REJECTED_GATE_DECISION\" --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "gate.inspect_registry_history", "milestone": "gate", "command": "uv run --offline --frozen ses inspect registry-history \"$REGISTRY/events.jsonl\" --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "automation.final", "milestone": "automation", "command": "uv run --offline --frozen ses final --profile \"$PROFILE\" --experiment-root \"$ROOT\""},
+    {"id": "automation.l3", "milestone": "automation", "command": "uv run --offline --frozen ses l3-render --profile \"$PROFILE\" --experiment-root \"$ROOT\" --output \"$ROOT/l3.html\""},
+    {"id": "automation.portfolio", "milestone": "automation", "command": "uv run --offline --frozen ses portfolio-export --profile \"$PROFILE\" --experiment-root \"$ROOT\" --output \"$ROOT/portfolio\""},
+    {"id": "automation.package", "milestone": "automation", "command": "uv run --offline --frozen ses skill package --profile \"$PROFILE\" --experiment-root \"$ROOT\" --registry \"$REGISTRY\" --current-accepted --output \"$ROOT/package\""},
+    {"id": "automation.capstone_index", "milestone": "automation", "command": "uv run --offline --frozen ses capstone-index --profile \"$PROFILE\" --experiment-root \"$ROOT\" --output \"$ROOT/capstone-index.json\""},
+    {"id": "automation.install", "milestone": "automation", "command": "uv run --offline --frozen ses skill-install --accepted-package \"$ROOT/package/release-manifest.json\" --profile \"$PROFILE\" --experiment-root \"$ROOT\" --destination \"$INSTALL_ROOT\""}
+  ],
+  "clean_room_commands": [
+    {"id": "fixed.course_tests", "command": "uv run --offline --frozen pytest -q fixtures/seed/capstone-shopping-assistant/tests"},
+    {"id": "fixed.structure_validator", "command": "uv run --offline --frozen python scripts/validate_capstone.py --root . --structure-only --json"}
+  ],
+  "reference_fallback": {
+    "runtime_path": "src/ses/skills/resources/shopping_assistant",
+    "creator_seed": false,
+    "gold": false,
+    "default_accepted": false,
+    "completion_evidence": false
+  }
+}

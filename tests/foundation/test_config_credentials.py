@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from ses.foundation.config import (
     ConfigurationError,
     ModelRole,
+    ProviderId,
     RuntimeConfig,
     load_model_lock,
     load_runtime_config,
@@ -18,6 +19,8 @@ from ses.foundation.credentials import (
     build_claude_environment,
     credential_values,
     is_sensitive_name,
+    read_chatanywhere_credentials,
+    read_provider_credentials,
     read_siliconflow_credentials,
     redact,
     redact_data,
@@ -36,6 +39,8 @@ def test_config_and_models_lock_are_strict_and_credential_free(tmp_path: Path) -
         {
             "schema_version": "v1alpha1",
             "models_lock": "models.lock.json",
+            "chatanywhere_models_lock": "models.chatanywhere.lock.json",
+            "default_provider": "siliconflow",
             "data_manifest": "data/upstream/manifest.json",
             "workspace_root": ".ses/workspaces",
             "claude_executable": "claude",
@@ -51,6 +56,7 @@ def test_config_and_models_lock_are_strict_and_credential_free(tmp_path: Path) -
             "schema_version": "v1alpha1",
             "engine": "claude-code",
             "engine_version": "2.1.220",
+            "provider": "siliconflow",
             "roles": {name.value: role for name in ModelRole},
         },
     )
@@ -59,6 +65,13 @@ def test_config_and_models_lock_are_strict_and_credential_free(tmp_path: Path) -
     lock = load_model_lock(lock_path)
 
     assert config.workspace_root == ".ses/workspaces"
+    assert config.default_provider is ProviderId.SILICONFLOW
+    assert config.models_lock_for(ProviderId.SILICONFLOW) == "models.lock.json"
+    assert (
+        config.models_lock_for(ProviderId.CHATANYWHERE)
+        == "models.chatanywhere.lock.json"
+    )
+    assert lock.provider is ProviderId.SILICONFLOW
     assert lock.roles[ModelRole.MAIN].base_url == "https://api.siliconflow.cn/"
     assert "key" not in lock.model_dump_json().casefold()
     with pytest.raises(TypeError):
@@ -69,6 +82,7 @@ def test_runtime_config_defaults_to_system_temporary_workspaces() -> None:
     config = RuntimeConfig(schema_version="v1alpha1")
 
     assert config.workspace_root is None
+    assert config.default_provider is ProviderId.SILICONFLOW
 
 
 @pytest.mark.parametrize(
@@ -110,6 +124,61 @@ def test_models_lock_requires_every_role_and_https(tmp_path: Path) -> None:
         load_model_lock(path)
 
 
+@pytest.mark.parametrize(
+    ("provider", "base_url"),
+    [
+        ("siliconflow", "https://api.chatanywhere.tech/"),
+        ("chatanywhere", "https://api.siliconflow.cn/"),
+        ("siliconflow", "https://api.siliconflow.cn.evil.example/"),
+        ("chatanywhere", "https://api.chatanywhere.tech/v1/"),
+    ],
+)
+def test_model_lock_binds_provider_to_an_exact_official_base_url(
+    tmp_path: Path, provider: str, base_url: str
+) -> None:
+    path = tmp_path / "models.lock.json"
+    role = {"model_id": "model", "base_url": base_url}
+    _write_json(
+        path,
+        {
+            "schema_version": "v1alpha1",
+            "engine": "claude-code",
+            "engine_version": "2.1.220",
+            "provider": provider,
+            "roles": {name.value: role for name in ModelRole},
+        },
+    )
+
+    with pytest.raises(ConfigurationError, match="not allowed"):
+        load_model_lock(path)
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://api.chatanywhere.tech", "https://api.chatanywhere.org/"],
+)
+def test_chatanywhere_model_lock_accepts_both_official_hosts(
+    tmp_path: Path, base_url: str
+) -> None:
+    path = tmp_path / "models.chatanywhere.lock.json"
+    role = {"model_id": "claude-sonnet-4-6", "base_url": base_url}
+    _write_json(
+        path,
+        {
+            "schema_version": "v1alpha1",
+            "engine": "claude-code",
+            "engine_version": "2.1.220",
+            "provider": "chatanywhere",
+            "roles": {name.value: role for name in ModelRole},
+        },
+    )
+
+    lock = load_model_lock(path)
+
+    assert lock.provider is ProviderId.CHATANYWHERE
+    assert lock.roles[ModelRole.MAIN].base_url == base_url.rstrip("/") + "/"
+
+
 def test_credentials_only_come_from_environment_and_repr_is_safe() -> None:
     with pytest.raises(CredentialError, match="SILICONFLOW_API_KEY"):
         read_siliconflow_credentials({})
@@ -120,6 +189,17 @@ def test_credentials_only_come_from_environment_and_repr_is_safe() -> None:
 
     assert "exact-process-secret" not in repr(credentials)
     assert "REDACTED" in repr(credentials)
+    assert credentials.provider is ProviderId.SILICONFLOW
+
+    with pytest.raises(CredentialError, match="CHATANYWHERE_API_KEY"):
+        read_chatanywhere_credentials({})
+
+    chatanywhere = read_provider_credentials(
+        ProviderId.CHATANYWHERE,
+        {"CHATANYWHERE_API_KEY": "chatanywhere-process-secret"},
+    )
+    assert chatanywhere.provider is ProviderId.CHATANYWHERE
+    assert "chatanywhere-process-secret" not in repr(chatanywhere)
 
 
 def test_claude_environment_removes_global_provider_state(tmp_path: Path) -> None:
@@ -159,6 +239,95 @@ def test_claude_environment_removes_global_provider_state(tmp_path: Path) -> Non
     assert "UNRELATED_VALUE" not in child
     assert child["LANG"] == "en_US.UTF-8"
     assert child["HOME"] == str(tmp_path.parent)
+    assert child["CLAUDE_CODE_ATTRIBUTION_HEADER"] == "0"
+    assert child["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    assert child["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] == "1"
+
+
+def test_claude_environment_preserves_explicit_proxy_route_and_redacts_it(
+    tmp_path: Path,
+) -> None:
+    proxy_url = "http://proxy%2Duser:p%40ss%3Aword@127.0.0.1:7897"
+    source = {
+        "HTTPS_PROXY": proxy_url,
+        "HTTP_PROXY": proxy_url,
+        "ALL_PROXY": proxy_url,
+        "NO_PROXY": "localhost,127.0.0.1",
+    }
+    credentials = read_chatanywhere_credentials(
+        {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
+    )
+
+    child = build_claude_environment(
+        source,
+        credentials,
+        base_url="https://api.chatanywhere.tech/",
+        model_id="claude-sonnet-4-6",
+        config_dir=tmp_path,
+    )
+
+    assert child["HTTPS_PROXY"] == proxy_url
+    assert child["HTTP_PROXY"] == proxy_url
+    assert child["ALL_PROXY"] == proxy_url
+    assert child["NO_PROXY"] == "localhost,127.0.0.1"
+    secrets = credential_values(source)
+    assert proxy_url in secrets
+    rendered = redact(
+        f"proxy failed: {proxy_url}; "
+        "raw_user=proxy%2Duser; user=proxy-user; "
+        "raw_password=p%40ss%3Aword; password=p@ss:word; "
+        "auth=proxy-user:p@ss:word",
+        secrets,
+    )
+    assert proxy_url not in rendered
+    assert "proxy%2Duser" not in rendered
+    assert "proxy-user" not in rendered
+    assert "p%40ss%3Aword" not in rendered
+    assert "p@ss:word" not in rendered
+    assert "proxy-user:p@ss:word" not in rendered
+
+
+def test_chatanywhere_uses_only_anthropic_auth_token(tmp_path: Path) -> None:
+    credentials = read_chatanywhere_credentials(
+        {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
+    )
+
+    child = build_claude_environment(
+        {
+            "PATH": "/usr/bin",
+            "ANTHROPIC_API_KEY": "old-anthropic-key",
+            "ANTHROPIC_AUTH_TOKEN": "old-anthropic-token",
+            "SILICONFLOW_API_KEY": "siliconflow-secret",
+            "CHATANYWHERE_API_KEY": "chatanywhere-secret",
+        },
+        credentials,
+        base_url="https://api.chatanywhere.tech",
+        model_id="claude-sonnet-4-6",
+        config_dir=tmp_path,
+    )
+
+    assert child["ANTHROPIC_AUTH_TOKEN"] == "chatanywhere-secret"
+    assert child["ANTHROPIC_BASE_URL"] == "https://api.chatanywhere.tech/"
+    assert "ANTHROPIC_API_KEY" not in child
+    assert "SILICONFLOW_API_KEY" not in child
+    assert "CHATANYWHERE_API_KEY" not in child
+
+
+def test_claude_environment_rejects_provider_endpoint_mismatch(
+    tmp_path: Path,
+) -> None:
+    credentials = read_chatanywhere_credentials(
+        {"CHATANYWHERE_API_KEY": "chatanywhere-secret"}
+    )
+
+    with pytest.raises(ValueError, match="not allowed"):
+        build_claude_environment(
+            {},
+            credentials,
+            base_url="https://api.siliconflow.cn/",
+            model_id="model",
+            config_dir=tmp_path,
+        )
 
 
 def test_sensitive_name_detection_and_value_collection_share_one_policy() -> None:

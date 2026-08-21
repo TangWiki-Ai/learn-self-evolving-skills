@@ -13,8 +13,10 @@ from ses.foundation.config import ModelLock, RuntimeConfig
 class DemoResources:
     runtime_config: RuntimeConfig
     model_lock: ModelLock
+    chatanywhere_model_lock: ModelLock
     runtime_config_sha256: str
     model_lock_sha256: str
+    chatanywhere_model_lock_sha256: str
 
 
 def load_demo_resources() -> DemoResources:
@@ -22,9 +24,18 @@ def load_demo_resources() -> DemoResources:
     root = files(__name__)
     runtime_bytes = root.joinpath("runtime-config.json").read_bytes()
     model_lock_bytes = root.joinpath("models.lock.json").read_bytes()
+    chatanywhere_model_lock_bytes = root.joinpath(
+        "models.chatanywhere.lock.json"
+    ).read_bytes()
     return DemoResources(
         runtime_config=RuntimeConfig.model_validate_json(runtime_bytes),
         model_lock=ModelLock.model_validate_json(model_lock_bytes),
+        chatanywhere_model_lock=ModelLock.model_validate_json(
+            chatanywhere_model_lock_bytes
+        ),
         runtime_config_sha256=hashlib.sha256(runtime_bytes).hexdigest(),
         model_lock_sha256=hashlib.sha256(model_lock_bytes).hexdigest(),
+        chatanywhere_model_lock_sha256=hashlib.sha256(
+            chatanywhere_model_lock_bytes
+        ).hexdigest(),
     )

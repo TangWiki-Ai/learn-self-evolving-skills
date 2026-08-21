@@ -3,7 +3,7 @@
 ## Status
 
 - 状态：已确定，可按本文拆票开发。
-- 目标用户：完成现有 10 课、希望证明自己能迁移方法的课程学习者。
+- 目标用户：完成站 0–7 单日 Journey、希望证明自己能迁移方法的学习者。
 - 产品形态：独立 capstone，不改成第 11 课，也不替换现有退货主线。
 - 外部环境：[ShopAgent-Team/ShopSimulator](https://github.com/ShopAgent-Team/ShopSimulator/tree/51bb26012cee31aea7ac26177c5ffe807026ac07)，开发起点固定在 commit `51bb26012cee31aea7ac26177c5ffe807026ac07`。
 - 发布前置：必须完成本文 Phase 0 的许可证、来源、协议、可复现性和费用核查。核查失败时，不得把 live 路径作为公开课程能力发布。
@@ -49,7 +49,7 @@ fresh baseline / v0 eval ──> L2 + failure evidence
 
 我们采用以下产品边界：
 
-1. 现有 10 课继续用本地退货域教机制。capstone 要求学习者少依赖讲解，独立把机制迁移到购物搜索与购买域。
+1. 站 0–7 Journey 继续用本地退货域教机制。capstone 要求学习者少依赖讲解，独立把机制迁移到购物搜索与购买域。
 2. capstone 使用 ShopAgent-Team 的 ShopSimulator。当前 `ses.shop` 是基于 STATE-Bench customer-support return slice 重写的本地退货环境，两者必须使用不同名称、来源记录和模块边界。
 3. `3375a05` 中的 Skill 只作为“作者参考/无 Key 兜底”。Creator 不能把它当 seed，Gate 不能把它当 gold，课程也不能把它直接称为最终版本。
 4. 学习者先显式执行 create、eval、evolve、gate 并查看各阶段产物。完成一次手动链路后，才能使用 `auto-evolve` 编排已有步骤。
@@ -520,14 +520,14 @@ GateDecision 只向 Updater 暴露聚合决定和允许公开的原因。Registr
 
 ```bash
 uv run ses skill package \
-  --profile course/capstone-shopping-assistant/profiles/fixed-v1.json \
+  --profile fixtures/seed/capstone-shopping-assistant/profiles/fixed-v1.json \
   --experiment-root .ses/shopping-capstone \
   --registry .ses/shopping-capstone/registry \
   --current-accepted \
   --output .ses/shopping-capstone/package
 
 uv run ses skill-install \
-  --profile course/capstone-shopping-assistant/profiles/fixed-v1.json \
+  --profile fixtures/seed/capstone-shopping-assistant/profiles/fixed-v1.json \
   --experiment-root .ses/shopping-capstone \
   --accepted-package .ses/shopping-capstone/package/release-manifest.json \
   --destination .claude/skills
@@ -542,7 +542,7 @@ uv run ses skill-install \
 课程要求学习者先使用现有阶段命令，并通过锁定 profile 选择购物域。下面是目标命令形状；具体参数帮助文本必须由 CLI smoke test 锁定：
 
 ```bash
-PROFILE=course/capstone-shopping-assistant/profiles/fixed-v1.json
+PROFILE=fixtures/seed/capstone-shopping-assistant/profiles/fixed-v1.json
 ROOT=.ses/shopping-capstone
 REGISTRY="$ROOT/registry"
 
@@ -758,7 +758,7 @@ starter 可以提供类型签名、fixture 和失败测试，但不能预填这�
 
 ## Out of Scope
 
-- 替换现有 10 课退货主线，或把 capstone 强行塞进现有 lesson release validator。
+- 替换站 0–7 退货主线，或把 capstone 强行塞进 Journey release 流程。
 - 复现 ShopSimulator 论文全部训练、全部数据或 leaderboard。
 - vendoring 未确认授权的上游代码、商品、任务、persona 或搜索索引。
 - 用上游 eval/final 任务生成 Skill、Patch 或 Gate policy。

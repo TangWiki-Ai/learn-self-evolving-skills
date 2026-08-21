@@ -47,7 +47,7 @@ from ses.shopping.registry import open_shopping_registry
 
 MEASURED_AT = datetime(2026, 8, 20, 12, tzinfo=UTC)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CAPSTONE_ROOT = PROJECT_ROOT / "course" / "capstone-shopping-assistant"
+CAPSTONE_ROOT = PROJECT_ROOT / "fixtures" / "seed" / "capstone-shopping-assistant"
 
 
 def _registered_shopping_candidate(

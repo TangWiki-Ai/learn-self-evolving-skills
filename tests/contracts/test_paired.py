@@ -114,11 +114,15 @@ def test_paired_contract_round_trips_and_rejects_unknown_fields() -> None:
     )
 
     wire = value.model_dump(mode="json")
+    assert value.cost_complete is True
+    assert "cost_complete" not in wire
     assert "shopping_metrics" not in wire
     assert "comparable" not in wire["cases"][0]
     assert "baseline_domain_result" not in wire["cases"][0]
     assert "skill_domain_result" not in wire["cases"][0]
     assert PairedComparison.model_validate_json(value.model_dump_json()) == value
+    legacy = PairedComparison.model_validate(wire)
+    assert legacy.cost_complete is True
     with pytest.raises(ValueError, match="Extra inputs"):
         PairedComparison.model_validate({**value.model_dump(), "future_alias": True})
 

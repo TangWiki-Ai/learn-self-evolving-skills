@@ -11,7 +11,7 @@ import pytest
 from ses.contracts import MeasurementKind, TriggerEvalResult
 from ses.contracts.runner import PairedComparison
 from ses.reporting.l2 import render_l2_html, write_l2_html
-from ses.skills.paired import run_fresh_paired
+from ses.skills.paired import compare_run_events, run_fresh_paired
 from ses.skills.trigger_eval import (
     SyntheticDiscoveryFixture,
     evaluate_triggers,
@@ -23,7 +23,7 @@ ROOT = Path(__file__).parents[2]
 def _artifacts(tmp_path: Path) -> tuple[PairedComparison, TriggerEvalResult]:
     skill_source = Path(
         shutil.copytree(
-            ROOT / "course" / "ch07-create-v0" / "artifacts" / "skill" / "v0",
+            ROOT / "fixtures" / "seed" / "skill" / "v0",
             tmp_path / "v0",
         )
     )
@@ -102,6 +102,36 @@ def test_l2_html_embeds_structured_source_data_without_private_fields(
     assert paired.baseline_events.sha256 in html
     assert paired.skill_events.sha256 in html
     assert paired.model_lock_sha256 in html
+
+
+def test_l2_html_labels_incomplete_provider_cost_unavailable(tmp_path: Path) -> None:
+    paired, trigger = _artifacts(tmp_path)
+    for reference in (paired.baseline_events, paired.skill_events):
+        path = tmp_path / "paired" / reference.path
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            event = json.loads(line)
+            if event["event_type"] == "attempt":
+                event["cost_complete"] = False
+                lines[index] = json.dumps(event, sort_keys=True, separators=(",", ":"))
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    incomplete = compare_run_events(
+        tmp_path / "paired" / paired.baseline_events.path,
+        tmp_path / "paired" / paired.skill_events.path,
+        output_root=tmp_path / "paired",
+        measurement_kind=paired.measurement_kind,
+        measured_at=paired.measured_at,
+        engine_version=paired.engine_version,
+        model_id=paired.model_id,
+    )
+
+    html = render_l2_html(incomplete, trigger, artifact_root=tmp_path / "paired")
+
+    assert incomplete.cost_complete is False
+    assert "Baseline: unavailable" in html
+    assert "Skill: unavailable" in html
+    assert "Delta: unavailable" in html
+    assert html.count("<td>unavailable</td>") == len(incomplete.cases)
 
 
 def test_l2_rejects_tampered_case_evidence(tmp_path: Path) -> None:

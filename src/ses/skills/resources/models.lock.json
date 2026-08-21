@@ -2,6 +2,7 @@
   "schema_version": "v1alpha1",
   "engine": "claude-code",
   "engine_version": "2.1.220",
+  "provider": "siliconflow",
   "roles": {
     "main": {
       "model_id": "deepseek-ai/DeepSeek-V3.2",

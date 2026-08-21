@@ -18,8 +18,13 @@ from ses.contracts import (
     SchemaVersion,
     SkillV0PipelineSummary,
 )
-from ses.foundation.config import ModelRole, load_model_lock, load_runtime_config
-from ses.foundation.credentials import read_siliconflow_credentials
+from ses.foundation.config import (
+    ModelRole,
+    ProviderId,
+    load_model_lock,
+    load_runtime_config,
+)
+from ses.foundation.credentials import read_provider_credentials
 from ses.reporting.l2 import write_l2_html
 from ses.runner import LiveDevelopConfig
 from ses.skills.paired import run_fresh_paired
@@ -40,6 +45,7 @@ class SkillV0WorkflowConfig:
     output_root: Path
     seed_manifest: Path
     mode: Literal["fixed", "live"] = "fixed"
+    provider: ProviderId | None = None
     creator_timeout: float = 180
     trigger_timeout: float = 60
     paired_timeout: float = 300
@@ -73,10 +79,14 @@ def run_skill_v0_workflow(
         raise ValueError("output root must be absent or empty for a fresh pipeline")
     source_environment = os.environ if environ is None else environ
     runtime = load_runtime_config(config.project_root / "ses.json")
-    lock = load_model_lock(config.project_root / runtime.models_lock)
+    provider = config.provider or runtime.default_provider
+    lock_path = config.project_root / runtime.models_lock_for(provider)
+    lock = load_model_lock(lock_path)
+    if lock.provider is not provider:
+        raise ValueError("selected provider differs from its model lock")
     pack = load_creator_seed_pack(config.seed_manifest, mode=config.mode)
     credentials = (
-        read_siliconflow_credentials(source_environment)
+        read_provider_credentials(provider, source_environment)
         if config.mode == "live"
         else None
     )
@@ -146,6 +156,9 @@ def run_skill_v0_workflow(
             executable=runtime.claude_executable,
             environ=source_environment,
             timeout_seconds=config.trigger_timeout,
+            provider=provider,
+            model_lock_sha256=hashlib.sha256(lock_path.read_bytes()).hexdigest(),
+            cost_currency=("CNY" if provider is ProviderId.CHATANYWHERE else "USD"),
         )
     paired = run_fresh_paired(
         skill_source=skill.source,

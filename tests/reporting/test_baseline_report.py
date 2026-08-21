@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -88,6 +89,39 @@ def test_report_aggregates_records_without_regrading(tmp_path: Path) -> None:
         "pass",
         "agent_fail",
     ]
+
+
+def test_report_marks_an_unpriced_provider_attempt_incomplete(tmp_path: Path) -> None:
+    def evaluate(case_id: str, iteration_id: str, max_turns: int) -> CaseEvaluation:
+        return replace(
+            _evaluate(case_id, iteration_id, max_turns),
+            cost_amount=Decimal(0),
+            cost_complete=False,
+        )
+
+    completed = BaselineRunner(tmp_path, evaluate).run(
+        run_id="run-unpriced",
+        case_ids=("case-0",),
+        iterations=1,
+        budgets=BudgetLimits(max_cases=1, max_turns_per_case=3),
+    )
+
+    report = build_baseline_report(completed.events_path)
+
+    assert report["totals"] == {
+        "input_tokens": 21,
+        "output_tokens": 13,
+        "cost_amount": "0",
+        "cost_currency": "CNY",
+        "cost_complete": False,
+        "latency_ms": 34,
+    }
+    cases = report["cases"]
+    assert isinstance(cases, list)
+    assert cases[0]["repetitions"][0]["cost_complete"] is False
+    html = render_l1_html(report)
+    assert html.count("cost=unavailable") == 1
+    assert '<div class="metric">unavailable</div>' in html
 
 
 def test_html_is_self_contained_escaped_and_exposes_required_l1_evidence(

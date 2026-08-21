@@ -16,7 +16,8 @@ from ses.contracts import (
 )
 from ses.engines.events import make_event
 from ses.foundation import doctor
-from ses.foundation.config import ModelRole
+from ses.foundation.config import ModelRole, ProviderId
+from ses.foundation.credentials import ProviderCredentials
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -66,6 +67,120 @@ def test_doctor_cli_never_echoes_environment_key(
 def test_doctor_rejects_nonpositive_timeout() -> None:
     with pytest.raises(SystemExit):
         doctor.main(["--timeout", "0"])
+
+
+def test_doctor_parser_accepts_provider_selection() -> None:
+    args = doctor.build_parser().parse_args(["--provider", "chatanywhere"])
+
+    assert args.provider == "chatanywhere"
+
+
+def test_offline_doctor_selects_chatanywhere_lock_without_reading_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = {
+        "schema_version": "v1alpha1",
+        "models_lock": "models.lock.json",
+        "chatanywhere_models_lock": "models.chatanywhere.lock.json",
+        "default_provider": "siliconflow",
+    }
+    role = {
+        "model_id": "claude-sonnet-4-6",
+        "base_url": "https://api.chatanywhere.tech/",
+    }
+    (tmp_path / "ses.json").write_text(json.dumps(config), encoding="utf-8")
+    (tmp_path / "models.chatanywhere.lock.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "v1alpha1",
+                "engine": "claude-code",
+                "engine_version": "2.1.220",
+                "provider": "chatanywhere",
+                "roles": {name.value: role for name in ModelRole},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(doctor, "check_local_data", lambda root, config=None: "ok")
+    monkeypatch.setattr(
+        doctor, "check_claude", lambda executable="claude": "/fake/claude (2.1.220)"
+    )
+
+    def must_not_read_credentials(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("offline doctor read provider credentials")
+
+    monkeypatch.setattr(doctor, "read_provider_credentials", must_not_read_credentials)
+
+    results = doctor.run_doctor(
+        project_root=tmp_path,
+        config_path=tmp_path / "ses.json",
+        live=False,
+        timeout=1,
+        environ={},
+        provider=ProviderId.CHATANYWHERE,
+    )
+
+    configuration = next(result for result in results if result.name == "Configuration")
+    assert configuration.status == "PASS"
+    assert "chatanywhere" in configuration.detail
+    assert next(result for result in results if result.name == "Model").status == "SKIP"
+
+
+def test_live_doctor_reads_selected_provider_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = {
+        "schema_version": "v1alpha1",
+        "chatanywhere_models_lock": "models.chatanywhere.lock.json",
+        "default_provider": "chatanywhere",
+    }
+    role = {
+        "model_id": "claude-sonnet-4-6",
+        "base_url": "https://api.chatanywhere.tech/",
+    }
+    (tmp_path / "ses.json").write_text(json.dumps(config), encoding="utf-8")
+    (tmp_path / "models.chatanywhere.lock.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "v1alpha1",
+                "engine": "claude-code",
+                "engine_version": "2.1.220",
+                "provider": "chatanywhere",
+                "roles": {name.value: role for name in ModelRole},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(doctor, "check_local_data", lambda root, config=None: "ok")
+    monkeypatch.setattr(
+        doctor, "check_claude", lambda executable="claude": "/fake/claude (2.1.220)"
+    )
+    observed: dict[str, object] = {}
+
+    async def fake_live(
+        **kwargs: object,
+    ) -> tuple[doctor.CheckResult, doctor.CheckResult]:
+        observed.update(kwargs)
+        return (
+            doctor.CheckResult("PASS", "Model", "ok"),
+            doctor.CheckResult("PASS", "MCP", "ok"),
+        )
+
+    monkeypatch.setattr(doctor, "_live_model_and_mcp", fake_live)
+
+    results = doctor.run_doctor(
+        project_root=tmp_path,
+        config_path=tmp_path / "ses.json",
+        live=True,
+        timeout=1,
+        environ={"CHATANYWHERE_API_KEY": "ordinary-chatanywhere-secret"},
+    )
+
+    assert all(result.status in {"PASS", "WARN"} for result in results)
+    credentials = observed["credentials"]
+    assert isinstance(credentials, ProviderCredentials)
+    assert credentials.provider is ProviderId.CHATANYWHERE
 
 
 def test_live_doctor_requires_config_and_model_lock(

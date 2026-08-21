@@ -97,9 +97,11 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
     total_input = 0
     total_output = 0
     total_cost = Decimal(0)
+    cost_complete = True
     total_latency = 0
     currencies: set[str] = set()
     for result in attempts:
+        cost_complete = cost_complete and result.get("cost_complete", True) is True
         usage = result.get("usage")
         if isinstance(usage, Mapping):
             total_input += int(cast(Any, usage.get("input_tokens", 0)))
@@ -124,6 +126,15 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
                 "repetitions": repetitions,
             }
         )
+    totals: dict[str, object] = {
+        "input_tokens": total_input,
+        "output_tokens": total_output,
+        "cost_amount": str(total_cost),
+        "cost_currency": next(iter(currencies)) if currencies else None,
+        "latency_ms": total_latency,
+    }
+    if not cost_complete:
+        totals["cost_complete"] = False
     report: dict[str, object] = {
         "schema_version": "v1alpha1",
         "record_type": "l1_baseline_report",
@@ -131,13 +142,7 @@ def build_baseline_report(events_path: Path) -> dict[str, object]:
         "run_id": run_id,
         "config_hash": started.get("config_hash"),
         "metrics": metrics,
-        "totals": {
-            "input_tokens": total_input,
-            "output_tokens": total_output,
-            "cost_amount": str(total_cost),
-            "cost_currency": next(iter(currencies)) if currencies else None,
-            "latency_ms": total_latency,
-        },
+        "totals": totals,
         "cases": cases,
     }
     validate_public_data(report)

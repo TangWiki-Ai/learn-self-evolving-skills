@@ -18,9 +18,10 @@ from ses.contracts import (
     ErrorPayload,
     RecordType,
     SchemaVersion,
+    UsagePayload,
 )
 from ses.engines.claude_code import ClaudeCodeEngine
-from ses.foundation.config import LockedModel
+from ses.foundation.config import LockedModel, ProviderId
 from ses.foundation.credentials import ProviderCredentials
 from ses.foundation.workspace import WorkspaceFactory
 
@@ -43,6 +44,7 @@ def _engine(
     *,
     environ: dict[str, str] | None = None,
     output_json_schema: dict[str, object] | None = None,
+    provider: ProviderId = ProviderId.SILICONFLOW,
 ) -> ClaudeCodeEngine:
     workspace = WorkspaceFactory(tmp_path / "workspaces").create(
         run_id="run-1",
@@ -52,10 +54,20 @@ def _engine(
     )
     return ClaudeCodeEngine(
         model=LockedModel(
-            model_id="deepseek-ai/DeepSeek-V3.2",
-            base_url="https://api.siliconflow.cn/",
+            model_id=(
+                "claude-sonnet-4-6"
+                if provider is ProviderId.CHATANYWHERE
+                else "deepseek-ai/DeepSeek-V3.2"
+            ),
+            base_url=(
+                "https://api.chatanywhere.tech/"
+                if provider is ProviderId.CHATANYWHERE
+                else "https://api.siliconflow.cn/"
+            ),
         ),
-        credentials=ProviderCredentials(api_key="exact-process-secret"),
+        credentials=ProviderCredentials(
+            api_key="exact-process-secret", provider=provider
+        ),
         workspace=workspace,
         executable=executable,
         environ=environ or {"PATH": os.environ.get("PATH", "")},
@@ -190,6 +202,44 @@ for event in events:
     assert "exact-process-secret" not in "\n".join(
         event.model_dump_json() for event in events
     )
+
+
+def test_chatanywhere_keeps_tokens_but_discards_claude_cost_estimate(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "fake-chatanywhere-claude"
+    _write_executable(
+        executable,
+        """
+import json
+print(json.dumps({
+    "type":"result",
+    "subtype":"success",
+    "is_error":False,
+    "session_id":"session-1",
+    "usage":{"input_tokens":17,"output_tokens":5},
+    "total_cost_usd":0.42
+}), flush=True)
+""",
+    )
+    engine = _engine(
+        tmp_path,
+        str(executable),
+        provider=ProviderId.CHATANYWHERE,
+    )
+
+    events = asyncio.run(_collect(engine, _request()))
+    usage_payload = next(
+        event.payload for event in events if isinstance(event.payload, UsagePayload)
+    )
+    environment = engine.build_environment()
+
+    assert usage_payload.usage.input_tokens == 17
+    assert usage_payload.usage.output_tokens == 5
+    assert usage_payload.usage.cost_amount is None
+    assert usage_payload.usage.cost_currency is None
+    assert environment["ANTHROPIC_AUTH_TOKEN"] == "exact-process-secret"
+    assert "ANTHROPIC_API_KEY" not in environment
 
 
 def test_timeout_kills_the_subprocess_group(tmp_path: Path) -> None:

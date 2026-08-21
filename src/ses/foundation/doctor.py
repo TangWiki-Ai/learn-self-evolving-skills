@@ -33,6 +33,7 @@ from ses.foundation.config import (
     LockedModel,
     ModelLock,
     ModelRole,
+    ProviderId,
     RuntimeConfig,
     load_model_lock,
     load_runtime_config,
@@ -41,7 +42,7 @@ from ses.foundation.credentials import (
     ProviderCredentials,
     build_claude_environment,
     credential_values,
-    read_siliconflow_credentials,
+    read_provider_credentials,
 )
 from ses.foundation.credentials import redact as redact
 from ses.foundation.workspace import WorkspaceFactory
@@ -128,12 +129,15 @@ def _run_check(name: str, check: Any, *, secrets: Sequence[str] = ()) -> CheckRe
 
 
 def _load_runtime(
-    project_root: Path, config_path: Path | None
-) -> tuple[RuntimeConfig | None, ModelLock | None, CheckResult]:
+    project_root: Path,
+    config_path: Path | None,
+    provider: ProviderId | None,
+) -> tuple[RuntimeConfig | None, ModelLock | None, ProviderId | None, CheckResult]:
     if config_path is None:
         return (
             None,
             None,
+            provider,
             CheckResult(
                 "SKIP",
                 "Configuration",
@@ -142,16 +146,21 @@ def _load_runtime(
         )
     try:
         config = load_runtime_config(config_path)
-        lock = load_model_lock(project_root / config.models_lock)
+        selected_provider = provider or config.default_provider
+        lock = load_model_lock(project_root / config.models_lock_for(selected_provider))
+        if lock.provider is not selected_provider:
+            raise ValueError("selected provider does not match the loaded model lock")
     except ValueError as exc:
-        return None, None, CheckResult("FAIL", "Configuration", str(exc))
+        return None, None, provider, CheckResult("FAIL", "Configuration", str(exc))
     return (
         config,
         lock,
+        selected_provider,
         CheckResult(
             "PASS",
             "Configuration",
-            f"v1alpha1 / {len(lock.roles)} roles / {lock.engine} {lock.engine_version}",
+            f"v1alpha1 / {selected_provider.value} / {len(lock.roles)} roles / "
+            f"{lock.engine} {lock.engine_version}",
         ),
     )
 
@@ -320,11 +329,14 @@ def run_doctor(
     live: bool,
     timeout: float,
     environ: Mapping[str, str] | None = None,
+    provider: ProviderId | None = None,
 ) -> list[CheckResult]:
     """Run checks in local tools, config, data, model, MCP order."""
     source_environment = os.environ if environ is None else environ
     secrets = credential_values(source_environment)
-    config, lock, config_result = _load_runtime(project_root, config_path)
+    config, lock, selected_provider, config_result = _load_runtime(
+        project_root, config_path, provider
+    )
     executable = config.claude_executable if config is not None else "claude"
     claude_result = _run_check(
         "Claude Code", lambda: check_claude(executable), secrets=secrets
@@ -346,7 +358,7 @@ def run_doctor(
             )
         )
         return results
-    if config is None or lock is None:
+    if config is None or lock is None or selected_provider is None:
         results.extend(
             (
                 CheckResult(
@@ -383,7 +395,7 @@ def run_doctor(
         )
         return results
     try:
-        credentials = read_siliconflow_credentials(source_environment)
+        credentials = read_provider_credentials(selected_provider, source_environment)
     except RuntimeError as exc:
         results.extend(
             (
@@ -526,6 +538,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--config", type=Path)
+    parser.add_argument(
+        "--provider",
+        choices=tuple(provider.value for provider in ProviderId),
+        help="live provider; defaults to the runtime configuration",
+    )
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--timeout", type=float, default=20)
     return parser
@@ -545,6 +562,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         config_path=config_path,
         live=args.live,
         timeout=args.timeout,
+        provider=ProviderId(args.provider) if args.provider is not None else None,
     )
     for result in results:
         safe_detail = redact(result.detail)
