@@ -1,7 +1,6 @@
 # ruff: noqa: RUF001 -- Test data mirrors the Chinese review packet exactly.
 from __future__ import annotations
 
-import importlib.util
 import json
 import shutil
 import subprocess
@@ -11,23 +10,15 @@ from typing import Any, cast
 
 import pytest
 
+import ses.journey.asset_activation as activation
 from ses.runner.fake import load_develop_catalog
 from ses.skills.installer import load_skill_manifest, normalized_skill_sha256
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = PROJECT_ROOT / "scripts/activate_reviewed_assets.py"
-REVIEW_COMMIT = "a" * 40
 
 
-def _load_script() -> Any:
-    spec = importlib.util.spec_from_file_location("activate_reviewed_assets", SCRIPT)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _packet(*, signed: bool) -> str:
+def _packet(*, signed: bool, review_commit: str) -> str:
     mark = "x" if signed else " "
     signature = "Tang" if signed else "________________"
     signed_at = "2026-08-22T12:00:00Z" if signed else "________________"
@@ -35,7 +26,7 @@ def _packet(*, signed: bool) -> str:
 
 - 审核人：Tang
 - 审核日期（UTC）：2026-08-22
-- 审核 commit：{REVIEW_COMMIT}
+- 审核 commit：{review_commit}
 - 审核环境与 Provider：macOS; SiliconFlow and ChatAnywhere
 
 ## A. v0 Skill 复核
@@ -57,7 +48,16 @@ def _packet(*, signed: bool) -> str:
 """
 
 
-def _workspace(tmp_path: Path, *, signed: bool) -> Path:
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _workspace(tmp_path: Path, *, signed: bool) -> tuple[Path, str]:
     generated = tmp_path / "data/testset/ticket07/generated"
     generated.parent.mkdir(parents=True)
     shutil.copytree(
@@ -67,10 +67,27 @@ def _workspace(tmp_path: Path, *, signed: bool) -> Path:
     skill = tmp_path / "fixtures/seed/skill/v0"
     skill.parent.mkdir(parents=True)
     shutil.copytree(PROJECT_ROOT / "fixtures/seed/skill/v0", skill)
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "add", "data", "fixtures")
+    _git(
+        tmp_path,
+        "-c",
+        "user.name=Asset Review Test",
+        "-c",
+        "user.email=asset-review@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "reviewed assets",
+    )
+    review_commit = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+
     packet = tmp_path / "docs/release/human-review-packet.md"
     packet.parent.mkdir(parents=True)
-    packet.write_text(_packet(signed=signed), encoding="utf-8")
-    return tmp_path
+    packet.write_text(
+        _packet(signed=signed, review_commit=review_commit), encoding="utf-8"
+    )
+    return tmp_path, review_commit
 
 
 def _run(root: Path, *, confirm: bool = True) -> subprocess.CompletedProcess[str]:
@@ -87,7 +104,7 @@ def _run(root: Path, *, confirm: bool = True) -> subprocess.CompletedProcess[str
 
 
 def test_activation_requires_confirmation_and_signed_review(tmp_path: Path) -> None:
-    root = _workspace(tmp_path, signed=False)
+    root, _ = _workspace(tmp_path, signed=False)
     catalog = root / "data/testset/ticket07/generated/develop-manifest.json"
     skill = root / "fixtures/seed/skill/v0/skill-manifest.json"
     before = (catalog.read_bytes(), skill.read_bytes())
@@ -101,7 +118,7 @@ def test_activation_requires_confirmation_and_signed_review(tmp_path: Path) -> N
 
 
 def test_activation_is_valid_and_idempotent(tmp_path: Path) -> None:
-    root = _workspace(tmp_path, signed=True)
+    root, review_commit = _workspace(tmp_path, signed=True)
     catalog_path = root / "data/testset/ticket07/generated/develop-manifest.json"
     skill_root = root / "fixtures/seed/skill/v0"
 
@@ -110,11 +127,11 @@ def test_activation_is_valid_and_idempotent(tmp_path: Path) -> None:
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     assert catalog["review_status"] == "human_approved"
     assert catalog["intended_use"] == "fixed_and_live_journey"
-    assert catalog["review_commit"] == REVIEW_COMMIT
+    assert catalog["review_commit"] == review_commit
     assert len(catalog["asset_review_sha256"]) == 64
     load_develop_catalog(catalog_path, mode="live")
     manifest = load_skill_manifest(skill_root)
-    assert manifest.source_version.endswith(f"-approved@{REVIEW_COMMIT}")
+    assert manifest.source_version.endswith(f"-approved@{review_commit}")
     normalized_skill_sha256(skill_root)
 
     activated = (
@@ -129,18 +146,55 @@ def test_activation_is_valid_and_idempotent(tmp_path: Path) -> None:
     ) == activated
 
 
+@pytest.mark.parametrize("asset", ["catalog", "skill"])
+def test_activation_rejects_assets_changed_after_review(
+    tmp_path: Path, asset: str
+) -> None:
+    root, _ = _workspace(tmp_path, signed=True)
+    catalog = root / "data/testset/ticket07/generated/develop-manifest.json"
+    skill = root / "fixtures/seed/skill/v0/skill-manifest.json"
+    before = (catalog.read_bytes(), skill.read_bytes())
+    target = catalog if asset == "catalog" else skill
+    target.write_bytes(target.read_bytes() + b"\n")
+
+    completed = _run(root)
+
+    assert completed.returncode == 1
+    assert "differs from the reviewed commit" in completed.stderr
+    expected = list(before)
+    expected[0 if asset == "catalog" else 1] += b"\n"
+    assert (catalog.read_bytes(), skill.read_bytes()) == tuple(expected)
+
+
+def test_activation_rejects_unknown_review_commit(tmp_path: Path) -> None:
+    root, review_commit = _workspace(tmp_path, signed=True)
+    packet = root / "docs/release/human-review-packet.md"
+    packet.write_text(
+        packet.read_text(encoding="utf-8").replace(review_commit, "a" * 40),
+        encoding="utf-8",
+    )
+    catalog = root / "data/testset/ticket07/generated/develop-manifest.json"
+    skill = root / "fixtures/seed/skill/v0/skill-manifest.json"
+    before = (catalog.read_bytes(), skill.read_bytes())
+
+    completed = _run(root)
+
+    assert completed.returncode == 1
+    assert "not available" in completed.stderr
+    assert (catalog.read_bytes(), skill.read_bytes()) == before
+
+
 @pytest.mark.parametrize("failure", ["stage", "replace"])
 def test_pair_update_rolls_back_and_removes_temporary_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
-    module = _load_script()
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
     first.write_bytes(b"first-original")
     second.write_bytes(b"second-original")
 
     if failure == "stage":
-        original_stage: Any = module._stage
+        original_stage: Any = activation._stage
         calls = 0
 
         def fail_second_stage(path: Path, payload: bytes) -> Path:
@@ -150,9 +204,9 @@ def test_pair_update_rolls_back_and_removes_temporary_files(
                 raise OSError("staging failed")
             return cast(Path, original_stage(path, payload))
 
-        monkeypatch.setattr(module, "_stage", fail_second_stage)
+        monkeypatch.setattr(activation, "_stage", fail_second_stage)
     else:
-        original_replace: Any = module.os.replace
+        original_replace: Any = activation._replace
         calls = 0
 
         def fail_second_replace(source: Path, destination: Path) -> None:
@@ -162,9 +216,9 @@ def test_pair_update_rolls_back_and_removes_temporary_files(
                 raise OSError("replace failed")
             original_replace(source, destination)
 
-        monkeypatch.setattr(module.os, "replace", fail_second_replace)
+        monkeypatch.setattr(activation, "_replace", fail_second_replace)
 
-    replace_pair: Any = module._replace_pair
+    replace_pair: Any = activation._replace_pair
     with pytest.raises(OSError):
         replace_pair(
             first,

@@ -9,6 +9,8 @@
 - 审核 commit：________________
 - 审核环境与 Provider：________________
 
+“审核 commit”必须是当前仓库历史中包含待审核 `develop-manifest.json` 与 v0 `skill-manifest.json` 的完整 commit SHA。激活脚本会读取该 commit 中的两份文件，并拒绝审核后发生的任何替换。
+
 ## A. v0 Skill 的 9 条来源链复核
 
 主入口是 [`review-packet.json`](../../data/skill-v0/creator/review-packet.json) 和 [`seed-manifest.json`](../../data/skill-v0/creator/seed-manifest.json)。`creator/` 是历史证据路径，不代表当前产品会自动生成 Skill。你要直接核对 pinned source、工具回放、StateDiff、确定性 State Judge、模型证据和公开 projection。文件中任何“委托给 AI”的旧决定都不能替代本表。
@@ -70,7 +72,7 @@
 uv run python scripts/activate_reviewed_assets.py --confirm-signed-asset-review
 ```
 
-脚本会拒绝未填字段、未勾选项、无完整 40 位 commit、无签名或同时选择“暂不激活”的 packet。激活后再运行两家 Provider 的 live 路径，填写下一节。
+脚本会拒绝未填字段、未勾选项、不存在或不属于当前历史的审核 commit、审核后被替换的 manifest、无签名或同时选择“暂不激活”的 packet。激活后再运行两家 Provider 的 live 路径，填写下一节。
 
 `tests/engines/test_live.py` 是代表性组件 smoke。它可以用 pending fixture 检查 Model、Skill、Shop 和 Judge 是否连通，但不能替代 A、B，也不能单独作为发布验收或模型成绩。
 
