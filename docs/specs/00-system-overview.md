@@ -12,6 +12,14 @@
 
 你通过 Claude Code 运行 live 评测，并在新 workspace 显式选择 `siliconflow` 或 `chatanywhere`。默认 CI 只使用 fixed fixture 和 fake engine。所有结论都链接到结构化 evidence；站 7 生成证据索引，并可以生成中英项目说明、面试准备和概念清单等辅助文件。没有完整证据时，机器模板保留空缺或草稿状态。
 
+## 运行时技术链路
+
+下图只解释单个用例如何运行、留证和判分。8 步 Journey 复用同一条链路完成 v0 基线、目标回放和 15 条全量回归；人工归因、Skill 修改与版本决定仍由你完成。
+
+[![单个用例从隔离执行、运行证据到确定性判分，并复用于基线、目标回放和全量回归](../assets/runtime-evaluation-flow.svg)](../assets/runtime-evaluation-flow.svg)
+
+图示 live 路径只在评测数据与 v0 Skill 完成人工复核并激活后开放。fixed CI 使用 fake engine，只验证管道，不代表真实模型成绩。
+
 ## User Stories
 
 1. 作为学习者，我想从一句“开始学习”进入或恢复当前步骤，以便不用记住内部模块顺序。

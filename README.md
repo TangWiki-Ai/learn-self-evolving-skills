@@ -116,7 +116,7 @@ uv run ses journey --help
 - 本地看板只提供本机只读访问，并拒绝目录穿越、符号链接逃逸和未登记文件。
 - 项目不保证一次运行一定出现失败、产生提升或通过回归检查。
 
-Provider、模型锁和费用语义见[基础运行时 Spec](docs/specs/01-foundation-runtime.md)。完整的 8 步路径与 live/fixed 规则见[交付 Spec](docs/specs/06-course-delivery.md)。
+单个用例的执行、留证和判分链路见[系统总览 Spec](docs/specs/00-system-overview.md)。Provider、模型锁和费用语义见[基础运行时 Spec](docs/specs/01-foundation-runtime.md)。完整的 8 步路径与 live/fixed 规则见[交付 Spec](docs/specs/06-course-delivery.md)。
 
 ## 维护者
 
