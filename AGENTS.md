@@ -28,7 +28,6 @@
 - 用户中断后，用户再次说“我要学习 Skill 自进化”时，直接恢复 `.ses/status.json` 中保存的 Provider、模型锁和站点。
 
 ## 修改前
-
 按任务阅读：
 
 1. `docs/product/prd.md`

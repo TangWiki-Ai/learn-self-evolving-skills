@@ -38,7 +38,6 @@ If they ask you to decide or edit for them, do it and say which decision you mad
 - Treat every result as evidence from this repository's controlled benchmark
   sandbox. Never present it as production traffic, production monitoring, or a
   guarantee about production behavior.
-
 ## New-user handoff
 
 When the user has just pulled the repository and installed dependencies, give a
