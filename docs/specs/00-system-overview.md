@@ -10,7 +10,7 @@
 
 提供一个面向 Agent 开发者的独立 Python 仓库和 `ses` CLI，以 STATE-Bench 客服退货沙盒承载可执行的 Skill 改进实战。项目级 instructor Skill 引导站 0–7 对应的 8 个步骤并操作终端；Journey CLI 编排 doctor、baseline、失败分析、候选修改、两道 Gate 和版本发布；本地只读看板展示 `.ses/status.json` 和已登记输出。
 
-你通过 Claude Code 运行 live 评测，并在新 workspace 显式选择 `siliconflow` 或 `chatanywhere`。默认 CI 只使用 fixed fixture 和 fake engine。所有结论都链接到结构化 evidence；站 7 生成证据索引，并可以生成中英项目说明、面试准备和概念清单等辅助文件。没有完整证据时，机器模板保留空缺或草稿状态。
+你通过 Claude Code 运行 live 评测。新 workspace 的 `ses journey start` 使用 `ses.json` 的默认 Provider；底层 `station` 命令仍要求显式 Provider。默认 CI 只使用 fixed fixture 和 fake engine。所有结论都链接到结构化 evidence；站 7 生成证据索引，并可以生成中英项目说明、面试准备和概念清单等辅助文件。没有完整证据时，机器模板保留空缺或草稿状态。
 
 ## 运行时技术链路
 
@@ -22,9 +22,9 @@
 
 ## User Stories
 
-1. 作为学习者，我想从一句“开始学习”进入或恢复当前步骤，以便不用记住内部模块顺序。
+1. 作为学习者，我想从一句“我要学习 Skill 自进化”进入或恢复当前步骤，以便不用记住内部模块顺序。
 2. 作为学习者，我想在本地看板查看 8 个步骤的进度、费用来源和报告链接，以便理解当前状态。
-3. 作为学习者，我想在新 live workspace 明确选择 Provider，以便系统不会从环境变量猜测我的意图。
+3. 作为学习者，我想让新 live workspace 使用配置的默认 Provider，以便系统不会从环境变量猜测我的意图。
 4. 作为学习者，我想运行 15 个可执行客服用例的 v0 baseline，以便获得当前 Skill 的基线结果。
 5. 作为学习者，我想从失败轨迹中选择用例并记录归因，以便让修改来自可回查证据。
 6. 作为学习者，我想把诊断定位到 Skill 文本和位置，以便控制修改范围。
@@ -36,6 +36,7 @@
 12. 作为测试作者，我想用 fixed fixture 跑完整 Journey，以便默认 CI 不联网、不产生费用、不读取 Key。
 13. 作为安全评审者，我想确认 Agent workspace、状态、报告和错误中不存在凭据或隐藏答案。
 14. 作为评审者，我想从可选说明文件回到 evidence JSON，以便核对所有数字。
+15. 作为新用户，我想把仓库链接交给 Claude Code，让它拉取仓库、安装依赖、介绍项目并询问我是否开始，以便不必先理解项目结构。
 
 ## Implementation Decisions
 
@@ -47,7 +48,7 @@
 - Simulation/Runner/Reporting 负责真实多轮执行、批量运行、恢复、用量记录和 HTML 报告。
 - Journey 只保留当前流程需要的运行、判分、Skill 检查、版本记录和输出生成能力。学习者不实现这些模块。
 - Journey 为站 0–7 建立一份 canonical 状态，原子写入 `.ses/status.json`。状态持久化实验模式、Provider、模型锁哈希、进度、决定、产物和用量；已存在 workspace 不允许切换模式、Provider 或模型锁。
-- 项目级 instructor Skill 的唯一入口和正文位于 `.agents/skills/self-evolving-skill-instructor/`。本地看板只读状态和 allowlist 输出，不承担教学正文或执行职责。
+- 项目级 instructor Skill 的唯一入口和正文位于 `.agents/skills/self-evolving-skill-instructor/`；仓库根目录的 Claude Code 入口只负责安装后把用户转交给它。本地看板只读状态和 allowlist 输出，不承担教学正文或执行职责。
 - live 路径支持 SiliconFlow 与 ChatAnywhere。两者共用 Claude Code Engine 合约，但使用不同模型锁、端点 allowlist 和环境凭据；系统不自动选择、路由或 fallback。
 - 每个 Provider 只锁定 live Agent 实际调用的一个模型。用户模拟由本地确定性逻辑驱动，Judge 使用 State 和 Rule 证据，不另外调用模型。
 - `fixed` 只作为仓库 CI seam。学习者路径不得使用 fixed 生成可对外声明的成绩。
@@ -74,7 +75,7 @@
 ## Out of Scope
 
 - 通用 Agent 托管平台、Web SaaS、多人账户、远程队列和云端控制面。
-- 自动 Provider 选择、跨 Provider fallback、负载均衡和结果等价保证。
+- 根据 Key 存在与否自动选择 Provider、跨 Provider fallback、负载均衡和结果等价保证。
 - 把 Key 保存到配置、报告、状态、fixtures 或课程自建凭据服务。
 - 使用真实企业生产日志或把 benchmark 数据包装成生产数据。
 - 训练或微调基础模型、修改 Claude Code 本体、实现通用 Agent 框架。

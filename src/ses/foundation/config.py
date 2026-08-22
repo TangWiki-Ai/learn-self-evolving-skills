@@ -121,10 +121,21 @@ class RuntimeConfig(StrictModel):
     """Project behavior configuration; credentials are deliberately absent."""
 
     schema_version: StrictStr = Field(pattern=r"^v1alpha1$")
+    default_provider: ProviderId = ProviderId.SILICONFLOW
     models_lock: StrictStr = "models.lock.json"
     chatanywhere_models_lock: StrictStr = "models.chatanywhere.lock.json"
     data_manifest: StrictStr = "data/upstream/manifest.json"
     claude_executable: StrictStr = "claude"
+
+    @field_validator("default_provider", mode="before")
+    @classmethod
+    def _parse_default_provider(cls, value: object) -> object:
+        try:
+            return ProviderId(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "runtime config contains an unknown default provider"
+            ) from exc
 
     @field_validator("models_lock", "chatanywhere_models_lock", "data_manifest")
     @classmethod

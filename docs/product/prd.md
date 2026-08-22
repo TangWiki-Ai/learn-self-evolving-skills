@@ -36,7 +36,7 @@
 ## 核心规则
 
 - 学习者路径只使用 live Claude Code。`fixed` 只供离线 CI，不能当作 live 成绩。
-- 新 workspace 必须显式选择 `siliconflow` 或 `chatanywhere`。恢复时不能切换 Provider 或模型锁。
+- 新 workspace 通过 `ses journey start` 使用 `ses.json` 中的默认 Provider；手动运行底层 `station` 命令时仍必须显式传入 `siliconflow` 或 `chatanywhere`。恢复时不能切换 Provider 或模型锁。
 - 失败必须来自实际运行。系统不制造失败，也不保证一次修改会提升。
 - 只有归因到 Skill 的目标才进入修改与目标回放。
 - 目标回放全部通过后，系统才运行完整 15-case 回归。
@@ -57,6 +57,7 @@ instructor Skill → ses journey → Claude Code + Shop MCP
 ```
 
 - instructor Skill 只保留在 `.agents/skills/self-evolving-skill-instructor/`。
+- Claude Code 入口负责从仓库链接完成安全拉取、依赖安装和项目介绍，再把学习引导交给 instructor Skill。
 - `ses` 顶层只公开 `journey`。内部模块不作为独立产品命令。
 - 本地看板只读 `.ses/status.json` 和登记过的输出，不执行命令、不读取 Key、不访问外网。
 - 每个 case 使用独立工作区、Claude 配置和订单状态。

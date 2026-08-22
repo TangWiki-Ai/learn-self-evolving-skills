@@ -16,7 +16,21 @@
 
 你不用重写评测引擎，也不用实现仓库里的 Python 管道。你主要做三件事：选择值得分析的失败、定位 Skill 问题、根据回归证据决定继续修改还是发布。
 
-## 三步开始
+## 两种开始方式
+
+### 方式 A：直接交给 Claude Code
+
+你可以把仓库链接发给 Claude Code，再说：
+
+```text
+帮我拉取这个仓库并安装依赖
+```
+
+Claude Code 会拉取仓库、运行依赖安装、介绍项目，然后主动问你：
+“依赖已安装。你要开始学习 Skill 自进化吗？”你确认后，它再引导你设置 API Key
+并开始运行。
+
+### 方式 B：你自己安装
 
 开始前，你需要：
 
@@ -24,11 +38,12 @@
 - [`uv`](https://docs.astral.sh/uv/)
 - Claude Code 2.1.220，用作实验执行引擎
 - Claude Code、Codex 或其他兼容 Agent Skills 的 coding agent，用于加载讲师 Skill
-- SiliconFlow 或 ChatAnywhere 的 API Key
+- 运行 live 评测时需要 SiliconFlow 或 ChatAnywhere 的 API Key。默认 Provider
+  在 `ses.json` 的 `default_provider` 中配置，当前默认值是 `siliconflow`。
 
-使用 Claude Code 时，同一个工具可以同时承担实验执行和讲师两个角色。实时评测会调用你选择的 Provider，可能产生费用；仓库不会自动选择 Provider，也不会根据预算自动停止。
+使用 Claude Code 时，同一个工具可以同时承担实验执行和讲师两个角色。实时评测会调用 `default_provider` 或你明确覆盖的 Provider，可能产生费用；仓库不会根据预算自动停止。
 
-### 1. 安装
+#### 1. 安装
 
 ```bash
 git clone https://github.com/TangWiki-Ai/learn-self-evolving-skills.git
@@ -36,27 +51,23 @@ cd learn-self-evolving-skills
 uv sync --no-dev --locked
 ```
 
-### 2. 设置一个 Provider Key
-
-二选一。终端不会回显你粘贴的内容；粘贴 Key 后按回车。Key 只放在当前 shell 的环境变量中，不要粘进聊天，也不要直接写进命令、shell history、仓库或配置文件。
-
-```bash
-read -rs SILICONFLOW_API_KEY
-export SILICONFLOW_API_KEY
-# 或
-read -rs CHATANYWHERE_API_KEY
-export CHATANYWHERE_API_KEY
-```
-
-### 3. 开始学习
+#### 2. 学习 Skill 自进化
 
 在 coding agent 中打开仓库，然后说：
 
 ```text
-开始学习
+我要学习 Skill 自进化
 ```
 
-项目级讲师 Skill 会检查环境、询问你使用哪个 Provider、启动本地看板，并带你完成当前步骤。新工作目录的第一条实时命令会明确写出 Provider：
+项目级讲师 Skill 会进入 Skill 自进化流程并运行 `uv run ses journey start`。它会读取默认
+Provider，检查环境并开始第 0 步；如果已有 `.ses/status.json`，它会沿用已保存
+的 Provider 和模型锁。你不需要先选择 Provider，也不需要先启动看板。
+
+讲师会在你确认开始后，引导你在启动 coding agent 的同一个 shell 设置匹配的
+Key。终端不会回显你粘贴的内容；Key 只放在当前 shell 的环境变量中，不要粘进聊天，
+也不要直接写进命令、shell history、仓库或配置文件。
+
+需要手动覆盖默认值时，才使用：
 
 ```bash
 uv run ses journey station 0 --provider siliconflow
@@ -97,7 +108,7 @@ uv run ses journey dashboard
 
 本地看板默认打开 `http://127.0.0.1:8765/`，展示当前步骤、运行状态和已登记输出。它不执行命令，不写文件，不读取 Key，也不访问外网。
 
-中断后保留 `.ses/`，再次说“开始学习”即可继续。已有工作目录会沿用保存的 Provider 和模型锁；不要切换 Provider。回归检查未通过也不妨碍你整理当前运行记录。
+中断后保留 `.ses/`，再次说“我要学习 Skill 自进化”即可继续。已有工作目录会沿用保存的 Provider 和模型锁；不要切换 Provider。回归检查未通过也不妨碍你整理当前运行记录。
 
 如需手动操作，可以查看命令帮助：
 
@@ -109,7 +120,7 @@ uv run ses journey --help
 
 ## 证据与边界
 
-- 学习者路径使用实时 Claude Code 和你明确选择的 Provider。`--mode fixed` 只供仓库 CI 使用，不能代表实时模型成绩。
+- 学习者路径使用实时 Claude Code 和配置/持久化的 Provider。新入口读取 `ses.json` 的 `default_provider`，恢复时沿用 `.ses/status.json`；`--mode fixed` 只供仓库 CI 使用，不能代表实时模型成绩。
 - 可执行客服用例来自固定的 STATE-Bench 环境。ABCD 提供语言和意图素材，tau2-bench 只提供去重与难度信号；这些资料都不是生产日志。
 - State Judge 和 Rule Judge 检查工具顺序、精确参数和最终状态；模型不能自行宣布通过。
 - 所有 Key 只从进程环境读取。系统会在写入 JSON、HTML、Markdown、决策或候选前检查敏感内容。

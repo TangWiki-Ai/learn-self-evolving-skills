@@ -478,7 +478,7 @@ _DOCUMENT = r"""<!doctype html>
         <div class="status-banner" id="status-banner" data-state="waiting" role="status" aria-live="polite">等待第一条运行记录。</div>
         <div class="next-action">
           <span id="current-command-label">下一步</span>
-          <code class="command-line" id="current-command">在 coding agent 中输入：开始学习</code>
+          <code class="command-line" id="current-command">在 coding agent 中输入：我要学习 Skill 自进化</code>
         </div>
       </section>
     </div>
@@ -765,7 +765,7 @@ _DOCUMENT = r"""<!doctype html>
           setText(currentStepTitle, "等待第一条运行记录");
           setText(currentStepDescription, "回到终端，让讲师检查环境并开始第一个步骤。");
           setText(currentCommandLabel, "下一步");
-          setText(currentCommand, "在 coding agent 中输入：开始学习");
+          setText(currentCommand, "在 coding agent 中输入：我要学习 Skill 自进化");
         }
         return;
       }

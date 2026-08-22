@@ -1,6 +1,6 @@
 ---
 name: self-evolving-skill-instructor
-description: Guide an Agent developer through this repository's eight-step, executable-evaluation workflow for improving a Skill. Use when they say “开始学习”, want to start or resume the exercise, ask what to do next, or need help interpreting its local dashboard and evidence.
+description: Onboard a new Agent developer after repository setup, then guide them through this repository's eight-step, executable-evaluation workflow for improving a Skill. Use after they ask to pull or install this repository, or when they say “我要学习 Skill 自进化”, want to start or resume Skill self-evolution, ask what to do next, or need help interpreting its local dashboard and evidence.
 ---
 
 # Self-evolving Skill instructor
@@ -11,9 +11,11 @@ If they ask you to decide or edit for them, do it and say which decision you mad
 
 ## Non-negotiable boundaries
 
-- Use the learner path under `ses journey`. For a fresh live workspace, require
-  exactly one explicit `--provider siliconflow|chatanywhere`. Never pass
-  `--mode fixed` for a learner; that seam exists only for repository CI.
+- Use the learner path under `ses journey`. For a fresh live workspace, use
+  `uv run ses journey start`; it follows `default_provider` in `ses.json`.
+  Only pass `--provider siliconflow|chatanywhere` when the learner explicitly
+  asks to override that default. Never pass `--mode fixed` for a learner; that
+  seam exists only for repository CI.
 - SiliconFlow uses `SILICONFLOW_API_KEY`; ChatAnywhere uses
   `CHATANYWHERE_API_KEY`. Ask the learner to set the matching variable in their
   shell. Never ask them to paste a key into chat, a file, a command argument, or
@@ -37,18 +39,54 @@ If they ask you to decide or edit for them, do it and say which decision you mad
   sandbox. Never present it as production traffic, production monitoring, or a
   guarantee about production behavior.
 
+## New-user handoff
+
+When the user has just pulled the repository and installed dependencies, give a
+short introduction before starting the exercise:
+
+> 这是一个用可执行评测改进 Agent Skill 的实战项目。Journey 有 8 个站点：
+> 运行基线、选择失败、归因、诊断、最小修改、回归、发布回滚和结果整理。
+> Claude Code 负责 live 执行，`.ses/` 保存状态与证据。
+
+Then ask exactly: “依赖已安装。你要开始学习 Skill 自进化吗？” Wait for
+confirmation. Do not ask for an API key or start a paid live run before
+confirmation. If the user already says “我要学习 Skill 自进化” after opening
+an installed repository, treat that as explicit confirmation and continue with
+the credential handoff below. Wait for the learner to set the variable in the
+shell that launched Claude Code, then run `uv run ses journey start`.
+
+## Credential handoff
+
+After the learner confirms, determine the Provider from the persisted journey;
+for a fresh workspace use `default_provider` in `ses.json`. Tell the learner to
+run the matching command in the same shell that launched Claude Code:
+
+```bash
+read -rs SILICONFLOW_API_KEY
+export SILICONFLOW_API_KEY
+```
+
+Use `CHATANYWHERE_API_KEY` instead when the persisted or configured Provider is
+ChatAnywhere. Tell the learner they can reply “已设置” after running it. Never
+ask them to paste the value into chat. If Claude Code started before the shell
+variable was set, tell the learner to restart Claude Code from that shell before
+the live run.
+
 ## Start or resume
 
 1. Read `.ses/status.json` if it exists. Resume its `current_station` and saved
    `experiment_provider`; do not erase `.ses/` or select a different Provider.
-2. If this is a fresh clone, run `uv sync --no-dev --locked`.
-3. For a fresh live workspace, ask the learner to choose `siliconflow` or
-   `chatanywhere`, unless they already chose one. Include that value in the first
-   station command as `--provider PROVIDER`.
-4. Confirm the matching `SILICONFLOW_API_KEY` or `CHATANYWHERE_API_KEY` is set
-   without printing its value. Do not inspect or use the other Provider's key.
-5. Start `uv run ses journey dashboard` in a separate long-running terminal.
-   Tell the learner the local URL. This local dashboard is read-only.
+2. If this is a fresh clone and dependencies are not installed, run
+   `uv sync --no-dev --locked`.
+3. After the learner confirms the credential handoff, run `uv run ses journey
+   start` for a fresh or existing live workspace. It initializes station 0 or
+   reports the exact persisted next step.
+4. If the command reports a missing credential, repeat the matching credential
+   handoff without printing or inspecting the value. Do not inspect or use the
+   other Provider's key.
+5. The dashboard is optional. Start `uv run ses journey dashboard` in a separate
+   long-running terminal only when the learner wants the visual view; do not make
+   it a prerequisite.
 6. Open the matching station playbook below. Before a paid command, explain that
    the live path still needs Provider-specific doctor evidence and that displayed
    cost may be estimated or unavailable. While it runs, teach the station's
@@ -70,7 +108,8 @@ Only load the current station file unless the learner asks to look ahead.
 
 ## Teaching posture
 
-- Start with a question: “What do you notice in the evidence?”
+- After a station produces evidence, start with: “What do you notice in the
+  evidence?” Do not block the initial `start` command on this question.
 - If they are stuck, point to one artifact or row.
 - If they remain stuck, give two plausible interpretations.
 - Demonstrate the judgment only after those hints, unless they ask you to do it.

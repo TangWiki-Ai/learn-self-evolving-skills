@@ -1,5 +1,6 @@
 {
   "schema_version": "v1alpha1",
+  "default_provider": "siliconflow",
   "models_lock": "models.lock.json",
   "chatanywhere_models_lock": "models.chatanywhere.lock.json",
   "data_manifest": "data/upstream/manifest.json",

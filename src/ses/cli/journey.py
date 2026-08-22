@@ -18,7 +18,9 @@ from ses.journey import (
     DEFAULT_STATION_COMMANDS,
     ExperimentCostSource,
     ExperimentMode,
+    JourneyProgressStatus,
     JourneyStateError,
+    JourneyStatus,
     JourneyStatusStore,
 )
 from ses.journey.course import (
@@ -74,6 +76,20 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("release", "release-rollback-restore", "defer"),
     )
     station.add_argument("--json", action="store_true", dest="as_json")
+
+    start = commands.add_parser(
+        "start",
+        help="Start a new live journey or show the next step for an existing one.",
+    )
+    start.add_argument("--workspace", type=Path, default=Path.cwd())
+    start.add_argument("--project-root", type=Path, default=_project_root())
+    start.add_argument(
+        "--provider",
+        choices=tuple(ProviderId),
+        help="Override the configured provider for a new journey.",
+    )
+    start.add_argument("--timeout", type=float, default=300)
+    start.add_argument("--json", action="store_true", dest="as_json")
 
     dashboard = commands.add_parser(
         "dashboard", help="Start the local read-only dashboard."
@@ -240,6 +256,155 @@ def _status_store(
     return store, provider
 
 
+def _start_provider(
+    *,
+    workspace: Path,
+    project_root: Path,
+    requested_provider: str | None,
+) -> ProviderId:
+    """Resolve the provider for the low-friction start command.
+
+    A new journey follows the repository's configured default. An existing
+    journey follows its persisted provider so a resume cannot switch the
+    billing/model contract implicitly.
+    """
+
+    store = JourneyStatusStore(workspace)
+    if store.status_path.is_file():
+        state = store.load()
+        if state.experiment_mode is not ExperimentMode.LIVE:
+            raise JourneyStateError(
+                "journey start only resumes live journeys; this workspace is fixed"
+            )
+        if state.experiment_provider is None:
+            raise JourneyStateError("live journey has no persisted provider")
+        provider = state.experiment_provider
+        if (
+            requested_provider is not None
+            and ProviderId(requested_provider) is not provider
+        ):
+            raise JourneyStateError(
+                "requested provider differs from the provider persisted in .ses/status.json"
+            )
+        return provider
+
+    config = load_runtime_config(project_root / "ses.json")
+    return (
+        ProviderId(requested_provider)
+        if requested_provider
+        else config.default_provider
+    )
+
+
+def _run_station_with_store(
+    args: argparse.Namespace,
+    store: JourneyStatusStore,
+    provider: ProviderId | None,
+) -> StationRun:
+    store.start_station(args.number)
+    result = _execute(args, provider=provider)
+    _record_result(store, result)
+    return result
+
+
+def _print_start_state(
+    *,
+    state: JourneyStatus,
+    provider: ProviderId,
+    as_json: bool,
+) -> None:
+    station = state.stations[state.current_station]
+    payload = {
+        "action": (
+            "complete" if state.status is JourneyProgressStatus.COMPLETED else "resume"
+        ),
+        "journey_status": state.status.value,
+        "current_station": state.current_station,
+        "station_status": station.status.value,
+        "provider": provider.value,
+        "next_command": station.command,
+        "attention_reason": station.attention_reason,
+    }
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    if payload["action"] == "complete":
+        print("journey_complete")
+        print("所有学习站点已经完成。")
+        return
+    print("journey_ready_to_resume")
+    print(f"当前站点: {state.current_station}; 状态: {station.status.value}")
+    if station.attention_reason:
+        print(f"需要处理: {station.attention_reason}")
+    print(f"下一步: {station.command}")
+
+
+def _start_main(args: argparse.Namespace) -> int:
+    workspace = args.workspace.resolve()
+    project_root = args.project_root.resolve(strict=True)
+    workspace.mkdir(parents=True, exist_ok=True)
+    store: JourneyStatusStore | None = None
+    try:
+        resolved_provider = _start_provider(
+            workspace=workspace,
+            project_root=project_root,
+            requested_provider=args.provider,
+        )
+        store, persisted_provider = _status_store(
+            workspace,
+            project_root=project_root,
+            mode="live",
+            requested_provider=resolved_provider.value,
+        )
+        assert persisted_provider is not None
+        provider = persisted_provider
+        state = store.load()
+        if state.status is JourneyProgressStatus.COMPLETED:
+            _print_start_state(state=state, provider=provider, as_json=args.as_json)
+            return 0
+
+        if state.current_station != 0:
+            _print_start_state(state=state, provider=provider, as_json=args.as_json)
+            return 0
+
+        station_args = argparse.Namespace(
+            number=0,
+            workspace=workspace,
+            project_root=project_root,
+            mode="live",
+            provider=provider.value,
+            timeout=args.timeout,
+            select=None,
+            attribution=[],
+            diagnosis=[],
+            location=[],
+            rationale="",
+            decision="follow-gate",
+            release_action=None,
+            as_json=args.as_json,
+        )
+        result = _run_station_with_store(station_args, store, provider)
+    except (
+        JourneyCourseError,
+        JourneyStateError,
+        CredentialError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        message = _safe_message(exc)
+        if store is not None:
+            try:
+                store.mark_needs_attention(0, message)
+            except (JourneyStateError, OSError, TypeError, ValueError):
+                pass
+        print(f"journey_error:{message}", file=sys.stderr)
+        return 1
+    assert store is not None
+    _print_result(result, store, as_json=args.as_json)
+    return 0 if result.status == "completed" else 2
+
+
 def _record_result(
     store: JourneyStatusStore,
     result: StationRun,
@@ -326,9 +491,7 @@ def _station_main(args: argparse.Namespace) -> int:
             mode=args.mode,
             requested_provider=args.provider,
         )
-        store.start_station(args.number)
-        result = _execute(args, provider=provider)
-        _record_result(store, result)
+        result = _run_station_with_store(args, store, provider)
     except (
         JourneyCourseError,
         JourneyStateError,
@@ -378,6 +541,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.action == "station":
         return _station_main(args)
+    if args.action == "start":
+        return _start_main(args)
     if args.action == "dashboard":
         return _dashboard_main(args)
     try:

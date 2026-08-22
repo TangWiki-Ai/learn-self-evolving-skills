@@ -6,8 +6,18 @@ from typing import cast
 
 import pytest
 
+from ses.cli import journey as journey_cli
 from ses.cli.app import main
-from ses.journey import JourneyProgressStatus, JourneyStatusStore
+from ses.contracts.engine import Usage
+from ses.foundation.config import ProviderId
+from ses.journey import (
+    ExperimentCostSource,
+    ExperimentMode,
+    JourneyProgressStatus,
+    JourneyStateError,
+    JourneyStatusStore,
+)
+from ses.journey.course import StationRun
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -179,6 +189,90 @@ def test_new_live_journey_requires_explicit_provider(
     assert output.out == ""
     assert "requires --provider" in output.err
     assert not (tmp_path / ".ses/status.json").exists()
+
+
+def test_start_uses_configured_default_provider_without_prompt(
+    tmp_path: Path,
+) -> None:
+    assert (
+        journey_cli._start_provider(
+            workspace=tmp_path,
+            project_root=PROJECT_ROOT,
+            requested_provider=None,
+        )
+        is ProviderId.SILICONFLOW
+    )
+
+
+def test_start_resume_keeps_the_persisted_provider(
+    tmp_path: Path,
+) -> None:
+    JourneyStatusStore(tmp_path).initialize(
+        experiment_mode=ExperimentMode.LIVE,
+        experiment_provider=ProviderId.CHATANYWHERE,
+        model_lock_sha256="0" * 64,
+        cost_source=ExperimentCostSource.UNAVAILABLE,
+    )
+
+    assert (
+        journey_cli._start_provider(
+            workspace=tmp_path,
+            project_root=PROJECT_ROOT,
+            requested_provider=None,
+        )
+        is ProviderId.CHATANYWHERE
+    )
+    with pytest.raises(JourneyStateError, match="persisted"):
+        journey_cli._start_provider(
+            workspace=tmp_path,
+            project_root=PROJECT_ROOT,
+            requested_provider=ProviderId.SILICONFLOW.value,
+        )
+
+
+def test_start_runs_station_zero_with_the_default_provider(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[ProviderId] = []
+
+    def fake_station_zero(**kwargs: object) -> StationRun:
+        provider = kwargs["provider"]
+        assert isinstance(provider, ProviderId)
+        seen.append(provider)
+        return StationRun(
+            number=0,
+            status="completed",
+            artifacts=(),
+            decisions=(),
+            usage=Usage(input_tokens=0, output_tokens=0),
+            metrics={"provider": provider.value},
+        )
+
+    monkeypatch.setattr(journey_cli, "run_station_0", fake_station_zero)
+    code = main(
+        [
+            "journey",
+            "start",
+            "--workspace",
+            str(tmp_path),
+            "--project-root",
+            str(PROJECT_ROOT),
+            "--json",
+        ]
+    )
+    output = capsys.readouterr()
+
+    assert code == 0
+    assert output.err == ""
+    payload = json.loads(output.out)
+    assert payload["station"] == 0
+    assert seen == [ProviderId.SILICONFLOW]
+    assert (
+        JourneyStatusStore(tmp_path).load().experiment_provider
+        is ProviderId.SILICONFLOW
+    )
 
 
 def test_chatanywhere_selection_ignores_siliconflow_key_and_is_persisted(

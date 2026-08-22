@@ -18,7 +18,7 @@
 6. 作为 evaluator，我想为每个 case 获得干净工作区和独立 Claude 配置，以便运行之间不会共享状态。
 7. 作为 evaluator，我想从 Engine 获得统一事件和用量，以便业务模块不解析供应商私有输出。
 8. 作为测试作者，我想注入 fake engine，以便默认测试能覆盖成功、工具调用、超时和错误路径。
-9. 作为学习者，我想显式选择 SiliconFlow 或 ChatAnywhere，并在恢复时沿用该选择，以便系统不会自动路由或读取错误的 Key。
+9. 作为学习者，我想让新入口使用配置的默认 Provider，并在恢复时沿用该选择，以便系统不会根据 Key 自动路由或读取错误的 Key。
 10. 作为安全评审者，我想验证 Agent 工作区中不存在 gold、参考轨迹和凭据，以便防止意外泄漏。
 
 ## Implementation Decisions
@@ -30,7 +30,7 @@
 - Engine 合约接受规范化运行请求，流式产生文本、工具调用、工具结果、用量、错误和结束事件。调用方不读取 Claude Code 原始 stdout。
 - 首个 Engine 适配器使用参数数组启动 Claude Code headless，支持新 session 和 resume，解析 stream-json，并在取消或超时后回收子进程。
 - live 路径显式支持 SiliconFlow 与 ChatAnywhere。两者各自使用端点 allowlist、单一 Agent 模型锁和环境变量。
-- 新 Journey workspace 必须显式选择 `siliconflow` 或 `chatanywhere`。选择与模型锁哈希写入 `.ses/status.json`；恢复时不得切换，也不能根据哪个 Key 存在而自动选择。
+- 新 Journey workspace 的 `start` 使用 `ses.json` 中的 `default_provider`；底层 `station` 命令仍必须显式选择 `siliconflow` 或 `chatanywhere`。选择与模型锁哈希写入 `.ses/status.json`；恢复时不得切换，也不能根据哪个 Key 存在而自动选择。
 - SiliconFlow 使用 `SILICONFLOW_API_KEY` 与锁定的 DeepSeek 模型；ChatAnywhere 使用 `CHATANYWHERE_API_KEY` 与锁定的 Claude 模型。隔离子进程只接收当前 Provider 所需的认证变量。
 - Engine 不实现自动路由、跨 Provider fallback 链或能力协商框架。
 - ChatAnywhere 的 Claude Code 流式用量若没有可验证的 Provider 费用，Engine 必须保留 token 并把费用设为不可用。Journey 写入 `cost_source=unavailable`、`cost_complete=false`；任何消费者都不能把它解释成零费用。
@@ -55,7 +55,7 @@
 
 ## Out of Scope
 
-- Provider 自动选择、动态路由、负载均衡、重试市场和跨 Provider 自动降级。
+- 根据 Key 自动选择、动态路由、负载均衡、重试市场和跨 Provider 自动降级。
 - 把密钥保存到项目配置、系统钥匙串或课程自建凭据服务。
 - 远程容器编排、分布式执行和多机数据缓存。
 - 在本地前置检查阶段运行模型或建立成本基准。

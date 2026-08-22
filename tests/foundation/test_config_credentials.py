@@ -72,6 +72,7 @@ def test_config_and_models_lock_are_strict_and_credential_free(tmp_path: Path) -
 def test_runtime_config_has_safe_project_relative_defaults() -> None:
     config = RuntimeConfig(schema_version="v1alpha1")
 
+    assert config.default_provider is ProviderId.SILICONFLOW
     assert config.models_lock == "models.lock.json"
     assert config.data_manifest == "data/upstream/manifest.json"
 
