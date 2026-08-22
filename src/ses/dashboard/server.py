@@ -333,12 +333,6 @@ def _artifact_manifest(
     return references
 
 
-def artifact_allowlist(status: Mapping[str, object]) -> frozenset[PurePosixPath]:
-    """Return the local report paths explicitly named by public status data."""
-
-    return frozenset(_artifact_manifest(status))
-
-
 class DashboardHTTPServer(ThreadingHTTPServer):
     """Threaded HTTP server carrying only an immutable workspace root and page."""
 
@@ -560,28 +554,13 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 def create_dashboard_server(
     workspace_root: Path,
     *,
-    host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
 ) -> DashboardHTTPServer:
-    """Bind a read-only dashboard server; callers own its lifecycle."""
+    """Bind a loopback-only read-only server; callers own its lifecycle."""
 
-    if not host.strip():
-        raise ValueError("dashboard host must not be empty")
     if not 0 <= port <= 65535:
         raise ValueError("dashboard port must be between 0 and 65535")
     if workspace_root.is_symlink() or not workspace_root.is_dir():
         raise ValueError("dashboard workspace must be a real directory")
     root = workspace_root.resolve(strict=True)
-    return DashboardHTTPServer((host, port), root)
-
-
-def serve_dashboard(
-    workspace_root: Path,
-    *,
-    host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT,
-) -> None:
-    """Serve until interrupted without changing anything in the workspace."""
-
-    with create_dashboard_server(workspace_root, host=host, port=port) as server:
-        server.serve_forever()
+    return DashboardHTTPServer((DEFAULT_HOST, port), root)

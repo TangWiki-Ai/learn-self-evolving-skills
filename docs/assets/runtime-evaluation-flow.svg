@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="runtime-flow-title runtime-flow-desc">
+  <title id="runtime-flow-title">一次评测如何形成判定</title>
+  <desc id="runtime-flow-desc">一个客服用例进入隔离工作区。资产完成人工激活后，live 模式由 Claude Code 和指定模型运行被测 Skill，并通过 Shop MCP 操作沙盒；fixed CI 使用 fake engine 和直接环境，只验证管道。系统从 Engine 事件生成 Trace，从订单前后快照生成 StateDiff，再分别交给 Rule Judge 和 State Judge 做确定性判分，汇总为带证据引用的用例结果。同一条链路用于 v0 基线、目标回放和完整十五条回归。</desc>
+  <defs>
+    <marker id="runtime-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#67645f"/>
+    </marker>
+    <marker id="runtime-arrow-brand" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c45c43"/>
+    </marker>
+    <style>
+      .sans { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .serif { font-family: Georgia, "Songti SC", "STSong", serif; }
+      .ink { fill: #22211e; }
+      .muted { fill: #67645f; }
+      .brand { fill: #a94b37; }
+      .eyebrow { font-size: 16px; font-weight: 700; letter-spacing: .06em; }
+      .section-label { font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+      .node-title { font-size: 20px; font-weight: 750; }
+      .node-copy { font-size: 16px; }
+      .small { font-size: 15px; }
+      .group { fill: #efede6; stroke: #d9d6ce; stroke-width: 1.5; }
+      .node { fill: #ffffff; stroke: #d9d6ce; stroke-width: 1.5; }
+      .node-brand { fill: #fff4ef; stroke: #c45c43; stroke-width: 1.7; }
+      .connector { fill: none; stroke: #67645f; stroke-width: 2.2; marker-end: url(#runtime-arrow); }
+      .divider { stroke: #dedbd3; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="720" rx="18" fill="#f7f6f1"/>
+  <rect x="1" y="1" width="1198" height="718" rx="17" fill="none" stroke="#e1ded6" stroke-width="2"/>
+
+  <text x="40" y="52" class="sans brand eyebrow">单次用例 · 运行时</text>
+  <text x="40" y="104" class="serif ink" font-size="44" font-weight="700">一次评测如何形成判定</text>
+  <text x="40" y="142" class="sans muted" font-size="19">Agent 在隔离环境中执行；系统从工具轨迹和最终状态生成可复查证据。</text>
+
+  <!-- Draw connectors before nodes so lines remain behind labels. -->
+  <path class="connector" d="M 194 358 H 224"/>
+  <path class="connector" d="M 500 358 H 518 V 286 H 536"/>
+  <path class="connector" d="M 500 358 H 518 V 424 H 536"/>
+  <path class="connector" d="M 704 286 H 748"/>
+  <path class="connector" d="M 704 424 H 748"/>
+  <path class="connector" d="M 938 286 H 966 V 350 H 990"/>
+  <path class="connector" d="M 938 424 H 966 V 350 H 990"/>
+
+  <!-- Input -->
+  <text x="40" y="202" class="sans brand section-label">输入</text>
+  <rect x="40" y="220" width="154" height="276" rx="12" class="node"/>
+  <circle cx="67" cy="252" r="6" fill="#c45c43"/>
+  <text x="84" y="259" class="sans ink node-title">当前用例</text>
+  <line x1="58" y1="278" x2="176" y2="278" class="divider"/>
+  <text x="58" y="311" class="sans muted node-copy">15 条 develop</text>
+  <text x="58" y="336" class="sans muted node-copy">用例中的一条</text>
+  <line x1="58" y1="362" x2="176" y2="362" class="divider"/>
+  <text x="58" y="394" class="sans ink small" font-weight="700">固定输入</text>
+  <text x="58" y="421" class="sans muted small">用户目标</text>
+  <text x="58" y="446" class="sans muted small">订单种子</text>
+  <text x="58" y="471" class="sans muted small">政策断言</text>
+
+  <!-- Isolated case workspace -->
+  <text x="224" y="202" class="sans brand section-label">隔离执行</text>
+  <rect x="224" y="220" width="276" height="276" rx="12" class="group"/>
+  <text x="246" y="253" class="sans ink node-title">case workspace</text>
+  <text x="246" y="279" class="sans muted small">每条用例使用独立目录和订单状态</text>
+
+  <path d="M 300 400 V 374" fill="none" stroke="#c45c43" stroke-width="2" marker-end="url(#runtime-arrow-brand)"/>
+  <path d="M 424 374 V 400" fill="none" stroke="#67645f" stroke-width="2" marker-start="url(#runtime-arrow)" marker-end="url(#runtime-arrow)"/>
+
+  <rect x="246" y="296" width="232" height="78" rx="10" class="node"/>
+  <text x="262" y="322" class="sans brand small" font-weight="700">执行引擎</text>
+  <text x="262" y="347" class="sans ink small">确定性用户模拟 ↔ Claude Code</text>
+  <text x="262" y="369" class="sans muted small">live: 指定 Provider + 模型锁</text>
+
+  <rect x="246" y="400" width="108" height="66" rx="10" class="node-brand"/>
+  <text x="300" y="427" text-anchor="middle" class="sans ink small" font-weight="750">被测 Skill</text>
+  <text x="300" y="452" text-anchor="middle" class="sans muted small">当前快照</text>
+
+  <rect x="370" y="400" width="108" height="66" rx="10" class="node"/>
+  <text x="424" y="427" text-anchor="middle" class="sans ink small" font-weight="750">Shop 沙盒</text>
+  <text x="424" y="452" text-anchor="middle" class="sans muted small">live: MCP</text>
+
+  <text x="362" y="487" text-anchor="middle" class="sans muted small">fixed CI：fake engine + 直接环境</text>
+
+  <!-- Evidence rail -->
+  <text x="536" y="202" class="sans brand section-label">运行证据</text>
+  <rect x="536" y="220" width="168" height="276" rx="12" class="node"/>
+  <circle cx="566" cy="286" r="7" fill="#c45c43"/>
+  <text x="588" y="282" class="sans ink node-title">Trace</text>
+  <text x="588" y="307" class="sans muted small">来自 Engine 事件</text>
+  <text x="588" y="332" class="sans muted small">消息 · 工具调用</text>
+  <text x="588" y="357" class="sans muted small">结果 · 用量</text>
+
+  <line x1="554" y1="385" x2="686" y2="385" class="divider"/>
+
+  <circle cx="566" cy="424" r="7" fill="#c45c43"/>
+  <text x="588" y="420" class="sans ink node-title">StateDiff</text>
+  <text x="588" y="445" class="sans muted small">来自环境快照</text>
+  <text x="588" y="470" class="sans muted small">订单前后状态</text>
+
+  <!-- Deterministic judges -->
+  <text x="748" y="202" class="sans brand section-label">确定性判分</text>
+  <rect x="748" y="220" width="190" height="132" rx="12" class="node-brand"/>
+  <text x="770" y="252" class="sans ink node-title">Rule Judge</text>
+  <text x="770" y="281" class="sans muted node-copy">工具顺序 · 参数 · 次数</text>
+  <text x="770" y="307" class="sans muted node-copy">必需与禁止调用</text>
+  <text x="770" y="333" class="sans brand small" font-weight="700">输入：Trace</text>
+
+  <rect x="748" y="376" width="190" height="120" rx="12" class="node-brand"/>
+  <text x="770" y="408" class="sans ink node-title">State Judge</text>
+  <text x="770" y="437" class="sans muted node-copy">比较期望与实际</text>
+  <text x="770" y="463" class="sans muted node-copy">StateDiff</text>
+  <text x="770" y="485" class="sans brand small" font-weight="700">输入：StateDiff</text>
+
+  <!-- Case result -->
+  <text x="990" y="202" class="sans brand section-label">用例结果</text>
+  <rect x="990" y="264" width="170" height="172" rx="12" class="node"/>
+  <text x="1012" y="301" class="sans brand" font-size="14" font-weight="750">FAILURE-FIRST 汇总</text>
+  <text x="1012" y="340" class="sans ink node-title">Case 判定</text>
+  <text x="1012" y="370" class="sans muted node-copy">状态 + 失败原因</text>
+  <text x="1012" y="397" class="sans muted node-copy">+ 证据引用</text>
+  <text x="1075" y="465" text-anchor="middle" class="sans brand small" font-weight="700">不采信模型自评</text>
+
+  <!-- The Journey reuses this case-level chain; lifecycle details stay in the README pipeline. -->
+  <line x1="40" y1="532" x2="1160" y2="532" class="divider"/>
+  <rect x="40" y="558" width="1120" height="58" rx="10" fill="#efede6"/>
+  <circle cx="66" cy="587" r="6" fill="#c45c43"/>
+  <text x="86" y="593" class="sans ink" font-size="16" font-weight="700">同一条 case 链路用于</text>
+  <text x="280" y="593" class="sans muted" font-size="16">v0 全量基线</text>
+  <circle cx="410" cy="587" r="3" fill="#c45c43"/>
+  <text x="426" y="593" class="sans muted" font-size="16">目标回放</text>
+  <circle cx="522" cy="587" r="3" fill="#c45c43"/>
+  <text x="538" y="593" class="sans muted" font-size="16">15 条全量回归</text>
+  <text x="755" y="593" class="sans muted" font-size="15">批量比较与版本决定由 8 步 Journey 管理</text>
+
+  <rect x="40" y="636" width="1120" height="58" rx="8" fill="#22211e"/>
+  <text x="60" y="660" class="sans" fill="#ffffff" font-size="15" font-weight="700">判分来自 Trace、StateDiff 和确定性断言，不调用评测模型，也不采信模型自评。</text>
+  <text x="60" y="683" class="sans" fill="#d8d5ce" font-size="15">live 只在评测资产完成人工复核并激活后开放；fixed CI 只验证管道，不代表真实模型成绩。</text>
+</svg>

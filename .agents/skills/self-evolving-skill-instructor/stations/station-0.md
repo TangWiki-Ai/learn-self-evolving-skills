@@ -38,12 +38,5 @@ Continue when `.ses/evidence/station-0.json` exists and dashboard station 0 is
 complete. Open both L1 links. If doctor or the live run fails, use the recorded
 reason and resume the same command after fixing it; do not delete `.ses/`.
 
-## Production comparison
-
-Pending Owner review. For now state only: this is a controlled STATE-Bench
-customer-support sandbox, not production traffic or production monitoring.
-
-## Further source
-
-- [OpenAI: Build skills](https://learn.chatgpt.com/docs/build-skills) — project
-  Skill structure and progressive disclosure.
+State clearly that this is a controlled STATE-Bench customer-support sandbox,
+not production traffic or production monitoring.

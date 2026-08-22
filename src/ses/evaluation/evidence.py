@@ -44,15 +44,6 @@ def timeline_evidence(artifact: ArtifactRef) -> EvidenceRef:
     return evidence_ref(artifact, "/events")
 
 
-def snapshot_evidence(
-    artifact: ArtifactRef,
-    *state_tokens: str,
-) -> EvidenceRef:
-    """Point at a state field in a persisted ``ShopSnapshot``."""
-
-    return evidence_ref(artifact, join_json_pointer("state", *state_tokens))
-
-
 def state_diff_evidence(
     artifact: ArtifactRef,
     bucket: str,

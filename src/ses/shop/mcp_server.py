@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ses.contracts import ToolResult, ToolResultStatus
 from ses.shop.artifacts import SnapshotArtifactWriter
-from ses.shop.environment import CASE_ID, CaseEnvironment, ShopRole
+from ses.shop.environment import CASE_ID, CaseEnvironment
 from ses.shop.fixture import PINNED_CASE_FIXTURE, ReturnCaseFixture
 
 
@@ -122,11 +122,6 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Evaluator-provided ReturnCaseFixture JSON for an isolated run.",
     )
     parser.add_argument(
-        "--role",
-        default=ShopRole.AGENT.value,
-        choices=[role.value for role in ShopRole],
-    )
-    parser.add_argument(
         "--artifact-root",
         type=Path,
         help=(
@@ -144,10 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fixture is not None
         else None
     )
-    environment = CaseEnvironment(
-        PINNED_CASE_FIXTURE if fixture is None else fixture,
-        role=ShopRole(args.role),
-    )
+    environment = CaseEnvironment(PINNED_CASE_FIXTURE if fixture is None else fixture)
     artifact_writer = (
         None
         if args.artifact_root is None

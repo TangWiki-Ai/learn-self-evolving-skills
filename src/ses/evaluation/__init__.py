@@ -1,27 +1,18 @@
-"""Trace construction, zero-cost preflight, and deterministic Judges."""
+"""Trace construction and deterministic Judges."""
 
 from ses.evaluation.aggregate import aggregate_case_grade, aggregate_status
 from ses.evaluation.errors import (
     EvaluationError,
     EvaluationErrorCode,
-    PreflightError,
     TraceBuildError,
 )
 from ses.evaluation.evidence import (
     escape_json_pointer_token,
     evidence_ref,
     join_json_pointer,
-    snapshot_evidence,
     state_diff_evidence,
     timeline_evidence,
     trace_event_evidence,
-)
-from ses.evaluation.expect import (
-    BudgetLimits,
-    ExpectResult,
-    PreflightStatus,
-    check_expectations,
-    expect,
 )
 from ses.evaluation.judges import (
     Rule,
@@ -30,8 +21,6 @@ from ses.evaluation.judges import (
     judge_rules,
     judge_rules_across_traces,
     judge_state,
-    rule_judge,
-    state_judge,
     tool_arguments,
     tool_called,
     tool_count,
@@ -41,20 +30,13 @@ from ses.evaluation.trace import (
     TraceMessage,
     TraceToolCall,
     build_trace,
-    trace_exit_status,
-    trace_from_events,
     trace_messages,
     trace_tool_calls,
-    trace_usage,
 )
 
 __all__ = [
-    "BudgetLimits",
     "EvaluationError",
     "EvaluationErrorCode",
-    "ExpectResult",
-    "PreflightError",
-    "PreflightStatus",
     "Rule",
     "RuleKind",
     "TraceBuildError",
@@ -63,28 +45,20 @@ __all__ = [
     "aggregate_case_grade",
     "aggregate_status",
     "build_trace",
-    "check_expectations",
     "escape_json_pointer_token",
     "evidence_ref",
-    "expect",
     "forbidden_call",
     "join_json_pointer",
     "judge_rules",
     "judge_rules_across_traces",
     "judge_state",
-    "rule_judge",
-    "snapshot_evidence",
     "state_diff_evidence",
-    "state_judge",
     "timeline_evidence",
     "tool_arguments",
     "tool_called",
     "tool_count",
     "tool_order",
     "trace_event_evidence",
-    "trace_exit_status",
-    "trace_from_events",
     "trace_messages",
     "trace_tool_calls",
-    "trace_usage",
 ]

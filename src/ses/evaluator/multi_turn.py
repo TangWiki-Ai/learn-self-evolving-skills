@@ -24,12 +24,10 @@ from ses.simulation import ConstrainedUserSimulator, SimulatorTurnKind
 class MultiTurnOutcome(StrEnum):
     """Evaluation outcomes before deterministic grading is attached."""
 
-    AGENT_FAIL = "agent_fail"
     COMPLETED = "completed"
     SIMULATOR_ERROR = "simulator_error"
     INFRASTRUCTURE_ERROR = "infrastructure_error"
     BUDGET_STOP = "budget_stop"
-    NOT_EVALUATED = "not_evaluated"
 
 
 @dataclass(frozen=True, slots=True)

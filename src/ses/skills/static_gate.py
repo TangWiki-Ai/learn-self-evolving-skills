@@ -11,7 +11,6 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from ses.contracts import SkillArtifactManifest
-from ses.skills.applicability import parse_skill_front_matter
 from ses.skills.installer import (
     SkillInstallError,
     load_skill_manifest,
@@ -86,11 +85,22 @@ class StaticGatePolicy:
     dangerous_pattern: re.Pattern[str] = _DANGEROUS
     description_pattern: re.Pattern[str] | None = None
     forbidden_content_patterns: tuple[re.Pattern[str], ...] = ()
-    allowed_source_kinds: frozenset[str] | None = None
-    required_tool_protocol_sha256: str | None = None
 
 
 DEFAULT_STATIC_GATE_POLICY = StaticGatePolicy()
+
+
+def _parse_skill_front_matter(content: str) -> dict[str, str] | None:
+    match = re.match(r"\A---\n(?P<header>.*?)\n---\n", content, flags=re.DOTALL)
+    if match is None:
+        return None
+    metadata: dict[str, str] = {}
+    for line in match.group("header").splitlines():
+        if ":" not in line:
+            return None
+        key, value = line.split(":", 1)
+        metadata[key.strip()] = value.strip()
+    return metadata
 
 
 class StaticGateStatus(StrEnum):
@@ -145,7 +155,7 @@ def run_static_gate(
         skill_content = (source / "SKILL.md").read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         skill_content = ""
-    metadata = parse_skill_front_matter(skill_content)
+    metadata = _parse_skill_front_matter(skill_content)
     required = {"name", "description", "allowed-tools"}
     metadata_ok = (
         metadata is not None
@@ -278,31 +288,6 @@ def run_static_gate(
                 domain_content_ok,
                 "no domain-specific leakage or action bypass found",
                 "candidate contains domain leakage or an action bypass",
-            ),
-        )
-    if policy.allowed_source_kinds is not None:
-        source_kind_ok = (
-            manifest is not None and manifest.source_kind in policy.allowed_source_kinds
-        )
-        checks += (
-            _check(
-                "manifest_source_kind",
-                source_kind_ok,
-                "manifest origin is allowed for this domain",
-                "manifest origin is missing or forbidden for this domain",
-            ),
-        )
-    if policy.required_tool_protocol_sha256 is not None:
-        protocol_ok = (
-            manifest is not None
-            and manifest.tool_protocol_sha256 == policy.required_tool_protocol_sha256
-        )
-        checks += (
-            _check(
-                "tool_protocol",
-                protocol_ok,
-                "manifest binds the required tool protocol",
-                "manifest does not bind the required tool protocol",
             ),
         )
     report = StaticGateReport(

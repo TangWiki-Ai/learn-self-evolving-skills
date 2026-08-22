@@ -10,7 +10,6 @@ from pydantic import JsonValue, ValidationError
 from ses.contracts import (
     CompletedPayload,
     EngineEvent,
-    EngineExitStatus,
     EngineRequest,
     RecordType,
     SchemaVersion,
@@ -19,7 +18,6 @@ from ses.contracts import (
     ToolResultPayload,
     Trace,
     TraceId,
-    Usage,
     UsagePayload,
 )
 
@@ -161,18 +159,3 @@ def trace_tool_calls(trace: Trace) -> tuple[TraceToolCall, ...]:
             )
         )
     return tuple(calls)
-
-
-def trace_usage(trace: Trace) -> Usage | None:
-    """Return the canonical cumulative usage summary."""
-
-    return trace.usage
-
-
-def trace_exit_status(trace: Trace) -> EngineExitStatus:
-    """Return the terminal engine outcome without grading it."""
-
-    return trace.exit_status
-
-
-trace_from_events = build_trace

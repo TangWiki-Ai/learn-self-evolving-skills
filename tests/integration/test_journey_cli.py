@@ -97,8 +97,7 @@ def test_fixed_ci_seam_runs_the_existing_cases_and_always_allows_summary(
     summary_metrics = cast(dict[str, object], summary["metrics"])
     assert summary_metrics["deliverable_count"] == 6
     assert cast(int, summary_metrics["evidence_index_count"]) > 19
-    assert summary_metrics["portfolio_status"] == "synthetic_ci_only"
-    assert summary_metrics["production_content_review"] == "pending_owner_review"
+    assert summary_metrics["evidence_status"] == "synthetic_ci_only"
 
     facts = json.loads(
         (tmp_path / ".ses/deliverables/evidence-facts.json").read_text(encoding="utf-8")

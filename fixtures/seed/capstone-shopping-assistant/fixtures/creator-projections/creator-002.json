@@ -1,1 +1,0 @@
-{"projection_id":"shopping-creator-projection-002","scenario":"single","reusable_behaviors":["搜索结果为空时改写查询但不放宽硬约束","没有合格商品时明确安全结束"],"action_sequence":["search","search","finish_without_purchase"]}

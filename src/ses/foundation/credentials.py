@@ -84,22 +84,6 @@ def read_provider_credentials(
     return ProviderCredentials(api_key=value, provider=provider)
 
 
-def read_siliconflow_credentials(
-    environ: Mapping[str, str],
-) -> ProviderCredentials:
-    """Read the SiliconFlow credential from the process environment."""
-
-    return read_provider_credentials(ProviderId.SILICONFLOW, environ)
-
-
-def read_chatanywhere_credentials(
-    environ: Mapping[str, str],
-) -> ProviderCredentials:
-    """Read the ChatAnywhere credential from the process environment."""
-
-    return read_provider_credentials(ProviderId.CHATANYWHERE, environ)
-
-
 def _normalize_name(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
 

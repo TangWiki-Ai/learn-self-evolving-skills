@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
@@ -9,6 +10,15 @@ from ses.contracts.runner import RunnerStatus
 from ses.reporting.baseline import build_baseline_report
 from ses.reporting.html_l1 import render_l1_html, write_l1_html
 from ses.runner import BaselineRunner, BudgetLimits, CaseEvaluation
+from ses.runner.baseline import EvaluationContext
+
+
+class _TestEvaluator:
+    def __init__(self, evaluate: Callable[[str, str, int], CaseEvaluation]) -> None:
+        self._evaluate = evaluate
+
+    def evaluate_attempt(self, context: EvaluationContext) -> CaseEvaluation:
+        return self._evaluate(context.case_id, context.iteration_id, context.max_turns)
 
 
 def _evaluate(case_id: str, iteration_id: str, max_turns: int) -> CaseEvaluation:
@@ -51,7 +61,7 @@ def _evaluate(case_id: str, iteration_id: str, max_turns: int) -> CaseEvaluation
 
 
 def _run(tmp_path: Path, *, cases: int = 2, iterations: int = 2) -> Path:
-    completed = BaselineRunner(tmp_path, _evaluate).run(
+    completed = BaselineRunner(tmp_path, _TestEvaluator(_evaluate)).run(
         run_id="run-report",
         case_ids=tuple(f"case-{index}" for index in range(cases)),
         iterations=iterations,
@@ -99,7 +109,7 @@ def test_report_marks_an_unpriced_provider_attempt_incomplete(tmp_path: Path) ->
             cost_complete=False,
         )
 
-    completed = BaselineRunner(tmp_path, evaluate).run(
+    completed = BaselineRunner(tmp_path, _TestEvaluator(evaluate)).run(
         run_id="run-unpriced",
         case_ids=("case-0",),
         iterations=1,
@@ -186,7 +196,7 @@ def test_report_totals_all_attempts_but_displays_latest_iteration_result(
 
 
 def test_report_keeps_budget_skipped_plan_entries_visible(tmp_path: Path) -> None:
-    completed = BaselineRunner(tmp_path, _evaluate).run(
+    completed = BaselineRunner(tmp_path, _TestEvaluator(_evaluate)).run(
         run_id="run-partial-report",
         case_ids=("case-a", "case-b"),
         iterations=1,

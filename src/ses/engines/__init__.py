@@ -1,8 +1,8 @@
-"""Provider-neutral engine interface and the two Issue #2 adapters."""
+"""Provider-neutral engine interface with live and fixed adapters."""
 
 from ses.engines.base import Engine
 from ses.engines.claude_code import ClaudeCodeEngine
-from ses.engines.fake import FakeEngine, FakeFixture, load_fake_fixture
+from ses.engines.fake import FakeEngine, FakeFixture
 from ses.engines.stream_json import ClaudeStreamParser, StreamParseError
 
 __all__ = [
@@ -12,5 +12,4 @@ __all__ = [
     "FakeEngine",
     "FakeFixture",
     "StreamParseError",
-    "load_fake_fixture",
 ]

@@ -57,7 +57,6 @@ def test_runner_contracts_are_strict_immutable_and_keep_statuses_distinct() -> N
     [
         (RunEventType.BUDGET_STOP, RunnerStatus.PASS, "case_limit"),
         (RunEventType.BUDGET_STOP, RunnerStatus.BUDGET_STOP, None),
-        (RunEventType.NOT_EVALUATED, RunnerStatus.PASS, None),
     ],
 )
 def test_runner_event_type_requires_its_canonical_status(

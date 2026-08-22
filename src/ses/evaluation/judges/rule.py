@@ -28,7 +28,7 @@ from ..trace import TraceToolCall, trace_tool_calls
 
 
 class RuleKind(StrEnum):
-    """Deterministic rule forms supported by Issue #2."""
+    """Deterministic rule forms used by the Journey."""
 
     TOOL_CALLED = "tool_called"
     TOOL_COUNT = "tool_count"
@@ -719,6 +719,3 @@ def judge_rules_across_traces(
         artifact_by_call=artifact_by_call,
         judge_version=judge_version,
     )
-
-
-rule_judge = judge_rules

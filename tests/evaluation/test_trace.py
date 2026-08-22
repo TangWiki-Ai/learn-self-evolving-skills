@@ -18,10 +18,8 @@ from ses.contracts import (
 from ses.evaluation import (
     TraceBuildError,
     build_trace,
-    trace_exit_status,
     trace_messages,
     trace_tool_calls,
-    trace_usage,
 )
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "stream_json"
@@ -64,8 +62,8 @@ def test_canonical_fixture_preserves_events_messages_calls_usage_and_exit() -> N
     assert [event.sequence for event in trace.events] == list(range(9))
     assert len({event.event_id for event in trace.events}) == len(trace.events)
     assert trace.session_id == "session-normal"
-    assert trace_exit_status(trace) is EngineExitStatus.SUCCESS
-    assert trace_usage(trace) == Usage(input_tokens=17, output_tokens=11)
+    assert trace.exit_status is EngineExitStatus.SUCCESS
+    assert trace.usage == Usage(input_tokens=17, output_tokens=11)
     assert (
         trace_messages(trace)[0].text
         == "I will check the return policy. Then I will confirm the return."

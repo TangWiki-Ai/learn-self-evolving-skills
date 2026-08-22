@@ -29,11 +29,6 @@ rollback now?” Do not release merely to make the dashboard green.
 Inspect `.ses/evidence/version-timeline.json` and the timeline report. If the
 candidate was released, verify `.ses/versions/v1/` hashes to the Gate candidate.
 
-## Production comparison
-
-Pending Owner review. State clearly that this is a local version timeline, not a
-production deployment, traffic shift, or live rollback.
-
 ## Further source
 
 - Local report: `.ses/reports/station-6-versions.html`.

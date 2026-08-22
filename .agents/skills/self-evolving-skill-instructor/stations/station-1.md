@@ -33,11 +33,6 @@ small set with clear traces and say why.
 Continue when `.ses/decisions/station-1-selection.json` exists. Verify every
 selected ID appears in `.ses/evidence/bad-cases.json`.
 
-## Production comparison
-
-Pending Owner review. Do not turn the sandbox failure list into a claim about how
-production bad cases are collected.
-
 ## Further source
 
 - Repository evidence contract: `.ses/evidence/bad-cases.json` links each listed

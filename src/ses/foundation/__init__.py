@@ -3,7 +3,6 @@
 from ses.foundation.config import (
     LockedModel,
     ModelLock,
-    ModelRole,
     ProviderId,
     RuntimeConfig,
     load_model_lock,
@@ -13,9 +12,7 @@ from ses.foundation.credentials import (
     CredentialError,
     ProviderCredentials,
     build_claude_environment,
-    read_chatanywhere_credentials,
     read_provider_credentials,
-    read_siliconflow_credentials,
     redact,
     redact_data,
 )
@@ -26,7 +23,6 @@ __all__ = [
     "CredentialError",
     "LockedModel",
     "ModelLock",
-    "ModelRole",
     "ProviderCredentials",
     "ProviderId",
     "RuntimeConfig",
@@ -34,9 +30,7 @@ __all__ = [
     "build_claude_environment",
     "load_model_lock",
     "load_runtime_config",
-    "read_chatanywhere_credentials",
     "read_provider_credentials",
-    "read_siliconflow_credentials",
     "redact",
     "redact_data",
 ]

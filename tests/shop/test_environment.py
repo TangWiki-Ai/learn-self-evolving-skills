@@ -19,7 +19,6 @@ from ses.contracts import (
 from ses.shop import (
     CASE_DEFINITION,
     CaseEnvironment,
-    ShopRole,
     compute_return_policy,
     load_case_fixture,
     state_diff,
@@ -290,15 +289,6 @@ def test_repeated_write_is_rejected_without_a_second_mutation() -> None:
 
     assert _error_code(repeated) == "already_processed"
     assert environment.snapshot().state == after_first.state
-
-
-def test_roles_cannot_see_or_call_shop_tools_without_agent_permission() -> None:
-    environment = CaseEnvironment(role=ShopRole.SIMULATOR)
-
-    assert environment.available_tools() == ()
-    denied = environment.execute("get_order", {"order_id": "ORD-6006"})
-
-    assert _error_code(denied) == "permission_denied"
 
 
 def test_parallel_environments_do_not_share_preview_or_order_state() -> None:

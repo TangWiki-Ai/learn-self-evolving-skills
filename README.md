@@ -33,17 +33,19 @@
 ```bash
 git clone https://github.com/TangWiki-Ai/learn-self-evolving-skills.git
 cd learn-self-evolving-skills
-uv sync --all-extras --locked
+uv sync --no-dev --locked
 ```
 
 ### 2. 设置一个 Provider Key
 
-二选一。Key 只放在 shell 环境变量中，不要粘进聊天，也不要写进仓库、命令参数或配置文件。
+二选一。终端不会回显你粘贴的内容；粘贴 Key 后按回车。Key 只放在当前 shell 的环境变量中，不要粘进聊天，也不要直接写进命令、shell history、仓库或配置文件。
 
 ```bash
-export SILICONFLOW_API_KEY='你的 SiliconFlow Key'
+read -rs SILICONFLOW_API_KEY
+export SILICONFLOW_API_KEY
 # 或
-export CHATANYWHERE_API_KEY='你的 ChatAnywhere Key'
+read -rs CHATANYWHERE_API_KEY
+export CHATANYWHERE_API_KEY
 ```
 
 ### 3. 开始学习
@@ -114,17 +116,17 @@ uv run ses journey --help
 - 本地看板只提供本机只读访问，并拒绝目录穿越、符号链接逃逸和未登记文件。
 - 项目不保证一次运行一定出现失败、产生提升或通过回归检查。
 
-Provider、模型锁和费用语义见[基础运行时 Spec](docs/specs/01-foundation-runtime.md)。完整的 8 步路径与 live/fixed 规则见[交付 Spec](docs/specs/09-course-delivery.md)。
+单个用例的执行、留证和判分链路见[系统总览 Spec](docs/specs/00-system-overview.md)。Provider、模型锁和费用语义见[基础运行时 Spec](docs/specs/01-foundation-runtime.md)。完整的 8 步路径与 live/fixed 规则见[交付 Spec](docs/specs/06-course-delivery.md)。
 
 ## 维护者
 
 默认检查使用 fixed fixture 和 fake engine，不访问网络，也不读取付费 Key：
 
 ```bash
-uv sync --all-extras --locked
+uv sync --locked
 uv run ruff format --check .
 uv run ruff check .
-uv run mypy src tests
+uv run mypy src tests scripts
 uv run pytest
 ```
 

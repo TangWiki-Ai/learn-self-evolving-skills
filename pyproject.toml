@@ -5,8 +5,8 @@ build-backend = "uv_build"
 [project]
 name = "learn-self-evolving-skills"
 version = "0.1.0"
-description = "Build and evaluate self-evolving agent skills."
-readme = "README.md"
+description = "Executable evaluation workflow for improving Agent Skills."
+readme = { text = "The wheel contains the `ses journey` runtime only. Run the course from a clone of https://github.com/TangWiki-Ai/learn-self-evolving-skills so the benchmark, model locks, instructor Skill, and review evidence are available.", content-type = "text/markdown" }
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -14,10 +14,8 @@ dependencies = [
   "pydantic>=2.12,<3",
 ]
 
-[project.optional-dependencies]
-testset = [
-  "scikit-learn>=1.7,<2",
-]
+[project.urls]
+Repository = "https://github.com/TangWiki-Ai/learn-self-evolving-skills"
 
 [project.scripts]
 ses = "ses.cli.app:main"
@@ -44,11 +42,7 @@ python_version = "3.11"
 strict = true
 warn_unused_configs = true
 plugins = ["pydantic.mypy"]
-mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/scripts"
-
-[[tool.mypy.overrides]]
-module = ["sklearn.*"]
-ignore_missing_imports = true
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
@@ -58,10 +52,7 @@ warn_required_dynamic_aliases = true
 [tool.ruff]
 target-version = "py311"
 line-length = 88
-src = ["src", "tests"]
+src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP", "B", "RUF"]
-
-[tool.ruff.lint.per-file-ignores]
-"scripts/phase0_check.py" = ["RUF001"]

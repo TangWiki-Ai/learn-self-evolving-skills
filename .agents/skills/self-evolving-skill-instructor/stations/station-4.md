@@ -28,11 +28,6 @@ a valid decision.
 Continue when the static Gate passes and `.ses/current-candidate.json` points to
 an immutable candidate. Inspect `.ses/reports/station-4-diff.html` together.
 
-## Production comparison
-
-Pending Owner review. Do not teach the unreviewed optimization or protected-area
-claims yet.
-
 ## Further source
 
 - Candidate evidence: `.ses/decisions/station-4-patch-*.json`.

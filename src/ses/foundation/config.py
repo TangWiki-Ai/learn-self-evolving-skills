@@ -15,7 +15,6 @@ from pydantic import (
     Field,
     StrictStr,
     ValidationError,
-    field_serializer,
     field_validator,
     model_validator,
 )
@@ -34,15 +33,6 @@ class StrictModel(BaseModel):
         strict=True,
         hide_input_in_errors=True,
     )
-
-
-class ModelRole(StrEnum):
-    """Course roles resolved through the checked model lock."""
-
-    MAIN = "main"
-    CREATOR = "creator"
-    SIMULATOR = "simulator"
-    JUDGE = "judge"
 
 
 class ProviderId(StrEnum):
@@ -100,13 +90,13 @@ class LockedModel(StrictModel):
 
 
 class ModelLock(StrictModel):
-    """Pinned model identifiers for every course role."""
+    """Pinned model used by the live Agent execution path."""
 
     schema_version: StrictStr = Field(pattern=r"^v1alpha1$")
     engine: StrictStr = Field(pattern=r"^claude-code$")
     engine_version: StrictStr = Field(min_length=1)
     provider: ProviderId = ProviderId.SILICONFLOW
-    roles: Mapping[ModelRole, LockedModel]
+    model: LockedModel
 
     @field_validator("provider", mode="before")
     @classmethod
@@ -116,44 +106,15 @@ class ModelLock(StrictModel):
         except (TypeError, ValueError) as exc:
             raise ValueError("models lock contains an unknown provider") from exc
 
-    @field_validator("roles", mode="before")
-    @classmethod
-    def _parse_role_keys(cls, value: object) -> object:
-        if not isinstance(value, Mapping):
-            return value
-        try:
-            return {ModelRole(key): model for key, model in value.items()}
-        except (TypeError, ValueError) as exc:
-            raise ValueError("models lock contains an unknown role") from exc
-
-    @field_validator("roles")
-    @classmethod
-    def _all_roles_are_locked(
-        cls, value: Mapping[ModelRole, LockedModel]
-    ) -> Mapping[ModelRole, LockedModel]:
-        missing = set(ModelRole) - set(value)
-        if missing:
-            names = ", ".join(sorted(role.value for role in missing))
-            raise ValueError(f"models lock is missing roles: {names}")
-        return MappingProxyType(dict(value))
-
     @model_validator(mode="after")
-    def _provider_owns_every_endpoint(self) -> ModelLock:
-        for role, model in self.roles.items():
-            try:
-                validate_provider_base_url(self.provider, model.base_url)
-            except ValueError as exc:
-                raise ValueError(
-                    f"{role.value} base_url is not allowed for provider "
-                    f"{self.provider.value}"
-                ) from exc
+    def _provider_owns_endpoint(self) -> ModelLock:
+        try:
+            validate_provider_base_url(self.provider, self.model.base_url)
+        except ValueError as exc:
+            raise ValueError(
+                f"model base_url is not allowed for provider {self.provider.value}"
+            ) from exc
         return self
-
-    @field_serializer("roles")
-    def _serialize_roles(
-        self, value: Mapping[ModelRole, LockedModel]
-    ) -> dict[str, LockedModel]:
-        return {role.value: model for role, model in value.items()}
 
 
 class RuntimeConfig(StrictModel):
@@ -162,9 +123,7 @@ class RuntimeConfig(StrictModel):
     schema_version: StrictStr = Field(pattern=r"^v1alpha1$")
     models_lock: StrictStr = "models.lock.json"
     chatanywhere_models_lock: StrictStr = "models.chatanywhere.lock.json"
-    default_provider: ProviderId = ProviderId.SILICONFLOW
     data_manifest: StrictStr = "data/upstream/manifest.json"
-    workspace_root: StrictStr | None = None
     claude_executable: StrictStr = "claude"
 
     @field_validator("models_lock", "chatanywhere_models_lock", "data_manifest")
@@ -174,21 +133,6 @@ class RuntimeConfig(StrictModel):
         if path.is_absolute() or ".." in path.parts or not value.strip():
             raise ValueError("project paths must be non-empty relative paths")
         return path.as_posix()
-
-    @field_validator("default_provider", mode="before")
-    @classmethod
-    def _parse_default_provider(cls, value: object) -> object:
-        try:
-            return ProviderId(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError) as exc:
-            raise ValueError("runtime config contains an unknown provider") from exc
-
-    @field_validator("workspace_root")
-    @classmethod
-    def _optional_workspace_path(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        return cls._relative_project_path(value)
 
     @field_validator("claude_executable")
     @classmethod

@@ -6,7 +6,6 @@ import copy
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Final, cast
 
 from pydantic import JsonValue
@@ -29,15 +28,6 @@ TOOL_SCHEMA_VERSION: Final = "ses-shop-mcp-v1"
 CASE_DEFINITION: Final = PINNED_CASE_FIXTURE.case_definition()
 CASE_ID: Final = CASE_DEFINITION.case_id
 POLICY_VERSION: Final = PINNED_CASE_FIXTURE.policy_version
-
-
-class ShopRole(StrEnum):
-    """Roles allowed to attach to this case's shop MCP endpoint."""
-
-    AGENT = "agent"
-    SIMULATOR = "simulator"
-    JUDGE = "judge"
-    CREATOR = "creator"
 
 
 @dataclass
@@ -206,17 +196,14 @@ def _decision_json(decision: ReturnPolicyDecision) -> dict[str, JsonValue]:
 
 
 class CaseEnvironment:
-    """Fresh, role-scoped shop state deep-cloned from a typed fixture."""
+    """Fresh shop state deep-cloned from a typed fixture for one Agent run."""
 
     def __init__(
         self,
         fixture: ReturnCaseFixture = PINNED_CASE_FIXTURE,
-        *,
-        role: ShopRole = ShopRole.AGENT,
     ) -> None:
         self._source_fixture = fixture.model_copy(deep=True)
         self._fixture = self._source_fixture.model_copy(deep=True)
-        self._role = role
         self._state = _seed_state(self._fixture)
         self._policy_reviewed = False
         self._previewed_items: set[str] = set()
@@ -227,11 +214,6 @@ class CaseEnvironment:
     def case_definition(self) -> CaseDefinition:
         """Return the public case definition derived from this fixture."""
         return self._fixture.case_definition()
-
-    @property
-    def role(self) -> ShopRole:
-        """Return the role bound to this environment."""
-        return self._role
 
     def reset(self) -> ShopSnapshot:
         """Deep-clone the source fixture and restore its initial state."""
@@ -273,12 +255,6 @@ class CaseEnvironment:
                 "unknown_tool",
                 f"Unknown shop tool: {tool_name!r}.",
             )
-        if self._role is not ShopRole.AGENT:
-            return _tool_result_error(
-                tool_name,
-                "permission_denied",
-                f"Role {self._role.value!r} cannot call shop tools.",
-            )
         if not isinstance(arguments, Mapping):
             return _tool_result_error(
                 tool_name,
@@ -297,9 +273,7 @@ class CaseEnvironment:
         self._closed = True
 
     def available_tools(self) -> tuple[dict[str, JsonValue], ...]:
-        """Return the MCP schemas visible to the bound role."""
-        if self._role is not ShopRole.AGENT:
-            return ()
+        """Return the MCP schemas available to the evaluated Agent."""
         return tuple(copy.deepcopy(schema) for schema in _TOOL_SCHEMAS)
 
     def _ensure_open(self) -> None:

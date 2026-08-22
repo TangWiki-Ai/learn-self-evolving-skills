@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from ses.contracts import (
     CaseDefinition,
-    CaseSplit,
     Money,
     RecordType,
     SchemaVersion,
@@ -28,7 +27,7 @@ def _case() -> CaseDefinition:
         source_id="state-bench-task-2",
         source_version="5644b183",
         transformation_version="return-case-v1",
-        split=CaseSplit.DEVELOP,
+        split="develop",
         user_prompt="Return the defective headphones.",
         fixture_id="order-fixture-1",
         required_tools=("preview_return", "confirm_return"),
@@ -76,20 +75,12 @@ def test_case_definition_round_trips_with_public_inputs_only() -> None:
 
     assert restored == case
     assert restored.record_type is RecordType.CASE_DEFINITION
-    assert restored.split is CaseSplit.DEVELOP
-
-
-def test_case_split_exposes_only_the_partitions_persisted_through_issue_7() -> None:
-    assert list(CaseSplit) == [
-        CaseSplit.DEVELOP,
-        CaseSplit.SELECTION,
-        CaseSplit.FINAL,
-    ]
+    assert restored.split == "develop"
 
 
 @pytest.mark.parametrize(
     "split",
-    ["creator", "trigger_eval"],
+    ["creator", "trigger_eval", "selection", "final"],
 )
 def test_case_definition_rejects_unimplemented_partitions(split: str) -> None:
     data = _case().model_dump(mode="json")

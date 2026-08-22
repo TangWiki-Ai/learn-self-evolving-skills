@@ -58,7 +58,20 @@ def test_catalog_rejects_tampered_curation_evidence(tmp_path: Path) -> None:
         load_develop_catalog(copied / "develop-manifest.json")
 
 
-@pytest.mark.parametrize("mode", ["live", "release"])
-def test_pending_course_catalog_is_fixed_only(mode: str) -> None:
-    with pytest.raises(ValueError, match="independent signed human review"):
-        load_develop_catalog(mode=mode)  # type: ignore[arg-type]
+def test_pending_course_catalog_is_fixed_only() -> None:
+    with pytest.raises(ValueError, match="signed human review packet"):
+        load_develop_catalog(mode="live")
+
+
+def test_approved_catalog_requires_asset_review_binding(tmp_path: Path) -> None:
+    source = Path(__file__).parents[2] / "data" / "testset" / "ticket07" / "generated"
+    copied = tmp_path / "generated"
+    shutil.copytree(source, copied)
+    manifest_path = copied / "develop-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["review_status"] = "human_approved"
+    manifest["intended_use"] = "fixed_and_live_journey"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="asset review binding"):
+        load_develop_catalog(manifest_path, mode="live")

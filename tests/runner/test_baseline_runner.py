@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,15 @@ from ses.runner import (
     compute_reliability_metrics,
     load_run_events,
 )
+from ses.runner.baseline import EvaluationContext
+
+
+class _TestEvaluator:
+    def __init__(self, evaluate: Callable[[str, str, int], CaseEvaluation]) -> None:
+        self._evaluate = evaluate
+
+    def evaluate_attempt(self, context: EvaluationContext) -> CaseEvaluation:
+        return self._evaluate(context.case_id, context.iteration_id, context.max_turns)
 
 
 def _evaluation(
@@ -53,7 +63,7 @@ def test_repeated_run_is_append_only_and_reports_pass_at_1_and_pass_power_k(
         status = RunnerStatus.PASS if case_id == "case-a" else RunnerStatus.AGENT_FAIL
         return _evaluation(case_id, iteration_id, max_turns, status=status)
 
-    completed = BaselineRunner(tmp_path, evaluate).run(
+    completed = BaselineRunner(tmp_path, _TestEvaluator(evaluate)).run(
         run_id="run-repeat",
         case_ids=("case-a", "case-b"),
         iterations=2,
@@ -84,7 +94,7 @@ def test_resume_skips_completed_work_and_retries_recoverable_infrastructure_erro
             raise RuntimeError("temporary worker failure")
         return _evaluation(case_id, "iteration-0", max_turns)
 
-    runner = BaselineRunner(tmp_path, evaluate)
+    runner = BaselineRunner(tmp_path, _TestEvaluator(evaluate))
     first = runner.run(
         run_id="run-resume",
         case_ids=("case-a", "case-b"),
@@ -110,7 +120,7 @@ def test_resume_skips_completed_work_and_retries_recoverable_infrastructure_erro
 def test_explicit_rerun_creates_a_new_iteration_without_replacing_the_old_one(
     tmp_path: Path,
 ) -> None:
-    runner = BaselineRunner(tmp_path, _evaluation)
+    runner = BaselineRunner(tmp_path, _TestEvaluator(_evaluation))
     first = runner.run(
         run_id="run-rerun",
         case_ids=("case-a",),
@@ -161,7 +171,7 @@ def test_explicit_rerun_creates_a_new_iteration_without_replacing_the_old_one(
 def test_budget_stops_preserve_results_and_label_remaining_work(
     tmp_path: Path, limits: BudgetLimits, expected_reason: str
 ) -> None:
-    completed = BaselineRunner(tmp_path, _evaluation).run(
+    completed = BaselineRunner(tmp_path, _TestEvaluator(_evaluation)).run(
         run_id=f"run-budget-{expected_reason}",
         case_ids=("case-a", "case-b"),
         iterations=1,
@@ -180,7 +190,7 @@ def test_budget_stops_preserve_results_and_label_remaining_work(
 def test_token_and_cost_overrun_uses_documented_budget_precedence(
     tmp_path: Path,
 ) -> None:
-    runner = BaselineRunner(tmp_path, _evaluation)
+    runner = BaselineRunner(tmp_path, _TestEvaluator(_evaluation))
     limits = BudgetLimits(
         max_cases=1,
         max_turns_per_case=3,
@@ -290,7 +300,7 @@ def test_retry_usage_and_latency_are_counted_for_every_append_only_attempt(
             cost="0.03",
         )
 
-    runner = BaselineRunner(tmp_path, evaluate)
+    runner = BaselineRunner(tmp_path, _TestEvaluator(evaluate))
     first = runner.run(
         run_id="run-attempt-usage",
         case_ids=("case-a",),
@@ -319,7 +329,7 @@ def test_retry_usage_and_latency_are_counted_for_every_append_only_attempt(
 
 
 def test_resume_rejects_a_different_plan(tmp_path: Path) -> None:
-    runner = BaselineRunner(tmp_path, _evaluation)
+    runner = BaselineRunner(tmp_path, _TestEvaluator(_evaluation))
     runner.run(
         run_id="run-plan",
         case_ids=("case-a",),
@@ -349,7 +359,7 @@ def test_resume_rejects_a_different_plan(tmp_path: Path) -> None:
 def test_resume_rejects_any_reproducibility_identity_change(
     tmp_path: Path, changed: str, value: str
 ) -> None:
-    runner = BaselineRunner(tmp_path, _evaluation)
+    runner = BaselineRunner(tmp_path, _TestEvaluator(_evaluation))
     identity: dict[str, Any] = {
         "data_version": "data-v1",
         "model_lock_hash": "a" * 64,
@@ -376,7 +386,7 @@ def test_resume_rejects_any_reproducibility_identity_change(
 
 
 def test_events_file_contains_only_complete_json_lines(tmp_path: Path) -> None:
-    completed = BaselineRunner(tmp_path, _evaluation).run(
+    completed = BaselineRunner(tmp_path, _TestEvaluator(_evaluation)).run(
         run_id="run-jsonl",
         case_ids=("case-a",),
         iterations=1,

@@ -16,6 +16,7 @@ from ses.runner import (
     develop_catalog_sha256,
     load_develop_catalog,
 )
+from ses.runner.baseline import EvaluationContext
 from ses.skills.installer import (
     load_skill_manifest,
     normalized_skill_sha256,
@@ -125,7 +126,11 @@ def _seed_recorded_run(
             cost_currency="CNY",
         )
 
-    BaselineRunner(workspace / ".ses/runs", evaluate).run(
+    class TestEvaluator:
+        def evaluate_attempt(self, context: EvaluationContext) -> CaseEvaluation:
+            return evaluate(context.case_id, context.iteration_id, context.max_turns)
+
+    BaselineRunner(workspace / ".ses/runs", TestEvaluator()).run(
         run_id=run_id,
         case_ids=case_ids,
         iterations=1,
@@ -139,7 +144,7 @@ def _seed_recorded_run(
             (PROJECT_ROOT / "models.lock.json").read_bytes()
         ).hexdigest(),
         skill_hash=candidate_hash,
-        protocol_version="ses-one-day-journey-v1",
+        protocol_version="ses-eight-step-journey-v1",
     )
 
 

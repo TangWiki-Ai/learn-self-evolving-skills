@@ -15,12 +15,10 @@ import pytest
 from ses.dashboard import (
     DEFAULT_HOST,
     DEFAULT_PORT,
-    artifact_allowlist,
     create_dashboard_server,
     load_status,
-    normalize_artifact_reference,
 )
-from ses.dashboard.server import DashboardHTTPServer, DashboardPathError
+from ses.dashboard.server import DashboardHTTPServer
 
 
 @contextmanager
@@ -66,7 +64,7 @@ def _workspace_snapshot(workspace: Path) -> dict[str, bytes]:
     }
 
 
-def test_server_defaults_to_loopback_and_accepts_a_configurable_port(
+def test_server_is_loopback_only_and_accepts_a_configurable_port(
     tmp_path: Path,
 ) -> None:
     assert DEFAULT_HOST == "127.0.0.1"
@@ -316,63 +314,6 @@ def test_mutating_methods_are_rejected_and_workspace_is_unchanged(
             assert json.loads(body)["error"] == "dashboard is read-only"
 
     assert _workspace_snapshot(tmp_path) == before
-
-
-def test_artifact_allowlist_ignores_external_and_unscoped_paths() -> None:
-    status = {
-        "working_directory_path": ".ses/internal.json",
-        "reports": {
-            "baseline": ".ses/reports/baseline.html",
-            "external": "https://example.invalid/report.html",
-            "source": "README.md",
-        },
-    }
-
-    assert artifact_allowlist(status) == {
-        normalize_artifact_reference(".ses/reports/baseline.html")
-    }
-    with pytest.raises(DashboardPathError):
-        normalize_artifact_reference("../report.html")
-    with pytest.raises(DashboardPathError):
-        normalize_artifact_reference(".ses/report.exe")
-    with pytest.raises(DashboardPathError):
-        normalize_artifact_reference("https://example.invalid/report.html")
-
-
-def test_artifact_allowlist_accepts_the_journey_status_reference_shape() -> None:
-    status = {
-        "status": "needs_attention",
-        "experiment_usage": {
-            "cost_amount": "0.031",
-            "cost_currency": "CNY",
-            "cost_complete": True,
-        },
-        "stations": [
-            {
-                "number": 2,
-                "status": "completed",
-                "artifact_refs": [
-                    {
-                        "root": "workspace",
-                        "path": ".ses/journey/reports/station-2.html",
-                        "sha256": "a" * 64,
-                    }
-                ],
-                "decision_refs": [
-                    {
-                        "root": "workspace",
-                        "path": ".ses/journey/decisions/station-2.json",
-                        "sha256": "b" * 64,
-                    }
-                ],
-            }
-        ],
-    }
-
-    assert artifact_allowlist(status) == {
-        normalize_artifact_reference(".ses/journey/reports/station-2.html"),
-        normalize_artifact_reference(".ses/journey/decisions/station-2.json"),
-    }
 
 
 def test_server_does_not_read_credentials_from_the_environment(

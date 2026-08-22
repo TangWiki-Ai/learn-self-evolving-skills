@@ -12,6 +12,14 @@
 
 你通过 Claude Code 运行 live 评测，并在新 workspace 显式选择 `siliconflow` 或 `chatanywhere`。默认 CI 只使用 fixed fixture 和 fake engine。所有结论都链接到结构化 evidence；站 7 生成证据索引，并可以生成中英项目说明、面试准备和概念清单等辅助文件。没有完整证据时，机器模板保留空缺或草稿状态。
 
+## 运行时技术链路
+
+下图只解释单个用例如何运行、留证和判分。8 步 Journey 复用同一条链路完成 v0 基线、目标回放和 15 条全量回归；人工归因、Skill 修改与版本决定仍由你完成。
+
+[![单个用例从隔离执行、运行证据到确定性判分，并复用于基线、目标回放和全量回归](../assets/runtime-evaluation-flow.svg)](../assets/runtime-evaluation-flow.svg)
+
+图示 live 路径只在评测数据与 v0 Skill 完成人工复核并激活后开放。fixed CI 使用 fake engine，只验证管道，不代表真实模型成绩。
+
 ## User Stories
 
 1. 作为学习者，我想从一句“开始学习”进入或恢复当前步骤，以便不用记住内部模块顺序。
@@ -37,20 +45,19 @@
 - Shop Environment 负责固定订单状态、政策 oracle、工具和 MCP server。每个 case 从已知种子创建独立环境。
 - Evaluation & Judges 负责 Trace、StateDiff、断言和判定记录。确定性状态与规则证据优先于模型判断。
 - Simulation/Runner/Reporting 负责真实多轮执行、批量运行、恢复、用量记录和 HTML 报告。
-- Testset Pipeline、Skill Creation、Evolution、Registry 与 Automation 保留为可复用引擎能力。Journey 模块在 8 个步骤中编排这些能力，不要求学习者实现它们。
+- Journey 只保留当前流程需要的运行、判分、Skill 检查、版本记录和输出生成能力。学习者不实现这些模块。
 - Journey 为站 0–7 建立一份 canonical 状态，原子写入 `.ses/status.json`。状态持久化实验模式、Provider、模型锁哈希、进度、决定、产物和用量；已存在 workspace 不允许切换模式、Provider 或模型锁。
-- instructor Skill 的正文位于 `.agents/skills/self-evolving-skill-instructor/`，Claude Code 发现入口位于 `.claude/skills/`。本地看板只读状态和 allowlist 输出，不承担教学正文或执行职责。
+- 项目级 instructor Skill 的唯一入口和正文位于 `.agents/skills/self-evolving-skill-instructor/`。本地看板只读状态和 allowlist 输出，不承担教学正文或执行职责。
 - live 路径支持 SiliconFlow 与 ChatAnywhere。两者共用 Claude Code Engine 合约，但使用不同模型锁、端点 allowlist 和环境凭据；系统不自动选择、路由或 fallback。
-- SiliconFlow 锁定 DeepSeek 主 Agent/Creator 与 Qwen Simulator/Judge。ChatAnywhere 锁定 Claude 系列角色模型。业务逻辑只引用角色，不写死模型标识。
+- 每个 Provider 只锁定 live Agent 实际调用的一个模型。用户模拟由本地确定性逻辑驱动，Judge 使用 State 和 Rule 证据，不另外调用模型。
 - `fixed` 只作为仓库 CI seam。学习者路径不得使用 fixed 生成可对外声明的成绩。
 - 费用来源是证据字段。SiliconFlow live 可记录 `claude_code_estimate`；ChatAnywhere 的 Provider 费用不可验证时记录 `unavailable` 和不完整费用；fixed 记录 `synthetic_ci`。任何聚合层都不能把不可用费用转成零费用。
 - 系统不因预算自动停止运行。讲师 token 与实验引擎用量分开说明，仓库只记录后者可获得的证据。
 - 站 5 的两道回归检查（Gate）要求目标用例全部通过，并要求完整回归覆盖基线用例且所有既有通过用例保持通过。净提升不能抵消 `pass→fail`。
 - 站 7 可以随时运行。产物状态必须区分缺失基线、仅 fixed、缺失完整回归、候选拒绝、未发布和已验证发布。
-- 跨模块记录采用 producer-owned contract。消费者导入 canonical schema，不复制相似模型；持久化记录使用规范 JSON、相对 artifact reference 和稳定 hash。
+- 持久化记录使用规范 JSON、相对 artifact reference 和稳定 hash。
 - 数据来源按既有边界分工：STATE-Bench 提供可执行客服沙盒；ABCD 和 tau2-bench 提供固定的 benchmark/角色扮演派生材料。公开文字不能称其为生产日志。
-- 旧 `course/` 十课、starter、solution 和每课 tests 已删除。仍被引擎和 CI 使用的固定资产位于 `fixtures/seed/`。
-- Part B 生产对照正文仍待 Owner 终审，不属于当前已发布项目能力。
+- fixed CI 只保留 Journey 使用的 v0 Skill 与 no-Skill 种子；其他历史课程资产不进入仓库。
 
 ## Testing Decisions
 
@@ -62,7 +69,7 @@
 - dashboard 测试覆盖 GET/HEAD 只读边界、路径穿越、symlink、未登记文件和状态损坏。
 - 政策 oracle、StateDiff、规则优先级、候选 diff 和两道 Gate 使用聚焦的表驱动测试覆盖边界组合。
 - 报告与站 7 测试同时验证语义数据和渲染结果，避免只做整页字符串快照。
-- 发布检查验证安装包包含 instructor Skill、站点 playbook、Journey 固定资源和两份 Provider 模型锁，同时不依赖已删除的 `course/`。
+- instructor Skill、模型锁和评测数据随 `git clone` 获取，不进入 wheel。clean-wheel 只验证 `ses journey` CLI 及运行模块。
 
 ## Out of Scope
 
@@ -71,11 +78,10 @@
 - 把 Key 保存到配置、报告、状态、fixtures 或课程自建凭据服务。
 - 使用真实企业生产日志或把 benchmark 数据包装成生产数据。
 - 训练或微调基础模型、修改 Claude Code 本体、实现通用 Agent 框架。
-- starter/solution 十课和让学习者从零实现引擎模块。
+- 让学习者从零实现评测引擎模块。
 - 证书、毕业门槛、预算硬停或保证一次运行必然改进。
-- 未经 Owner 终审的 Part B 生产对照内容。
 
 ## Further Notes
 
-- specs 描述稳定系统边界；[8 步交付 Spec](09-course-delivery.md) 定义学习者看到的步骤编排。
+- specs 描述稳定系统边界；[8 步交付 Spec](06-course-delivery.md) 定义学习者看到的步骤编排。
 - 所有对外实验数字都必须同时带 sandbox、模式、Provider、模型锁和证据完整性说明。

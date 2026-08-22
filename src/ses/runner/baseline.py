@@ -7,7 +7,7 @@ import json
 import os
 import re
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -158,14 +158,8 @@ class BaselineRun:
     stop_reason: str | None
 
 
-LegacyEvaluator = Callable[[str, str, int], CaseEvaluation]
-
-
 class AttemptEvaluator(Protocol):
     def evaluate_attempt(self, context: EvaluationContext) -> CaseEvaluation: ...
-
-
-Evaluator = LegacyEvaluator | AttemptEvaluator
 
 
 def _config_hash(config: RunConfig, budget: BudgetState) -> str:
@@ -325,7 +319,7 @@ def _remaining_cost(limit: Decimal | None, consumed: Decimal) -> Decimal | None:
 class BaselineRunner:
     """Run planned case iterations with append-only attempts and safe resume."""
 
-    def __init__(self, output_root: Path, evaluator: Evaluator) -> None:
+    def __init__(self, output_root: Path, evaluator: AttemptEvaluator) -> None:
         self._output_root = output_root.resolve()
         self._evaluator = evaluator
 
@@ -482,14 +476,7 @@ class BaselineRunner:
                 cost_currency=budgets.cost_currency,
             )
             try:
-                method = getattr(self._evaluator, "evaluate_attempt", None)
-                evaluation = (
-                    method(context)
-                    if callable(method)
-                    else cast(LegacyEvaluator, self._evaluator)(
-                        case_id, iteration_id, budgets.max_turns_per_case
-                    )
-                )
+                evaluation = self._evaluator.evaluate_attempt(context)
             except Exception as exc:
                 evaluation = CaseEvaluation(
                     case_id=case_id,

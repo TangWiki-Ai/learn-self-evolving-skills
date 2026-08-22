@@ -31,11 +31,6 @@ Continue when `.ses/decisions/station-3-diagnoses.json` covers every case whose
 station-2 label begins with `skill:`. Environment and case failures need no Skill
 diagnosis.
 
-## Production comparison
-
-Pending Owner review. Do not add unreviewed claims about production clustering or
-sampling.
-
 ## Further source
 
 - Working source: `.ses/skills/working/SKILL.md`.

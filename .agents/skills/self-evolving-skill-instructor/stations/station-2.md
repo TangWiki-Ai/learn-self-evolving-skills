@@ -32,11 +32,6 @@ Continue when every selected case has exactly one label in
 `.ses/decisions/station-2-attributions.json`. Use the dashboard distribution only
 as a summary; the per-case decision file is authoritative.
 
-## Production comparison
-
-Pending Owner review. Say only that this human attribution happened on sandbox
-evidence and should not be generalized to a production taxonomy yet.
-
 ## Further source
 
 - Local report: `.ses/reports/station-2-attributions.html`.
